@@ -1,10 +1,40 @@
 import type {
   ApiResult,
+  ConsoleTab,
+  ConsoleWidget,
   ConsolePageViewModel,
   DecisionRecordResponse,
   PublishRequestListResponse,
   PublishRequestRecord,
 } from './types';
+
+interface TabMeta {
+  id: ConsoleTab;
+  label: string;
+}
+
+interface WidgetMeta {
+  id: ConsoleWidget;
+  label: string;
+  description: string;
+}
+
+const TAB_ITEMS: TabMeta[] = [
+  { id: 'workflow', label: '发布流程' },
+  { id: 'simulation', label: '影响模拟' },
+  { id: 'relations', label: '关系回放' },
+  { id: 'control', label: '控制面维护' },
+];
+
+const WIDGET_ITEMS: WidgetMeta[] = [
+  { id: 'publish_list', label: '发布请求列表', description: '发布筛选与请求列表' },
+  { id: 'publish_detail', label: '发布详情', description: '发布详情与复核/激活' },
+  { id: 'decision_detail', label: '决策回放', description: '决策证据结构化回放' },
+  { id: 'simulation', label: '影响面模拟', description: '模拟摘要与变化矩阵' },
+  { id: 'matrix', label: '权限矩阵', description: '主体-客体变更矩阵与钻取' },
+  { id: 'relation', label: '关系图视图', description: '关系边与 trace 链路' },
+  { id: 'control', label: '控制面总览', description: '目录/对象/关系维护与审计' },
+];
 
 function formatTime(value: string): string {
   const parsed = Date.parse(value);
@@ -23,10 +53,16 @@ export function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
-function renderHiddenContextFields(viewModel: ConsolePageViewModel): string {
+function renderHiddenContextFields(
+  viewModel: ConsolePageViewModel,
+  omitNames: string[] = [],
+): string {
+  const omitSet = new Set(omitNames);
   const fields: Array<[string, string | number | undefined]> = [
     ['status', viewModel.query.status],
     ['profile', viewModel.query.profile],
+    ['tab', viewModel.query.tab],
+    ['widget', viewModel.query.widget],
     ['limit', viewModel.query.limit],
     ['offset', viewModel.query.offset],
     ['decision_id', viewModel.query.decision_id],
@@ -36,7 +72,7 @@ function renderHiddenContextFields(viewModel: ConsolePageViewModel): string {
   ];
 
   return fields
-    .filter(([, value]) => value !== undefined && String(value).length > 0)
+    .filter(([name, value]) => !omitSet.has(name) && value !== undefined && String(value).length > 0)
     .map(
       ([name, value]) =>
         `<input type=\"hidden\" name=\"${name}\" value=\"${escapeHtml(String(value))}\" />`,
@@ -250,6 +286,8 @@ function buildQueryHref(viewModel: ConsolePageViewModel, updates: Record<string,
   const baseEntries: Array<[string, string | undefined]> = [
     ['status', viewModel.query.status],
     ['profile', viewModel.query.profile],
+    ['tab', viewModel.query.tab],
+    ['widget', viewModel.query.widget],
     ['limit', String(viewModel.query.limit)],
     ['offset', String(viewModel.query.offset)],
     ['publish_id', viewModel.query.publish_id],
@@ -407,6 +445,8 @@ function renderSimulationView(viewModel: ConsolePageViewModel): string {
       + `<input type="hidden" name="status" value="${escapeHtml(viewModel.query.status ?? '')}" />`
       + `<input type="hidden" name="profile" value="${escapeHtml(viewModel.query.profile ?? '')}" />`
       + `<input type="hidden" name="namespace" value="${escapeHtml(viewModel.query.namespace ?? '')}" />`
+      + `<input type="hidden" name="tab" value="${escapeHtml(viewModel.query.tab ?? '')}" />`
+      + `<input type="hidden" name="widget" value="${escapeHtml(viewModel.query.widget ?? '')}" />`
       + `<button type="submit" class="btn btn-primary">切换报告</button>`
       + `</form>`
     : '';
@@ -429,12 +469,103 @@ function renderSimulationView(viewModel: ConsolePageViewModel): string {
     + `</article>`;
 }
 
+function buildDefaultModelJson(namespace: string): string {
+  const tenantId = namespace.split('.')[0] ?? 'tenant_a';
+
+  return JSON.stringify(
+    {
+      model_meta: {
+        model_id: `${tenantId}_authz_v1`,
+        tenant_id: tenantId,
+        version: '2026.03.04',
+        status: 'draft',
+        combining_algorithm: 'deny-overrides',
+      },
+      catalogs: {
+        action_catalog: ['read', 'update', 'grant'],
+        subject_type_catalog: ['user', 'group'],
+        object_type_catalog: ['kb', 'agent'],
+        relation_type_catalog: ['belongs_to', 'member_of', 'manages', 'derives_to'],
+      },
+      object_onboarding: {
+        compatibility_mode: 'compat_balanced',
+        default_profile: 'minimal',
+        profiles: {
+          minimal: {
+            required_fields: ['tenant_id', 'object_id', 'object_type', 'created_by'],
+            autofill: {
+              owner_ref: 'created_by',
+              sensitivity: 'normal',
+            },
+          },
+        },
+        conditional_required: [
+          {
+            when: 'object.sensitivity == high',
+            add_fields: ['data_domain', 'retention_class'],
+          },
+        ],
+      },
+      relations: {
+        subject_relations: [],
+        object_relations: [],
+        subject_object_relations: [],
+      },
+      policies: {
+        rules: [
+          {
+            id: 'rule_read_kb',
+            subject_selector: 'subject.relations includes member_of(group:g1)',
+            object_selector: 'object.type == kb',
+            action_set: ['read'],
+            effect: 'allow',
+            priority: 100,
+          },
+        ],
+      },
+      constraints: {
+        sod_rules: [],
+        cardinality_rules: [],
+      },
+      lifecycle: {
+        event_rules: [
+          {
+            event_type: 'subject_removed',
+            handler: 'revoke_direct_edges',
+            required: true,
+          },
+        ],
+      },
+      consistency: {
+        default_level: 'bounded_staleness',
+        high_risk_level: 'strong',
+        bounded_staleness_ms: 3000,
+      },
+      quality_guardrails: {
+        attribute_quality: {
+          authority_whitelist: ['hr_system'],
+          freshness_ttl_sec: {
+            department_membership: 900,
+          },
+          reject_unknown_source: true,
+        },
+        mandatory_obligations: ['audit_write'],
+      },
+    },
+    null,
+    2,
+  );
+}
+
 function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
   const namespace = viewModel.query.namespace ?? 'tenant_a.crm';
   const catalogs = viewModel.control_catalogs?.ok ? viewModel.control_catalogs.data.total_count : 0;
   const objects = viewModel.control_objects?.ok ? viewModel.control_objects.data.total_count : 0;
   const relations = viewModel.control_relations?.ok ? viewModel.control_relations.data.total_count : 0;
   const audits = viewModel.control_audits?.ok ? viewModel.control_audits.data.total_count : 0;
+  const hiddenContext = renderHiddenContextFields(viewModel);
+  const hiddenWithoutNamespace = renderHiddenContextFields(viewModel, ['namespace']);
+  const defaultModelJson = escapeHtml(buildDefaultModelJson(namespace));
 
   const auditRows = viewModel.control_audits?.ok
     ? (viewModel.control_audits.data.items.length === 0
@@ -443,6 +574,35 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
           `<tr><td>${escapeHtml(item.event_type)}</td><td>${escapeHtml(item.target)}</td><td>${escapeHtml(item.operator)}</td><td>${escapeHtml(formatTime(item.created_at))}</td></tr>`,
         ).join(''))
     : '<tr><td colspan="4" class="muted">审计数据加载失败</td></tr>';
+
+  const catalogRows = viewModel.control_catalogs?.ok
+    ? (viewModel.control_catalogs.data.items.length === 0
+      ? '<tr><td colspan="5" class="muted">暂无 catalog</td></tr>'
+      : viewModel.control_catalogs.data.items.slice(0, 6).map((item) =>
+          `<tr><td>${escapeHtml(item.system_id)}</td><td>${escapeHtml(item.namespace)}</td><td>${escapeHtml(item.catalogs.action_catalog.join(', '))}</td><td>${escapeHtml(item.catalogs.object_type_catalog.join(', '))}</td><td>${escapeHtml(item.catalogs.relation_type_catalog.join(', '))}</td></tr>`,
+        ).join(''))
+    : '<tr><td colspan="5" class="muted">catalog 加载失败</td></tr>';
+
+  const objectRows = viewModel.control_objects?.ok
+    ? (viewModel.control_objects.data.items.length === 0
+      ? '<tr><td colspan="6" class="muted">暂无 object</td></tr>'
+      : viewModel.control_objects.data.items.slice(0, 6).map((item) =>
+          `<tr><td>${escapeHtml(item.object_id)}</td><td>${escapeHtml(item.object_type)}</td><td>${escapeHtml(item.sensitivity)}</td><td>${escapeHtml(item.owner_ref)}</td><td>${escapeHtml(item.labels.join(', '))}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`,
+        ).join(''))
+    : '<tr><td colspan="6" class="muted">object 加载失败</td></tr>';
+
+  const widgetRows = WIDGET_ITEMS.map((item) => {
+    const embedHref = buildQueryHref(viewModel, {
+      widget: item.id,
+      tab: undefined,
+    });
+    return `<tr>`
+      + `<td>${escapeHtml(item.id)}</td>`
+      + `<td>${escapeHtml(item.label)}</td>`
+      + `<td>${escapeHtml(item.description)}</td>`
+      + `<td><a href="${embedHref}" target="_blank" rel="noreferrer">打开嵌入视图</a></td>`
+      + `</tr>`;
+  }).join('');
 
   return `<article class="card card-hover">`
     + `<h3>控制面总览</h3>`
@@ -453,6 +613,8 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     + `<input type="hidden" name="publish_id" value="${escapeHtml(viewModel.query.publish_id ?? '')}" />`
     + `<input type="hidden" name="decision_id" value="${escapeHtml(viewModel.query.decision_id ?? '')}" />`
     + `<input type="hidden" name="simulation_id" value="${escapeHtml(viewModel.query.simulation_id ?? '')}" />`
+    + `<input type="hidden" name="tab" value="${escapeHtml(viewModel.query.tab ?? '')}" />`
+    + `<input type="hidden" name="widget" value="${escapeHtml(viewModel.query.widget ?? '')}" />`
     + `<button type="submit" class="btn btn-primary">切换命名空间</button>`
     + `</form>`
     + `<section class="decision-grid">`
@@ -461,6 +623,53 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     + `<div class="metric"><span>relations</span><strong>${relations}</strong></div>`
     + `<div class="metric"><span>audits</span><strong>${audits}</strong></div>`
     + `</section>`
+    + `<section class="management-grid">`
+    + `<form class="action-form" method="POST" action="/actions/publish/submit">`
+    + `<h4>策略模型提交</h4>`
+    + hiddenContext
+    + `<label>Publish ID (可选)<input type="text" name="publish_id" placeholder="pub_20260304_001" /></label>`
+    + `<label>Profile<select name="profile"><option value="">auto</option><option value="baseline">baseline</option><option value="strict_compliance">strict_compliance</option></select></label>`
+    + `<label>Submitted By<input type="text" name="submitted_by" value="console_operator" /></label>`
+    + `<label>Model JSON<textarea name="model_json" rows="12" required>${defaultModelJson}</textarea></label>`
+    + `<button type="submit" class="btn btn-primary">提交发布请求</button>`
+    + `</form>`
+    + `<form class="action-form" method="POST" action="/actions/control/catalog/register">`
+    + `<h4>Catalog 维护</h4>`
+    + hiddenWithoutNamespace
+    + `<label>System ID<input type="text" name="system_id" value="crm" required /></label>`
+    + `<label>Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>`
+    + `<label>Action Catalog(逗号/换行)<textarea name="action_catalog" rows="3" required>read,update,grant,publish</textarea></label>`
+    + `<label>Object Type Catalog<textarea name="object_type_catalog" rows="3" required>kb,agent</textarea></label>`
+    + `<label>Relation Type Catalog<textarea name="relation_type_catalog" rows="3" required>belongs_to,member_of,manages,derives_to</textarea></label>`
+    + `<button type="submit" class="btn btn-primary">新增或更新 Catalog</button>`
+    + `</form>`
+    + `<form class="action-form" method="POST" action="/actions/control/object/upsert">`
+    + `<h4>Object 维护</h4>`
+    + hiddenWithoutNamespace
+    + `<label>Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>`
+    + `<label>Object ID<input type="text" name="object_id" placeholder="obj_001" required /></label>`
+    + `<label>Object Type<input type="text" name="object_type" placeholder="kb" required /></label>`
+    + `<label>Sensitivity<input type="text" name="sensitivity" value="normal" /></label>`
+    + `<label>Owner Ref<input type="text" name="owner_ref" placeholder="user:alice" /></label>`
+    + `<label>Labels(逗号/换行)<textarea name="labels" rows="2" placeholder="internal,important"></textarea></label>`
+    + `<button type="submit" class="btn btn-primary">新增或更新 Object</button>`
+    + `</form>`
+    + `<form class="action-form" method="POST" action="/actions/control/relation/event">`
+    + `<h4>Relation 维护</h4>`
+    + hiddenWithoutNamespace
+    + `<label>Operation<select name="operation"><option value="upsert">upsert</option><option value="delete">delete</option></select></label>`
+    + `<label>Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>`
+    + `<label>From<input type="text" name="from" placeholder="user:alice" required /></label>`
+    + `<label>To<input type="text" name="to" placeholder="obj_001" required /></label>`
+    + `<label>Relation Type<input type="text" name="relation_type" placeholder="member_of" required /></label>`
+    + `<label>Scope(可选)<input type="text" name="scope" placeholder="project:a" /></label>`
+    + `<label>Source(可选)<input type="text" name="source" placeholder="hr_sync" /></label>`
+    + `<button type="submit" class="btn btn-primary">提交 Relation 事件</button>`
+    + `</form>`
+    + `</section>`
+    + `<div class="table-container management-table"><table class="data-table"><thead><tr><th>Widget ID</th><th>组件</th><th>用途</th><th>Embed</th></tr></thead><tbody>${widgetRows}</tbody></table></div>`
+    + `<div class="table-container management-table"><table class="data-table"><thead><tr><th>System</th><th>Namespace</th><th>Actions</th><th>Object Types</th><th>Relation Types</th></tr></thead><tbody>${catalogRows}</tbody></table></div>`
+    + `<div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div>`
     + `<div class="table-container"><table class="data-table"><thead><tr><th>Event</th><th>Target</th><th>Operator</th><th>Created At</th></tr></thead><tbody>${auditRows}</tbody></table></div>`
     + `</article>`;
 }
@@ -523,13 +732,168 @@ function renderPagination(
     + `</div>`;
 }
 
+function resolveActiveTab(viewModel: ConsolePageViewModel): ConsoleTab {
+  return viewModel.query.tab ?? 'workflow';
+}
+
+function renderTabNav(viewModel: ConsolePageViewModel, activeTab: ConsoleTab): string {
+  const links = TAB_ITEMS.map((item) => {
+    const panelId = `tab-panel-${item.id}`;
+    const href = buildQueryHref(viewModel, {
+      tab: item.id,
+      widget: undefined,
+    });
+    const activeClass = item.id === activeTab ? 'active' : '';
+    return `<a class="tab-link ${activeClass}" href="${href}" data-tab="${escapeHtml(item.id)}" role="tab" aria-selected="${item.id === activeTab ? 'true' : 'false'}" aria-controls="${panelId}">${escapeHtml(item.label)}</a>`;
+  }).join('');
+
+  return `<nav class="tab-nav animate-enter delay-100" role="tablist" aria-label="ACL 控制台一级标签">${links}</nav>`;
+}
+
+function renderPublishListPanel(
+  viewModel: ConsolePageViewModel,
+  prevQuery: URLSearchParams,
+  nextQuery: URLSearchParams,
+  hasPrev: boolean,
+  hasNext: boolean,
+): string {
+  const { query } = viewModel;
+
+  return `<article class="card card-hover animate-enter delay-100 publish-panel">`
+    + `<div class="section-head">`
+    + `<h2>发布请求列表</h2>`
+    + `${renderPublishSummary(viewModel)}`
+    + `</div>`
+    + `<form class="filters toolbar" method="GET" action="/">`
+    + `<label>状态`
+    + `<select name="status">`
+    + `<option value="">全部</option>`
+    + `<option value="blocked" ${query.status === 'blocked' ? 'selected' : ''}>blocked</option>`
+    + `<option value="review_required" ${query.status === 'review_required' ? 'selected' : ''}>review_required</option>`
+    + `<option value="approved" ${query.status === 'approved' ? 'selected' : ''}>approved</option>`
+    + `<option value="rejected" ${query.status === 'rejected' ? 'selected' : ''}>rejected</option>`
+    + `<option value="published" ${query.status === 'published' ? 'selected' : ''}>published</option>`
+    + `</select>`
+    + `</label>`
+    + `<label>Profile`
+    + `<select name="profile">`
+    + `<option value="">全部</option>`
+    + `<option value="baseline" ${query.profile === 'baseline' ? 'selected' : ''}>baseline</option>`
+    + `<option value="strict_compliance" ${query.profile === 'strict_compliance' ? 'selected' : ''}>strict_compliance</option>`
+    + `</select>`
+    + `</label>`
+    + `<label>Limit`
+    + `<input type="number" min="1" max="100" name="limit" value="${query.limit}" />`
+    + `</label>`
+    + `<label>Offset`
+    + `<input type="number" min="0" name="offset" value="${query.offset}" />`
+    + `</label>`
+    + `<input type="hidden" name="namespace" value="${escapeHtml(query.namespace ?? 'tenant_a.crm')}" />`
+    + `<input type="hidden" name="decision_id" value="${escapeHtml(query.decision_id ?? '')}" />`
+    + `<input type="hidden" name="simulation_id" value="${escapeHtml(query.simulation_id ?? '')}" />`
+    + `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? '')}" />`
+    + `<input type="hidden" name="widget" value="${escapeHtml(query.widget ?? '')}" />`
+    + `<button type="submit" class="btn btn-primary">应用筛选</button>`
+    + `</form>`
+    + `${renderApiResultError(viewModel.publish_list)}`
+    + `<div class="table-container">`
+    + `<table class="data-table publish-table">`
+    + `<thead><tr><th>Publish ID</th><th>Profile</th><th>Status</th><th>Final Result</th><th>Updated At</th><th>Created At</th></tr></thead>`
+    + `<tbody>${renderPublishRows(viewModel.publish_list, viewModel, query.publish_id)}</tbody>`
+    + `</table>`
+    + `</div>`
+    + `${renderPagination(viewModel, prevQuery, nextQuery, hasPrev, hasNext)}`
+    + `</article>`;
+}
+
+function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string {
+  const { query } = viewModel;
+  return `<article class="card card-hover">`
+    + `<h3>决策回放查询</h3>`
+    + `<form class="filters toolbar" method="GET" action="/">`
+    + `<label>Decision ID`
+    + `<input type="text" name="decision_id" value="${escapeHtml(query.decision_id ?? '')}" placeholder="dec_xxx" />`
+    + `</label>`
+    + `<input type="hidden" name="publish_id" value="${escapeHtml(query.publish_id ?? '')}" />`
+    + `<input type="hidden" name="status" value="${escapeHtml(query.status ?? '')}" />`
+    + `<input type="hidden" name="profile" value="${escapeHtml(query.profile ?? '')}" />`
+    + `<input type="hidden" name="namespace" value="${escapeHtml(query.namespace ?? 'tenant_a.crm')}" />`
+    + `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? '')}" />`
+    + `<input type="hidden" name="widget" value="${escapeHtml(query.widget ?? '')}" />`
+    + `<button type="submit" class="btn btn-primary">查询回放</button>`
+    + `</form>`
+    + `</article>`;
+}
+
+function renderContextQueryCard(viewModel: ConsolePageViewModel): string {
+  const { query } = viewModel;
+  return `<article class="card card-hover">`
+    + `<h3>上下文筛选</h3>`
+    + `<form class="filters toolbar" method="GET" action="/">`
+    + `<label>Publish ID`
+    + `<input type="text" name="publish_id" value="${escapeHtml(query.publish_id ?? '')}" placeholder="pub_xxx" />`
+    + `</label>`
+    + `<label>Decision ID`
+    + `<input type="text" name="decision_id" value="${escapeHtml(query.decision_id ?? '')}" placeholder="dec_xxx" />`
+    + `</label>`
+    + `<label>Simulation ID`
+    + `<input type="text" name="simulation_id" value="${escapeHtml(query.simulation_id ?? '')}" placeholder="sim_xxx" />`
+    + `</label>`
+    + `<label>Namespace`
+    + `<input type="text" name="namespace" value="${escapeHtml(query.namespace ?? 'tenant_a.crm')}" placeholder="tenant_a.crm" />`
+    + `</label>`
+    + `<input type="hidden" name="status" value="${escapeHtml(query.status ?? '')}" />`
+    + `<input type="hidden" name="profile" value="${escapeHtml(query.profile ?? '')}" />`
+    + `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? '')}" />`
+    + `<input type="hidden" name="widget" value="${escapeHtml(query.widget ?? '')}" />`
+    + `<input type="hidden" name="limit" value="${escapeHtml(String(query.limit))}" />`
+    + `<input type="hidden" name="offset" value="${escapeHtml(String(query.offset))}" />`
+    + `<button type="submit" class="btn btn-primary">应用上下文</button>`
+    + `</form>`
+    + `</article>`;
+}
+
+function renderEmbedWidget(
+  viewModel: ConsolePageViewModel,
+  widget: ConsoleWidget,
+  publishListPanel: string,
+): string {
+  if (widget === 'publish_list') {
+    return publishListPanel;
+  }
+
+  if (widget === 'publish_detail') {
+    return renderPublishDetail(viewModel.publish_detail, viewModel);
+  }
+
+  if (widget === 'decision_detail') {
+    return `${renderDecisionQueryCard(viewModel)}${renderDecisionDetail(viewModel.decision_detail)}`;
+  }
+
+  if (widget === 'simulation') {
+    return `${renderContextQueryCard(viewModel)}${renderSimulationView(viewModel)}`;
+  }
+
+  if (widget === 'matrix') {
+    return `${renderContextQueryCard(viewModel)}${renderMatrixView(viewModel)}`;
+  }
+
+  if (widget === 'relation') {
+    return `${renderContextQueryCard(viewModel)}${renderRelationView(viewModel)}`;
+  }
+
+  return renderControlPlaneOverview(viewModel);
+}
+
 export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   const { query } = viewModel;
+  const activeTab = resolveActiveTab(viewModel);
   const statusLabel = query.status ?? 'all';
   const profileLabel = query.profile ?? 'all';
   const decisionLabel = query.decision_id ? '已输入 decision_id' : '未输入 decision_id';
   const simulationLabel = query.simulation_id ? '已锁定 simulation_id' : '自动选择最新 simulation';
   const namespaceLabel = query.namespace ?? 'tenant_a.crm';
+  const tabLabel = TAB_ITEMS.find((item) => item.id === activeTab)?.label ?? '发布流程';
   const prevOffset = Math.max(query.offset - query.limit, 0);
   const hasPrev = query.offset > 0;
   const nextOffset = viewModel.publish_list.ok && viewModel.publish_list.data.has_more
@@ -545,6 +909,12 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   }
   if (query.profile) {
     queryBase.set('profile', query.profile);
+  }
+  if (query.tab) {
+    queryBase.set('tab', query.tab);
+  }
+  if (query.widget) {
+    queryBase.set('widget', query.widget);
   }
   if (query.publish_id) {
     queryBase.set('publish_id', query.publish_id);
@@ -567,120 +937,71 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   const nextQuery = new URLSearchParams(queryBase);
   nextQuery.set('offset', String(nextOffset));
 
+  const publishListPanel = renderPublishListPanel(viewModel, prevQuery, nextQuery, hasPrev, hasNext);
+  const decisionQueryCard = renderDecisionQueryCard(viewModel);
+  const workflowStack = `${renderPublishDetail(viewModel.publish_detail, viewModel)}${decisionQueryCard}${renderDecisionDetail(viewModel.decision_detail)}`;
+  const simulationStack = `${renderContextQueryCard(viewModel)}${renderSimulationView(viewModel)}${renderMatrixView(viewModel)}`;
+  const relationsStack = `${renderContextQueryCard(viewModel)}${decisionQueryCard}${renderDecisionDetail(viewModel.decision_detail)}${renderRelationView(viewModel)}`;
+  const controlStack = `${renderControlPlaneOverview(viewModel)}`;
+
+  const pageTitle = query.widget
+    ? `ACL 嵌入视图 - ${WIDGET_ITEMS.find((item) => item.id === query.widget)?.label ?? 'Widget'}`
+    : 'ACL 治理控制台';
+
+  const dashboardPanels = `<section class="tab-panels">`
+    + `<section class="tab-panel ${activeTab === 'workflow' ? 'active' : ''}" data-tab-panel="workflow" id="tab-panel-workflow" role="tabpanel" aria-hidden="${activeTab === 'workflow' ? 'false' : 'true'}">`
+    + `<section class="grid">${publishListPanel}<section class="stack animate-enter delay-200">${workflowStack}</section></section>`
+    + `</section>`
+    + `<section class="tab-panel ${activeTab === 'simulation' ? 'active' : ''}" data-tab-panel="simulation" id="tab-panel-simulation" role="tabpanel" aria-hidden="${activeTab === 'simulation' ? 'false' : 'true'}">`
+    + `<section class="stack stack-main animate-enter delay-200">${simulationStack}</section>`
+    + `</section>`
+    + `<section class="tab-panel ${activeTab === 'relations' ? 'active' : ''}" data-tab-panel="relations" id="tab-panel-relations" role="tabpanel" aria-hidden="${activeTab === 'relations' ? 'false' : 'true'}">`
+    + `<section class="stack stack-main animate-enter delay-200">${relationsStack}</section>`
+    + `</section>`
+    + `<section class="tab-panel ${activeTab === 'control' ? 'active' : ''}" data-tab-panel="control" id="tab-panel-control" role="tabpanel" aria-hidden="${activeTab === 'control' ? 'false' : 'true'}">`
+    + `<section class="stack stack-main animate-enter delay-200">${controlStack}</section>`
+    + `</section>`
+    + `</section>`;
+
+  const tabScriptTag = query.widget ? '' : '<script src="/assets/dashboard-tabs.js" defer></script>';
+
+  const body =
+    query.widget
+      ? `<section class="embed-head card animate-enter">`
+        + `<div class="hero-top"><h1>${escapeHtml(pageTitle)}</h1><span class="hero-pill">Embeddable Widget</span></div>`
+        + `<p>widget=${escapeHtml(query.widget)} / API: ${escapeHtml(viewModel.api_base_url)} / 时间: ${escapeHtml(formatTime(viewModel.generated_at))}</p>`
+        + `</section>`
+        + `${renderFlash(viewModel)}`
+        + `<section class="stack stack-main animate-enter delay-100">${renderEmbedWidget(viewModel, query.widget, publishListPanel)}</section>`
+      : `<section class="hero animate-enter">`
+        + `<div class="hero-top"><h1>ACL 治理控制台</h1><span class="hero-pill">Governance Console</span></div>`
+        + `<p>发布流程治理 + 决策回放 + 控制面同步。API: ${escapeHtml(viewModel.api_base_url)}，生成时间: ${escapeHtml(formatTime(viewModel.generated_at))}</p>`
+        + `<div class="hero-meta">`
+        + `<span class="badge badge-info" data-tab-label="true">tab: ${escapeHtml(tabLabel)}</span>`
+        + `<span class="badge badge-info">status: ${escapeHtml(statusLabel)}</span>`
+        + `<span class="badge badge-neutral">profile: ${escapeHtml(profileLabel)}</span>`
+        + `<span class="badge badge-primary">${escapeHtml(decisionLabel)}</span>`
+        + `<span class="badge badge-neutral">${escapeHtml(simulationLabel)}</span>`
+        + `<span class="badge badge-info">namespace: ${escapeHtml(namespaceLabel)}</span>`
+        + `</div>`
+        + `</section>`
+        + renderTabNav(viewModel, activeTab)
+        + renderFlash(viewModel)
+        + dashboardPanels;
+
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ACL 治理控制台</title>
+  <title>${escapeHtml(pageTitle)}</title>
   <link rel="stylesheet" href="/assets/global.css" />
 </head>
 <body>
-  <main class="shell">
-    <section class="hero animate-enter">
-      <div class="hero-top">
-        <h1>ACL 治理控制台</h1>
-        <span class="hero-pill">Governance Console</span>
-      </div>
-      <p>发布流程治理 + 决策回放 + 控制面同步。API: ${escapeHtml(viewModel.api_base_url)}，生成时间: ${escapeHtml(formatTime(viewModel.generated_at))}</p>
-      <div class="hero-meta">
-        <span class="badge badge-info">status: ${escapeHtml(statusLabel)}</span>
-        <span class="badge badge-neutral">profile: ${escapeHtml(profileLabel)}</span>
-        <span class="badge badge-primary">${escapeHtml(decisionLabel)}</span>
-        <span class="badge badge-neutral">${escapeHtml(simulationLabel)}</span>
-        <span class="badge badge-info">namespace: ${escapeHtml(namespaceLabel)}</span>
-      </div>
-    </section>
-
-    ${renderFlash(viewModel)}
-
-    <section class="grid">
-      <article class="card card-hover animate-enter delay-100">
-        <div class="section-head">
-          <h2>发布请求列表</h2>
-          ${renderPublishSummary(viewModel)}
-        </div>
-        <form class="filters toolbar" method="GET" action="/">
-          <label>状态
-            <select name="status">
-              <option value="">全部</option>
-              <option value="blocked" ${query.status === 'blocked' ? 'selected' : ''}>blocked</option>
-              <option value="review_required" ${query.status === 'review_required' ? 'selected' : ''}>review_required</option>
-              <option value="approved" ${query.status === 'approved' ? 'selected' : ''}>approved</option>
-              <option value="rejected" ${query.status === 'rejected' ? 'selected' : ''}>rejected</option>
-              <option value="published" ${query.status === 'published' ? 'selected' : ''}>published</option>
-            </select>
-          </label>
-
-          <label>Profile
-            <select name="profile">
-              <option value="">全部</option>
-              <option value="baseline" ${query.profile === 'baseline' ? 'selected' : ''}>baseline</option>
-              <option value="strict_compliance" ${query.profile === 'strict_compliance' ? 'selected' : ''}>strict_compliance</option>
-            </select>
-          </label>
-
-          <label>Limit
-            <input type="number" min="1" max="100" name="limit" value="${query.limit}" />
-          </label>
-
-          <label>Offset
-            <input type="number" min="0" name="offset" value="${query.offset}" />
-          </label>
-
-          <input type="hidden" name="namespace" value="${escapeHtml(query.namespace ?? 'tenant_a.crm')}" />
-          <input type="hidden" name="decision_id" value="${escapeHtml(query.decision_id ?? '')}" />
-          <input type="hidden" name="simulation_id" value="${escapeHtml(query.simulation_id ?? '')}" />
-
-          <button type="submit" class="btn btn-primary">应用筛选</button>
-        </form>
-
-        ${renderApiResultError(viewModel.publish_list)}
-
-        <div class="table-container">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Publish ID</th>
-                <th>Profile</th>
-                <th>Status</th>
-                <th>Final Result</th>
-                <th>Updated At</th>
-                <th>Created At</th>
-              </tr>
-            </thead>
-            <tbody>${renderPublishRows(viewModel.publish_list, viewModel, query.publish_id)}</tbody>
-          </table>
-        </div>
-
-        ${renderPagination(viewModel, prevQuery, nextQuery, hasPrev, hasNext)}
-      </article>
-
-      <section class="stack animate-enter delay-200">
-        ${renderPublishDetail(viewModel.publish_detail, viewModel)}
-
-        <article class="card card-hover">
-          <h3>决策回放查询</h3>
-          <form class="filters toolbar" method="GET" action="/">
-            <label>Decision ID
-              <input type="text" name="decision_id" value="${escapeHtml(query.decision_id ?? '')}" placeholder="dec_xxx" />
-            </label>
-            <input type="hidden" name="publish_id" value="${escapeHtml(query.publish_id ?? '')}" />
-            <input type="hidden" name="status" value="${escapeHtml(query.status ?? '')}" />
-            <input type="hidden" name="profile" value="${escapeHtml(query.profile ?? '')}" />
-            <input type="hidden" name="namespace" value="${escapeHtml(query.namespace ?? 'tenant_a.crm')}" />
-            <button type="submit" class="btn btn-primary">查询回放</button>
-          </form>
-        </article>
-
-        ${renderDecisionDetail(viewModel.decision_detail)}
-        ${renderSimulationView(viewModel)}
-        ${renderMatrixView(viewModel)}
-        ${renderRelationView(viewModel)}
-        ${renderControlPlaneOverview(viewModel)}
-      </section>
-    </section>
+  <main class="shell ${query.widget ? 'embed-shell' : ''}">
+    ${body}
   </main>
+  ${tabScriptTag}
 </body>
 </html>`;
 }

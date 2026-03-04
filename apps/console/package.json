@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json && mkdir -p dist/styles && cp src/styles/global.css dist/styles/global.css",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/styles dist/scripts && cp src/styles/global.css dist/styles/global.css && cp src/scripts/dashboard-tabs.js dist/scripts/dashboard-tabs.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
     "test": "vitest run --passWithNoTests"

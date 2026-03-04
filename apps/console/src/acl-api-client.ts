@@ -128,6 +128,15 @@ export class AclApiClient {
     return this.post<PublishRequestRecord>('/publish/activate', payload);
   }
 
+  async submitPublishRequest(payload: {
+    model: Record<string, unknown>;
+    publish_id?: string;
+    profile?: 'baseline' | 'strict_compliance';
+    submitted_by?: string;
+  }): Promise<ApiResult<Record<string, unknown>>> {
+    return this.post<Record<string, unknown>>('/publish/submit', payload);
+  }
+
   async getDecision(id: string): Promise<ApiResult<DecisionRecordResponse>> {
     return this.get<DecisionRecordResponse>(`/decisions/${encodeURIComponent(id)}`);
   }
@@ -204,5 +213,46 @@ export class AclApiClient {
       params.set('namespace', query.namespace);
     }
     return this.get<ControlAuditListResponse>(`/control/audits?${params.toString()}`);
+  }
+
+  async registerControlCatalog(payload: {
+    system_id: string;
+    namespace: string;
+    catalogs: {
+      action_catalog: string[];
+      object_type_catalog: string[];
+      relation_type_catalog: string[];
+    };
+  }): Promise<ApiResult<Record<string, unknown>>> {
+    return this.post<Record<string, unknown>>('/control/catalogs:register', payload);
+  }
+
+  async upsertControlObjects(payload: {
+    namespace: string;
+    objects: Array<{
+      object_id: string;
+      object_type: string;
+      sensitivity?: string;
+      owner_ref?: string;
+      labels?: string[];
+      updated_at?: string;
+    }>;
+  }): Promise<ApiResult<Record<string, unknown>>> {
+    return this.post<Record<string, unknown>>('/control/objects:upsert', payload);
+  }
+
+  async syncControlRelations(payload: {
+    namespace: string;
+    events: Array<{
+      from: string;
+      to: string;
+      relation_type: string;
+      operation?: 'upsert' | 'delete';
+      scope?: string;
+      source?: string;
+      occurred_at?: string;
+    }>;
+  }): Promise<ApiResult<Record<string, unknown>>> {
+    return this.post<Record<string, unknown>>('/control/relations:events', payload);
   }
 }

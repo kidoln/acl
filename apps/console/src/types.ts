@@ -7,6 +7,17 @@ export type PublishWorkflowStatus =
   | 'rejected'
   | 'published';
 
+export type ConsoleTab = 'workflow' | 'simulation' | 'relations' | 'control';
+
+export type ConsoleWidget =
+  | 'publish_list'
+  | 'publish_detail'
+  | 'decision_detail'
+  | 'simulation'
+  | 'matrix'
+  | 'relation'
+  | 'control';
+
 export interface PublishRequestRecord {
   publish_id: string;
   profile: GateProfile;
@@ -159,6 +170,8 @@ export type ApiResult<T> =
 export interface ConsoleQuery {
   status?: PublishWorkflowStatus;
   profile?: GateProfile;
+  tab?: ConsoleTab;
+  widget?: ConsoleWidget;
   limit: number;
   offset: number;
   publish_id?: string;

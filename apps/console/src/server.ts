@@ -4,7 +4,13 @@ import { resolve } from 'node:path';
 
 import { AclApiClient } from './acl-api-client';
 import { renderConsolePage } from './html';
-import type { ConsoleQuery, GateProfile, PublishWorkflowStatus } from './types';
+import type {
+  ConsoleQuery,
+  ConsoleTab,
+  ConsoleWidget,
+  GateProfile,
+  PublishWorkflowStatus,
+} from './types';
 
 const VALID_STATUSES = new Set<PublishWorkflowStatus>([
   'blocked',
@@ -15,8 +21,33 @@ const VALID_STATUSES = new Set<PublishWorkflowStatus>([
 ]);
 
 const VALID_PROFILES = new Set<GateProfile>(['baseline', 'strict_compliance']);
+const VALID_TABS = new Set<ConsoleTab>(['workflow', 'simulation', 'relations', 'control']);
+const VALID_WIDGETS = new Set<ConsoleWidget>([
+  'publish_list',
+  'publish_detail',
+  'decision_detail',
+  'simulation',
+  'matrix',
+  'relation',
+  'control',
+]);
 
 const MAX_FORM_BODY_BYTES = 64 * 1024;
+
+function splitCsvValues(value: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .split(/[\n,，]/g)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  );
+}
 
 function parseInteger(value: string | null, fallback: number, min: number, max: number): number {
   if (value === null || value.trim().length === 0) {
@@ -34,6 +65,8 @@ function parseInteger(value: string | null, fallback: number, min: number, max: 
 function parseQuery(inputUrl: URL): ConsoleQuery {
   const statusRaw = inputUrl.searchParams.get('status');
   const profileRaw = inputUrl.searchParams.get('profile');
+  const tabRaw = inputUrl.searchParams.get('tab');
+  const widgetRaw = inputUrl.searchParams.get('widget');
   const flashTypeRaw = inputUrl.searchParams.get('flash_type');
   const flashMessage = inputUrl.searchParams.get('flash_message')?.trim();
 
@@ -45,6 +78,14 @@ function parseQuery(inputUrl: URL): ConsoleQuery {
     profileRaw && VALID_PROFILES.has(profileRaw as GateProfile)
       ? (profileRaw as GateProfile)
       : undefined;
+  const tab =
+    tabRaw && VALID_TABS.has(tabRaw as ConsoleTab)
+      ? (tabRaw as ConsoleTab)
+      : undefined;
+  const widget =
+    widgetRaw && VALID_WIDGETS.has(widgetRaw as ConsoleWidget)
+      ? (widgetRaw as ConsoleWidget)
+      : undefined;
 
   const publishId = inputUrl.searchParams.get('publish_id')?.trim();
   const decisionId = inputUrl.searchParams.get('decision_id')?.trim();
@@ -55,6 +96,8 @@ function parseQuery(inputUrl: URL): ConsoleQuery {
   return {
     status,
     profile,
+    tab,
+    widget,
     limit: parseInteger(inputUrl.searchParams.get('limit'), 20, 1, 100),
     offset: parseInteger(inputUrl.searchParams.get('offset'), 0, 0, Number.MAX_SAFE_INTEGER),
     publish_id: publishId && publishId.length > 0 ? publishId : undefined,
@@ -90,6 +133,13 @@ function sendCss(res: ServerResponse, css: string): void {
   res.end(css);
 }
 
+function sendJs(res: ServerResponse, script: string): void {
+  res.statusCode = 200;
+  res.setHeader('content-type', 'application/javascript; charset=utf-8');
+  res.setHeader('cache-control', 'no-store');
+  res.end(script);
+}
+
 function redirectTo(res: ServerResponse, location: string): void {
   res.statusCode = 303;
   res.setHeader('location', location);
@@ -123,6 +173,12 @@ function buildRedirectUrl(input: {
   }
   if (query?.profile) {
     params.set('profile', query.profile);
+  }
+  if (query?.tab) {
+    params.set('tab', query.tab);
+  }
+  if (query?.widget) {
+    params.set('widget', query.widget);
   }
   if (query?.limit && Number.isInteger(query.limit)) {
     params.set('limit', String(query.limit));
@@ -175,6 +231,26 @@ async function loadGlobalCss(): Promise<string> {
   throw new Error(`global css not found, checked: ${fileCandidates.join(', ')}`);
 }
 
+async function loadDashboardTabsScript(): Promise<string> {
+  const fileCandidates = [
+    resolve(__dirname, 'scripts/dashboard-tabs.js'),
+    resolve(__dirname, '../src/scripts/dashboard-tabs.js'),
+  ];
+
+  for (const filePath of fileCandidates) {
+    try {
+      return await readFile(filePath, 'utf-8');
+    } catch (error) {
+      const errorCode = (error as NodeJS.ErrnoException).code;
+      if (errorCode !== 'ENOENT') {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error(`dashboard tabs script not found, checked: ${fileCandidates.join(', ')}`);
+}
+
 async function readFormBody(req: IncomingMessage): Promise<URLSearchParams> {
   const chunks: Buffer[] = [];
   let receivedBytes = 0;
@@ -197,6 +273,8 @@ async function readFormBody(req: IncomingMessage): Promise<URLSearchParams> {
 function parseContextFromForm(form: URLSearchParams): Partial<ConsoleQuery> {
   const statusRaw = form.get('status');
   const profileRaw = form.get('profile');
+  const tabRaw = form.get('tab');
+  const widgetRaw = form.get('widget');
 
   const status =
     statusRaw && VALID_STATUSES.has(statusRaw as PublishWorkflowStatus)
@@ -205,6 +283,14 @@ function parseContextFromForm(form: URLSearchParams): Partial<ConsoleQuery> {
   const profile =
     profileRaw && VALID_PROFILES.has(profileRaw as GateProfile)
       ? (profileRaw as GateProfile)
+      : undefined;
+  const tab =
+    tabRaw && VALID_TABS.has(tabRaw as ConsoleTab)
+      ? (tabRaw as ConsoleTab)
+      : undefined;
+  const widget =
+    widgetRaw && VALID_WIDGETS.has(widgetRaw as ConsoleWidget)
+      ? (widgetRaw as ConsoleWidget)
       : undefined;
 
   const publishId = form.get('publish_id')?.trim();
@@ -216,6 +302,8 @@ function parseContextFromForm(form: URLSearchParams): Partial<ConsoleQuery> {
   return {
     status,
     profile,
+    tab,
+    widget,
     limit: parseInteger(form.get('limit'), 20, 1, 100),
     offset: parseInteger(form.get('offset'), 0, 0, Number.MAX_SAFE_INTEGER),
     publish_id: publishId && publishId.length > 0 ? publishId : undefined,
@@ -423,6 +511,305 @@ async function handleActivateAction(
   );
 }
 
+async function handlePublishSubmitAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  client: AclApiClient,
+): Promise<void> {
+  const form = await readFormBody(req);
+  const context = parseContextFromForm(form);
+
+  const modelJson = form.get('model_json')?.trim();
+  const publishId = form.get('publish_id')?.trim();
+  const profile = form.get('profile')?.trim();
+  const submittedBy = form.get('submitted_by')?.trim();
+
+  if (!modelJson) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: 'submit 参数缺失：model_json 必填',
+      }),
+    );
+    return;
+  }
+
+  let parsedModel: unknown;
+  try {
+    parsedModel = JSON.parse(modelJson) as unknown;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'invalid json';
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: `model_json 解析失败: ${message}`,
+      }),
+    );
+    return;
+  }
+
+  if (typeof parsedModel !== 'object' || parsedModel === null || Array.isArray(parsedModel)) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: 'model_json 必须是 JSON Object',
+      }),
+    );
+    return;
+  }
+
+  if (profile && !VALID_PROFILES.has(profile as GateProfile)) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: 'profile 仅支持 baseline/strict_compliance',
+      }),
+    );
+    return;
+  }
+
+  const result = await client.submitPublishRequest({
+    model: parsedModel as Record<string, unknown>,
+    publish_id: publishId && publishId.length > 0 ? publishId : undefined,
+    profile: profile && profile.length > 0 ? (profile as GateProfile) : undefined,
+    submitted_by: submittedBy && submittedBy.length > 0 ? submittedBy : undefined,
+  });
+
+  if (!result.ok) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: `submit 失败: ${result.error}`,
+      }),
+    );
+    return;
+  }
+
+  const responsePublishId =
+    typeof result.data.publish_id === 'string' ? result.data.publish_id : publishId;
+  const responseStatus =
+    typeof result.data.status === 'string' ? result.data.status : 'unknown';
+  context.publish_id = responsePublishId;
+
+  redirectTo(
+    res,
+    buildRedirectUrl({
+      query: context,
+      flashType: 'success',
+      flashMessage: `submit 成功: ${responsePublishId ?? 'unknown'} (${responseStatus})`,
+    }),
+  );
+}
+
+async function handleControlCatalogRegisterAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  client: AclApiClient,
+): Promise<void> {
+  const form = await readFormBody(req);
+  const context = parseContextFromForm(form);
+
+  const systemId = form.get('system_id')?.trim();
+  const namespace = form.get('namespace')?.trim();
+  const actionCatalog = splitCsvValues(form.get('action_catalog'));
+  const objectTypeCatalog = splitCsvValues(form.get('object_type_catalog'));
+  const relationTypeCatalog = splitCsvValues(form.get('relation_type_catalog'));
+
+  if (
+    !systemId ||
+    !namespace ||
+    actionCatalog.length === 0 ||
+    objectTypeCatalog.length === 0 ||
+    relationTypeCatalog.length === 0
+  ) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage:
+          'catalog 参数缺失：system_id/namespace/action_catalog/object_type_catalog/relation_type_catalog 必填',
+      }),
+    );
+    return;
+  }
+
+  const result = await client.registerControlCatalog({
+    system_id: systemId,
+    namespace,
+    catalogs: {
+      action_catalog: actionCatalog,
+      object_type_catalog: objectTypeCatalog,
+      relation_type_catalog: relationTypeCatalog,
+    },
+  });
+
+  context.namespace = namespace;
+
+  if (!result.ok) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: `catalog 写入失败: ${result.error}`,
+      }),
+    );
+    return;
+  }
+
+  redirectTo(
+    res,
+    buildRedirectUrl({
+      query: context,
+      flashType: 'success',
+      flashMessage: `catalog 写入成功: ${systemId} / ${namespace}`,
+    }),
+  );
+}
+
+async function handleControlObjectUpsertAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  client: AclApiClient,
+): Promise<void> {
+  const form = await readFormBody(req);
+  const context = parseContextFromForm(form);
+
+  const namespace = form.get('namespace')?.trim();
+  const objectId = form.get('object_id')?.trim();
+  const objectType = form.get('object_type')?.trim();
+  const sensitivity = form.get('sensitivity')?.trim();
+  const ownerRef = form.get('owner_ref')?.trim();
+  const labels = splitCsvValues(form.get('labels'));
+
+  if (!namespace || !objectId || !objectType) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: 'object 参数缺失：namespace/object_id/object_type 必填',
+      }),
+    );
+    return;
+  }
+
+  const result = await client.upsertControlObjects({
+    namespace,
+    objects: [
+      {
+        object_id: objectId,
+        object_type: objectType,
+        sensitivity: sensitivity && sensitivity.length > 0 ? sensitivity : undefined,
+        owner_ref: ownerRef && ownerRef.length > 0 ? ownerRef : undefined,
+        labels,
+      },
+    ],
+  });
+
+  context.namespace = namespace;
+
+  if (!result.ok) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: `object 写入失败: ${result.error}`,
+      }),
+    );
+    return;
+  }
+
+  redirectTo(
+    res,
+    buildRedirectUrl({
+      query: context,
+      flashType: 'success',
+      flashMessage: `object 写入成功: ${objectId}`,
+    }),
+  );
+}
+
+async function handleControlRelationEventAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  client: AclApiClient,
+): Promise<void> {
+  const form = await readFormBody(req);
+  const context = parseContextFromForm(form);
+
+  const namespace = form.get('namespace')?.trim();
+  const from = form.get('from')?.trim();
+  const to = form.get('to')?.trim();
+  const relationType = form.get('relation_type')?.trim();
+  const operationRaw = form.get('operation')?.trim();
+  const scope = form.get('scope')?.trim();
+  const source = form.get('source')?.trim();
+
+  const operation = operationRaw === 'delete' ? 'delete' : 'upsert';
+
+  if (!namespace || !from || !to || !relationType) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: 'relation 参数缺失：namespace/from/to/relation_type 必填',
+      }),
+    );
+    return;
+  }
+
+  const result = await client.syncControlRelations({
+    namespace,
+    events: [
+      {
+        from,
+        to,
+        relation_type: relationType,
+        operation,
+        scope: scope && scope.length > 0 ? scope : undefined,
+        source: source && source.length > 0 ? source : undefined,
+      },
+    ],
+  });
+
+  context.namespace = namespace;
+
+  if (!result.ok) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: `relation ${operation} 失败: ${result.error}`,
+      }),
+    );
+    return;
+  }
+
+  redirectTo(
+    res,
+    buildRedirectUrl({
+      query: context,
+      flashType: 'success',
+      flashMessage: `relation ${operation} 成功: ${from} -> ${to}`,
+    }),
+  );
+}
+
 export interface StartConsoleServerOptions {
   port?: number;
   apiBaseUrl?: string;
@@ -444,6 +831,20 @@ export async function startConsoleServer(options: StartConsoleServerOptions = {}
           sendCss(res, css);
         } catch (error) {
           const message = error instanceof Error ? error.message : 'load css failed';
+          sendJson(res, 500, {
+            code: 'INTERNAL_ERROR',
+            message,
+          });
+        }
+        return;
+      }
+
+      if (inputUrl.pathname === '/assets/dashboard-tabs.js') {
+        try {
+          const script = await loadDashboardTabsScript();
+          sendJs(res, script);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'load script failed';
           sendJson(res, 500, {
             code: 'INTERNAL_ERROR',
             message,
@@ -481,6 +882,26 @@ export async function startConsoleServer(options: StartConsoleServerOptions = {}
 
     if (method === 'POST') {
       try {
+        if (inputUrl.pathname === '/actions/publish/submit') {
+          await handlePublishSubmitAction(req, res, client);
+          return;
+        }
+
+        if (inputUrl.pathname === '/actions/control/catalog/register') {
+          await handleControlCatalogRegisterAction(req, res, client);
+          return;
+        }
+
+        if (inputUrl.pathname === '/actions/control/object/upsert') {
+          await handleControlObjectUpsertAction(req, res, client);
+          return;
+        }
+
+        if (inputUrl.pathname === '/actions/control/relation/event') {
+          await handleControlRelationEventAction(req, res, client);
+          return;
+        }
+
         if (inputUrl.pathname === '/actions/review') {
           await handleReviewAction(req, res, client);
           return;

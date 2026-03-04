@@ -17,6 +17,7 @@ describe('console html renderer', () => {
       query: {
         limit: 20,
         offset: 0,
+        tab: 'workflow',
         publish_id: 'pub_1',
         decision_id: 'dec_1',
         simulation_id: 'sim_1',
@@ -195,11 +196,10 @@ describe('console html renderer', () => {
     expect(html).toContain('/actions/review');
     expect(html).toContain('最终效果');
     expect(html).toContain('review 成功');
-    expect(html).toContain('权限矩阵视图');
-    expect(html).toContain('关系图视图');
-    expect(html).toContain('影响面模拟视图');
-    expect(html).toContain('控制面总览');
-    expect(html).toContain('单元格详情抽屉');
+    expect(html).toContain('tab-link active');
+    expect(html).toContain('<script src="/assets/dashboard-tabs.js" defer></script>');
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('role="tabpanel"');
   });
 
   it('renders activate action for approved publish request', () => {
@@ -241,5 +241,160 @@ describe('console html renderer', () => {
     const html = renderConsolePage(model);
     expect(html).toContain('/actions/activate');
     expect(html).toContain('执行激活');
+  });
+
+  it('renders simulation tab and widget mode', () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: 'http://127.0.0.1:3010',
+      generated_at: '2026-03-04T00:00:00.000Z',
+      query: {
+        limit: 20,
+        offset: 0,
+        tab: 'simulation',
+        widget: 'simulation',
+        publish_id: 'pub_1',
+        simulation_id: 'sim_1',
+        namespace: 'tenant_a.crm',
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      simulation_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [
+            {
+              report_id: 'sim_1',
+              publish_id: 'pub_1',
+              profile: 'baseline',
+              generated_at: '2026-03-04T00:00:00.000Z',
+            },
+          ],
+          total_count: 1,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      simulation_detail: {
+        ok: true,
+        status: 200,
+        data: {
+          report_id: 'sim_1',
+          generated_at: '2026-03-04T00:00:00.000Z',
+          publish_id: 'pub_1',
+          profile: 'baseline',
+          summary: {
+            delta_allow_subject_count: 1,
+            delta_deny_subject_count: 0,
+            delta_high_sensitivity_object_count: 0,
+            new_conflict_rule_count: 0,
+            new_sod_violation_count: 0,
+            indeterminate_rate_estimation: 0,
+            mandatory_obligations_pass_rate: 1,
+            publish_recommendation: '通过',
+          },
+          top_impacted_subjects: [],
+          top_impacted_objects: [],
+          action_change_matrix: [],
+          matrix_cells: [],
+        },
+      },
+    };
+
+    const html = renderConsolePage(model);
+    expect(html).toContain('ACL 嵌入视图');
+    expect(html).toContain('Embeddable Widget');
+    expect(html).toContain('影响面模拟视图');
+    expect(html).toContain('widget=simulation');
+    expect(html).not.toContain('发布流程');
+    expect(html).not.toContain('/assets/dashboard-tabs.js');
+  });
+
+  it('renders control tab actions', () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: 'http://127.0.0.1:3010',
+      generated_at: '2026-03-04T00:00:00.000Z',
+      query: {
+        limit: 20,
+        offset: 0,
+        tab: 'control',
+        namespace: 'tenant_a.crm',
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      control_catalogs: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      control_objects: {
+        ok: true,
+        status: 200,
+        data: {
+          namespace: 'tenant_a.crm',
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      control_relations: {
+        ok: true,
+        status: 200,
+        data: {
+          namespace: 'tenant_a.crm',
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      control_audits: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+    };
+
+    const html = renderConsolePage(model);
+    expect(html).toContain('控制面总览');
+    expect(html).toContain('/actions/publish/submit');
+    expect(html).toContain('/actions/control/catalog/register');
+    expect(html).toContain('/actions/control/object/upsert');
+    expect(html).toContain('/actions/control/relation/event');
+    expect(html).toContain('Widget ID');
   });
 });

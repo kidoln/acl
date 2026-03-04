@@ -9,6 +9,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "dev": "turbo run dev --parallel",
+    "dev:start": "bash ./scripts/start-dev.sh",
     "db:init:postgres": "pnpm --filter @acl/persistence run db:init:postgres"
   },
   "devDependencies": {
