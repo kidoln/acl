@@ -182,6 +182,33 @@ export interface PersistedControlAuditListResult {
   next_offset?: number;
 }
 
+export interface PersistedModelRouteRecord {
+  key: string;
+  namespace: string;
+  tenant_id: string;
+  environment: string;
+  model_id: string;
+  model_version?: string;
+  publish_id?: string;
+  updated_at: string;
+  operator: string;
+}
+
+export interface ModelRouteListQuery {
+  namespace?: string;
+  tenant_id?: string;
+  environment?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface PersistedModelRouteListResult {
+  items: PersistedModelRouteRecord[];
+  total_count: number;
+  has_more: boolean;
+  next_offset?: number;
+}
+
 export interface AclPersistence {
   saveValidation(record: PersistedValidationRecord): Promise<void>;
   getValidation(validationId: string): Promise<PersistedValidationRecord | null>;
@@ -222,4 +249,8 @@ export interface AclPersistence {
 
   saveControlAudit(record: PersistedControlAuditRecord): Promise<void>;
   listControlAudits(query?: ControlAuditListQuery): Promise<PersistedControlAuditListResult>;
+
+  upsertModelRoute(record: PersistedModelRouteRecord): Promise<void>;
+  getModelRoute(key: string): Promise<PersistedModelRouteRecord | null>;
+  listModelRoutes(query?: ModelRouteListQuery): Promise<PersistedModelRouteListResult>;
 }

@@ -21,6 +21,57 @@ function buildSubmitBody(publishId: string, takeoverBacklog?: number) {
   };
 }
 
+async function publishModelViaWorkflow(input: {
+  publishId: string;
+  model: Record<string, unknown>;
+}) {
+  const submit = await app.inject({
+    method: 'POST',
+    url: '/publish/submit',
+    payload: {
+      publish_id: input.publishId,
+      profile: 'baseline',
+      submitted_by: 'test_operator',
+      model: input.model,
+      options: {
+        available_obligation_executors: ['audit_write'],
+      },
+    },
+  });
+
+  expect(submit.statusCode).toBe(200);
+  const submitBody = submit.json() as {
+    status: string;
+  };
+
+  if (submitBody.status === 'review_required') {
+    const review = await app.inject({
+      method: 'POST',
+      url: '/publish/review',
+      payload: {
+        publish_id: input.publishId,
+        decision: 'approve',
+        reviewer: 'test_reviewer',
+        reason: 'integration test approval',
+        expires_at: '2099-01-01T00:00:00.000Z',
+      },
+    });
+    expect(review.statusCode).toBe(200);
+  } else {
+    expect(['approved', 'published']).toContain(submitBody.status);
+  }
+
+  const activate = await app.inject({
+    method: 'POST',
+    url: '/publish/activate',
+    payload: {
+      publish_id: input.publishId,
+      operator: 'release_bot',
+    },
+  });
+  expect(activate.statusCode).toBe(200);
+}
+
 describe('publish api integration', () => {
   beforeAll(async () => {
     await app.ready();
@@ -384,5 +435,145 @@ describe('publish api integration', () => {
     expect(checkBody.accepted).toBe(false);
     expect(checkBody.detail.conditional_missing.length).toBeGreaterThan(0);
     expect(checkBody.blocking_errors).toContain('OBJECT_CONDITIONAL_REQUIRED_MISSING');
+  });
+
+  it('resolves decision model by tenant route in control plane', async () => {
+    const modelId = `tenant_a_authz_route_${Date.now()}`;
+    const v1 = `2026.03.04.${Math.floor(Math.random() * 1000)}`;
+    const v2 = `2026.03.04.${Math.floor(Math.random() * 1000) + 1000}`;
+    const publishV1 = nextPublishId('pub_route_v1');
+    const publishV2 = nextPublishId('pub_route_v2');
+
+    const modelV1 = {
+      ...minimalDraftModel,
+      model_meta: {
+        ...minimalDraftModel.model_meta,
+        model_id: modelId,
+        tenant_id: 'tenant_a',
+        version: v1,
+      },
+      policies: {
+        rules: [
+          {
+            id: 'rule_route_deny',
+            subject_selector: 'subject.relations includes member_of(group:g1)',
+            object_selector: 'object.type == kb',
+            action_set: ['read'],
+            effect: 'deny',
+            priority: 100,
+          },
+        ],
+      },
+    };
+    const modelV2 = {
+      ...minimalDraftModel,
+      model_meta: {
+        ...minimalDraftModel.model_meta,
+        model_id: modelId,
+        tenant_id: 'tenant_a',
+        version: v2,
+      },
+      policies: {
+        rules: [
+          {
+            id: 'rule_route_allow',
+            subject_selector: 'subject.relations includes member_of(group:g1)',
+            object_selector: 'object.type == kb',
+            action_set: ['read'],
+            effect: 'allow',
+            priority: 100,
+          },
+        ],
+      },
+    };
+
+    await publishModelViaWorkflow({
+      publishId: publishV1,
+      model: modelV1 as unknown as Record<string, unknown>,
+    });
+    await publishModelViaWorkflow({
+      publishId: publishV2,
+      model: modelV2 as unknown as Record<string, unknown>,
+    });
+
+    const upsertRoute = await app.inject({
+      method: 'POST',
+      url: '/control/model-routes:upsert',
+      payload: {
+        namespace: 'tenant_a.crm',
+        routes: [
+          {
+            tenant_id: 'tenant_a',
+            environment: 'prod',
+            model_id: modelId,
+            operator: 'ops_admin',
+          },
+        ],
+      },
+    });
+    expect(upsertRoute.statusCode).toBe(200);
+    const upsertBody = upsertRoute.json() as {
+      created_count: number;
+      items: Array<{ model_version?: string; publish_id?: string }>;
+    };
+    expect(upsertBody.created_count).toBe(1);
+    expect(upsertBody.items[0]?.model_version).toBe(v2);
+    expect(upsertBody.items[0]?.publish_id).toBe(publishV2);
+
+    const listRoutes = await app.inject({
+      method: 'GET',
+      url: '/control/model-routes?namespace=tenant_a.crm&tenant_id=tenant_a&environment=prod',
+    });
+    expect(listRoutes.statusCode).toBe(200);
+    const listRoutesBody = listRoutes.json() as {
+      total_count: number;
+      items: Array<{ model_id: string; model_version?: string }>;
+    };
+    expect(listRoutesBody.total_count).toBeGreaterThan(0);
+    expect(
+      listRoutesBody.items.some((item) => item.model_id === modelId && item.model_version === v2),
+    ).toBe(true);
+
+    const evaluate = await app.inject({
+      method: 'POST',
+      url: '/decisions:evaluate',
+      payload: {
+        model_route: {
+          namespace: 'tenant_a.crm',
+          tenant_id: 'tenant_a',
+          environment: 'prod',
+        },
+        input: {
+          action: 'read',
+          subject: {
+            id: 'user:alice',
+            type: 'user',
+            relations: [
+              {
+                relation: 'member_of',
+                args: {
+                  group: 'g1',
+                },
+              },
+            ],
+          },
+          object: {
+            id: 'kb:doc_1',
+            type: 'kb',
+            sensitivity: 'normal',
+          },
+        },
+      },
+    });
+    expect(evaluate.statusCode).toBe(200);
+    const evaluateBody = evaluate.json() as {
+      decision: { final_effect: string };
+      resolved_model?: { model_id: string; version: string };
+      resolved_route?: { publish_id?: string };
+    };
+    expect(evaluateBody.decision.final_effect).toBe('allow');
+    expect(evaluateBody.resolved_model?.model_id).toBe(modelId);
+    expect(evaluateBody.resolved_model?.version).toBe(v2);
+    expect(evaluateBody.resolved_route?.publish_id).toBe(publishV2);
   });
 });

@@ -8,6 +8,7 @@ import type {
   ConsoleQuery,
   ConsoleTab,
   ConsoleWidget,
+  DetailMode,
   GateProfile,
   PublishWorkflowStatus,
 } from './types';
@@ -21,7 +22,8 @@ const VALID_STATUSES = new Set<PublishWorkflowStatus>([
 ]);
 
 const VALID_PROFILES = new Set<GateProfile>(['baseline', 'strict_compliance']);
-const VALID_TABS = new Set<ConsoleTab>(['workflow', 'simulation', 'relations', 'control']);
+const VALID_TABS = new Set<ConsoleTab>(['workflow', 'simulation', 'relations', 'control', 'components']);
+const VALID_DETAIL_MODES = new Set<DetailMode>(['visual', 'raw']);
 const VALID_WIDGETS = new Set<ConsoleWidget>([
   'publish_list',
   'publish_detail',
@@ -67,6 +69,7 @@ function parseQuery(inputUrl: URL): ConsoleQuery {
   const profileRaw = inputUrl.searchParams.get('profile');
   const tabRaw = inputUrl.searchParams.get('tab');
   const widgetRaw = inputUrl.searchParams.get('widget');
+  const detailModeRaw = inputUrl.searchParams.get('detail_mode');
   const flashTypeRaw = inputUrl.searchParams.get('flash_type');
   const flashMessage = inputUrl.searchParams.get('flash_message')?.trim();
 
@@ -86,6 +89,10 @@ function parseQuery(inputUrl: URL): ConsoleQuery {
     widgetRaw && VALID_WIDGETS.has(widgetRaw as ConsoleWidget)
       ? (widgetRaw as ConsoleWidget)
       : undefined;
+  const detailMode =
+    detailModeRaw && VALID_DETAIL_MODES.has(detailModeRaw as DetailMode)
+      ? (detailModeRaw as DetailMode)
+      : undefined;
 
   const publishId = inputUrl.searchParams.get('publish_id')?.trim();
   const decisionId = inputUrl.searchParams.get('decision_id')?.trim();
@@ -98,6 +105,7 @@ function parseQuery(inputUrl: URL): ConsoleQuery {
     profile,
     tab,
     widget,
+    detail_mode: detailMode,
     limit: parseInteger(inputUrl.searchParams.get('limit'), 20, 1, 100),
     offset: parseInteger(inputUrl.searchParams.get('offset'), 0, 0, Number.MAX_SAFE_INTEGER),
     publish_id: publishId && publishId.length > 0 ? publishId : undefined,
@@ -179,6 +187,9 @@ function buildRedirectUrl(input: {
   }
   if (query?.widget) {
     params.set('widget', query.widget);
+  }
+  if (query?.detail_mode) {
+    params.set('detail_mode', query.detail_mode);
   }
   if (query?.limit && Number.isInteger(query.limit)) {
     params.set('limit', String(query.limit));
@@ -275,6 +286,7 @@ function parseContextFromForm(form: URLSearchParams): Partial<ConsoleQuery> {
   const profileRaw = form.get('profile');
   const tabRaw = form.get('tab');
   const widgetRaw = form.get('widget');
+  const detailModeRaw = form.get('detail_mode');
 
   const status =
     statusRaw && VALID_STATUSES.has(statusRaw as PublishWorkflowStatus)
@@ -292,6 +304,10 @@ function parseContextFromForm(form: URLSearchParams): Partial<ConsoleQuery> {
     widgetRaw && VALID_WIDGETS.has(widgetRaw as ConsoleWidget)
       ? (widgetRaw as ConsoleWidget)
       : undefined;
+  const detailMode =
+    detailModeRaw && VALID_DETAIL_MODES.has(detailModeRaw as DetailMode)
+      ? (detailModeRaw as DetailMode)
+      : undefined;
 
   const publishId = form.get('publish_id')?.trim();
   const decisionId = form.get('decision_id')?.trim();
@@ -304,6 +320,7 @@ function parseContextFromForm(form: URLSearchParams): Partial<ConsoleQuery> {
     profile,
     tab,
     widget,
+    detail_mode: detailMode,
     limit: parseInteger(form.get('limit'), 20, 1, 100),
     offset: parseInteger(form.get('offset'), 0, 0, Number.MAX_SAFE_INTEGER),
     publish_id: publishId && publishId.length > 0 ? publishId : undefined,
@@ -348,6 +365,11 @@ async function handleIndex(req: IncomingMessage, res: ServerResponse, client: Ac
     limit: 20,
     offset: 0,
   });
+  const modelRoutesPromise = client.listModelRoutes({
+    namespace,
+    limit: 20,
+    offset: 0,
+  });
 
   const [
     publishList,
@@ -358,6 +380,7 @@ async function handleIndex(req: IncomingMessage, res: ServerResponse, client: Ac
     controlObjects,
     controlRelations,
     controlAudits,
+    modelRoutes,
   ] = await Promise.all([
     publishListPromise,
     publishDetailPromise,
@@ -367,6 +390,7 @@ async function handleIndex(req: IncomingMessage, res: ServerResponse, client: Ac
     controlObjectsPromise,
     controlRelationsPromise,
     controlAuditsPromise,
+    modelRoutesPromise,
   ]);
 
   const pickedSimulationId =
@@ -387,6 +411,7 @@ async function handleIndex(req: IncomingMessage, res: ServerResponse, client: Ac
     control_objects: controlObjects,
     control_relations: controlRelations,
     control_audits: controlAudits,
+    model_routes: modelRoutes,
     action_flash:
       query.flash_type && query.flash_message
         ? {
@@ -810,6 +835,72 @@ async function handleControlRelationEventAction(
   );
 }
 
+async function handleModelRouteUpsertAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  client: AclApiClient,
+): Promise<void> {
+  const form = await readFormBody(req);
+  const context = parseContextFromForm(form);
+
+  const namespace = form.get('namespace')?.trim();
+  const tenantId = form.get('tenant_id')?.trim();
+  const environment = form.get('environment')?.trim();
+  const modelId = form.get('model_id')?.trim();
+  const modelVersion = form.get('model_version')?.trim();
+  const publishId = form.get('publish_id')?.trim();
+  const operator = form.get('operator')?.trim();
+
+  if (!namespace || !tenantId || !environment || !modelId) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: 'model route 参数缺失：namespace/tenant_id/environment/model_id 必填',
+      }),
+    );
+    return;
+  }
+
+  const result = await client.upsertModelRoutes({
+    namespace,
+    routes: [
+      {
+        tenant_id: tenantId,
+        environment,
+        model_id: modelId,
+        model_version: modelVersion && modelVersion.length > 0 ? modelVersion : undefined,
+        publish_id: publishId && publishId.length > 0 ? publishId : undefined,
+        operator: operator && operator.length > 0 ? operator : undefined,
+      },
+    ],
+  });
+
+  context.namespace = namespace;
+
+  if (!result.ok) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: 'error',
+        flashMessage: `model route 写入失败: ${result.error}`,
+      }),
+    );
+    return;
+  }
+
+  redirectTo(
+    res,
+    buildRedirectUrl({
+      query: context,
+      flashType: 'success',
+      flashMessage: `model route 写入成功: ${tenantId}/${environment}`,
+    }),
+  );
+}
+
 export interface StartConsoleServerOptions {
   port?: number;
   apiBaseUrl?: string;
@@ -899,6 +990,11 @@ export async function startConsoleServer(options: StartConsoleServerOptions = {}
 
         if (inputUrl.pathname === '/actions/control/relation/event') {
           await handleControlRelationEventAction(req, res, client);
+          return;
+        }
+
+        if (inputUrl.pathname === '/actions/control/model-route/upsert') {
+          await handleModelRouteUpsertAction(req, res, client);
           return;
         }
 

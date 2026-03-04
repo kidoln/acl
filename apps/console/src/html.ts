@@ -24,10 +24,11 @@ const TAB_ITEMS: TabMeta[] = [
   { id: 'simulation', label: '影响模拟' },
   { id: 'relations', label: '关系回放' },
   { id: 'control', label: '控制面维护' },
+  { id: 'components', label: '组件索引' },
 ];
 
 const WIDGET_ITEMS: WidgetMeta[] = [
-  { id: 'publish_list', label: '发布请求列表', description: '发布筛选与请求列表' },
+  { id: 'publish_list', label: '发布请求', description: '发布筛选与请求列表' },
   { id: 'publish_detail', label: '发布详情', description: '发布详情与复核/激活' },
   { id: 'decision_detail', label: '决策回放', description: '决策证据结构化回放' },
   { id: 'simulation', label: '影响面模拟', description: '模拟摘要与变化矩阵' },
@@ -35,6 +36,21 @@ const WIDGET_ITEMS: WidgetMeta[] = [
   { id: 'relation', label: '关系图视图', description: '关系边与 trace 链路' },
   { id: 'control', label: '控制面总览', description: '目录/对象/关系维护与审计' },
 ];
+
+function renderWidgetRows(viewModel: ConsolePageViewModel): string {
+  return WIDGET_ITEMS.map((item) => {
+    const embedHref = buildQueryHref(viewModel, {
+      widget: item.id,
+      tab: undefined,
+    });
+    return `<tr>`
+      + `<td>${escapeHtml(item.id)}</td>`
+      + `<td>${escapeHtml(item.label)}</td>`
+      + `<td>${escapeHtml(item.description)}</td>`
+      + `<td><a href="${embedHref}" target="_blank" rel="noreferrer">打开嵌入视图</a></td>`
+      + `</tr>`;
+  }).join('');
+}
 
 function formatTime(value: string): string {
   const parsed = Date.parse(value);
@@ -53,6 +69,13 @@ export function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 function renderHiddenContextFields(
   viewModel: ConsolePageViewModel,
   omitNames: string[] = [],
@@ -63,6 +86,7 @@ function renderHiddenContextFields(
     ['profile', viewModel.query.profile],
     ['tab', viewModel.query.tab],
     ['widget', viewModel.query.widget],
+    ['detail_mode', viewModel.query.detail_mode],
     ['limit', viewModel.query.limit],
     ['offset', viewModel.query.offset],
     ['decision_id', viewModel.query.decision_id],
@@ -142,14 +166,14 @@ function renderReviewForm(record: PublishRequestRecord, viewModel: ConsolePageVi
     + `<h4>人工复核</h4>`
     + `<input type=\"hidden\" name=\"publish_id\" value=\"${escapeHtml(record.publish_id)}\" />`
     + hiddenFields
-    + `<label>Decision`
+    + `<label>决策 Decision`
     + `<select name=\"decision\">`
     + `<option value=\"approve\">approve</option>`
     + `<option value=\"reject\">reject</option>`
     + `</select></label>`
-    + `<label>Reviewer<input type=\"text\" name=\"reviewer\" value=\"governance_lead\" required /></label>`
-    + `<label>Reason<input type=\"text\" name=\"reason\" placeholder=\"临时豁免说明\" required /></label>`
-    + `<label>Expires At (ISO 可选)<input type=\"text\" name=\"expires_at\" placeholder=\"2026-03-11T00:00:00.000Z\" /></label>`
+    + `<label>复核人 Reviewer<input type=\"text\" name=\"reviewer\" value=\"governance_lead\" required /></label>`
+    + `<label>原因 Reason<input type=\"text\" name=\"reason\" placeholder=\"临时豁免说明\" required /></label>`
+    + `<label>过期时间 Expires At (ISO 可选)<input type=\"text\" name=\"expires_at\" placeholder=\"2026-03-11T00:00:00.000Z\" /></label>`
     + `<button type=\"submit\" class=\"btn btn-primary\">提交复核</button>`
     + `</form>`;
 }
@@ -161,7 +185,7 @@ function renderActivateForm(record: PublishRequestRecord, viewModel: ConsolePage
     + `<h4>激活发布</h4>`
     + `<input type=\"hidden\" name=\"publish_id\" value=\"${escapeHtml(record.publish_id)}\" />`
     + hiddenFields
-    + `<label>Operator<input type=\"text\" name=\"operator\" value=\"release_bot\" required /></label>`
+    + `<label>操作人 Operator<input type=\"text\" name=\"operator\" value=\"release_bot\" required /></label>`
     + `<button type=\"submit\" class=\"btn btn-primary\">执行激活</button>`
     + `</form>`;
 }
@@ -182,6 +206,77 @@ function renderActionPanel(result: ApiResult<PublishRequestRecord>, viewModel: C
   return '<p class="muted">当前状态无需操作，可继续查看回放和审计详情。</p>';
 }
 
+function renderRawJsonPanel(data: unknown): string {
+  return `<section class="raw-json-panel"><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></section>`;
+}
+
+function renderJsonToggleSwitch(): string {
+  return `<div class="json-toggle" data-json-toggle role="tablist" aria-label="卡片详情视图切换">`
+    + `<button type="button" class="json-toggle-btn active" data-mode="visual" aria-pressed="true">图</button>`
+    + `<button type="button" class="json-toggle-btn" data-mode="raw" aria-pressed="false">JSON</button>`
+    + `</div>`;
+}
+
+function renderSwitchableJsonView(visualContent: string, rawContent: string): string {
+  return `<section class="json-switchable" data-json-switchable>`
+    + `<div class="json-view" data-json-view="visual">${visualContent}</div>`
+    + `<div class="json-view" data-json-view="raw" hidden>${rawContent}</div>`
+    + `</section>`;
+}
+
+function renderPublishDetailVisual(record: PublishRequestRecord): string {
+  const payload = asRecord(record.payload) ?? {};
+  const gateResult = asRecord(payload.gate_result);
+  const gateItems = Array.isArray(gateResult?.gates)
+    ? gateResult.gates.filter((item): item is Record<string, unknown> => asRecord(item) !== null)
+    : [];
+  const failedGateItems = gateItems.filter((item) => item.passed !== true);
+
+  const reviews = Array.isArray(payload.reviews) ? payload.reviews : [];
+  const exemptions = Array.isArray(payload.exemptions) ? payload.exemptions : [];
+  const activation = asRecord(payload.activation);
+  const activationTime = typeof activation?.activated_at === 'string'
+    ? formatTime(activation.activated_at)
+    : '-';
+  const activationOperator = typeof activation?.operator === 'string'
+    ? activation.operator
+    : '-';
+
+  const modelSnapshot = asRecord(payload.model_snapshot);
+  const modelMeta = asRecord(modelSnapshot?.model_meta);
+  const modelPolicies = asRecord(modelSnapshot?.policies);
+  const ruleCount = Array.isArray(modelPolicies?.rules) ? modelPolicies.rules.length : 0;
+  const modelId = typeof modelMeta?.model_id === 'string' ? modelMeta.model_id : '-';
+  const modelVersion = typeof modelMeta?.version === 'string' ? modelMeta.version : '-';
+
+  const gateRows = failedGateItems.length === 0
+    ? '<tr><td colspan="4" class="muted">无失败门禁项</td></tr>'
+    : failedGateItems.map((item) => `<tr><td>${escapeHtml(readPathString(item, ['level'], '-'))}</td><td>${escapeHtml(readPathString(item, ['code'], '-'))}</td><td>${escapeHtml(readPathString(item, ['rule_id'], '-'))}</td><td>${escapeHtml(readPathString(item, ['decision'], '-'))}</td></tr>`).join('');
+
+  return `<section class="decision-grid">`
+    + `<div class="metric"><span>状态</span><strong>${escapeHtml(record.status)}</strong></div>`
+    + `<div class="metric"><span>最终结果</span><strong>${escapeHtml(record.final_result)}</strong></div>`
+    + `<div class="metric"><span>Profile</span><strong>${escapeHtml(record.profile)}</strong></div>`
+    + `<div class="metric"><span>更新时间</span><strong>${escapeHtml(formatTime(record.updated_at))}</strong></div>`
+    + `<div class="metric"><span>Reviews</span><strong>${reviews.length}</strong></div>`
+    + `<div class="metric"><span>Exemptions</span><strong>${exemptions.length}</strong></div>`
+    + `<div class="metric"><span>Gate 失败项</span><strong>${failedGateItems.length}</strong></div>`
+    + `<div class="metric"><span>Activation</span><strong>${escapeHtml(activationOperator)}</strong></div>`
+    + `</section>`
+    + `<section class="kv-grid">`
+    + `<div class="kv-item"><span>model_id</span><strong>${escapeHtml(modelId)}</strong></div>`
+    + `<div class="kv-item"><span>model_version</span><strong>${escapeHtml(modelVersion)}</strong></div>`
+    + `<div class="kv-item"><span>rule_count</span><strong>${ruleCount}</strong></div>`
+    + `<div class="kv-item"><span>activated_at</span><strong>${escapeHtml(activationTime)}</strong></div>`
+    + `</section>`
+    + `<div class="table-container">`
+    + `<table class="data-table">`
+    + `<thead><tr><th>Level</th><th>Code</th><th>Rule ID</th><th>Decision</th></tr></thead>`
+    + `<tbody>${gateRows}</tbody>`
+    + `</table>`
+    + `</div>`;
+}
+
 function renderPublishDetail(
   result: ApiResult<PublishRequestRecord> | undefined,
   viewModel: ConsolePageViewModel,
@@ -194,11 +289,14 @@ function renderPublishDetail(
     return renderApiResultError(result);
   }
 
+  const actionPanel = renderActionPanel(result, viewModel);
+  const visualContent = renderPublishDetailVisual(result.data);
+  const rawContent = renderRawJsonPanel(result.data);
+
   return `<div class=\"card card-hover\">`
-    + `<h3>发布详情</h3>`
-    + `<p class=\"muted\">publish_id: ${escapeHtml(result.data.publish_id)}</p>`
-    + `<div class=\"action-panel\">${renderActionPanel(result, viewModel)}</div>`
-    + `<pre>${escapeHtml(JSON.stringify(result.data, null, 2))}</pre>`
+    + `<div class="card-head"><div class="card-head-main"><h3>发布详情</h3><p class=\"muted\">publish_id: ${escapeHtml(result.data.publish_id)}</p></div>${renderJsonToggleSwitch()}</div>`
+    + `<div class=\"action-panel\">${actionPanel}</div>`
+    + `${renderSwitchableJsonView(visualContent, rawContent)}`
     + `</div>`;
 }
 
@@ -251,11 +349,27 @@ function renderDecisionDetail(result: ApiResult<DecisionRecordResponse> | undefi
     return renderApiResultError(result);
   }
 
+  const payload = asRecord(result.data.payload) ?? {};
+  const request = asRecord(payload.request);
+  const traces = Array.isArray(result.data.traces)
+    ? result.data.traces.filter((item): item is Record<string, unknown> => asRecord(item) !== null)
+    : [];
+  const traceRows = traces.length === 0
+    ? '<tr><td colspan="4" class="muted">暂无 trace</td></tr>'
+    : traces.map((trace) => `<tr><td>${escapeHtml(readPathString(trace, ['rule_id'], '-'))}</td><td>${escapeHtml(readPathString(trace, ['status'], '-'))}</td><td>${escapeHtml(readPathString(trace, ['effect'], '-'))}</td><td>${escapeHtml(readPathString(trace, ['reason'], '-'))}</td></tr>`).join('');
+  const visualContent = `${renderDecisionStructured(result.data)}`
+    + `<section class="kv-grid">`
+    + `<div class="kv-item"><span>subject_id</span><strong>${escapeHtml(readPathString(request ?? {}, ['subject_id'], '-'))}</strong></div>`
+    + `<div class="kv-item"><span>action</span><strong>${escapeHtml(readPathString(request ?? {}, ['action'], '-'))}</strong></div>`
+    + `<div class="kv-item"><span>object_id</span><strong>${escapeHtml(readPathString(request ?? {}, ['object_id'], '-'))}</strong></div>`
+    + `<div class="kv-item"><span>trace_count</span><strong>${traces.length}</strong></div>`
+    + `</section>`
+    + `<div class="table-container"><table class="data-table"><thead><tr><th>Rule</th><th>Status</th><th>Effect</th><th>Reason</th></tr></thead><tbody>${traceRows}</tbody></table></div>`;
+  const rawContent = renderRawJsonPanel(result.data);
+
   return `<div class=\"card card-hover\">`
-    + `<h3>决策回放</h3>`
-    + `<p class=\"muted\">decision_id: ${escapeHtml(result.data.decision_id)}</p>`
-    + renderDecisionStructured(result.data)
-    + `<pre>${escapeHtml(JSON.stringify(result.data, null, 2))}</pre>`
+    + `<div class="card-head"><div class="card-head-main"><h3>决策回放</h3><p class=\"muted\">decision_id: ${escapeHtml(result.data.decision_id)}</p></div>${renderJsonToggleSwitch()}</div>`
+    + `${renderSwitchableJsonView(visualContent, rawContent)}`
     + `</div>`;
 }
 
@@ -288,6 +402,7 @@ function buildQueryHref(viewModel: ConsolePageViewModel, updates: Record<string,
     ['profile', viewModel.query.profile],
     ['tab', viewModel.query.tab],
     ['widget', viewModel.query.widget],
+    ['detail_mode', viewModel.query.detail_mode],
     ['limit', String(viewModel.query.limit)],
     ['offset', String(viewModel.query.offset)],
     ['publish_id', viewModel.query.publish_id],
@@ -310,6 +425,17 @@ function buildQueryHref(viewModel: ConsolePageViewModel, updates: Record<string,
   });
   const queryString = params.toString();
   return queryString.length > 0 ? `/?${queryString}` : '/';
+}
+
+function renderMatrixDrawerContent(selectedCell: Record<string, unknown>): string {
+  return `<h4>单元格详情抽屉</h4>`
+    + `<p><strong>cell_key:</strong> ${escapeHtml(readPathString(selectedCell, ['cell_key']))}</p>`
+    + `<p><strong>final_decision:</strong> ${escapeHtml(readPathString(selectedCell, ['draft_effect']))}</p>`
+    + `<p><strong>baseline_decision:</strong> ${escapeHtml(readPathString(selectedCell, ['baseline_effect']))}</p>`
+    + `<p><strong>effective_actions:</strong> ${escapeHtml(readPathString(selectedCell, ['action']))}</p>`
+    + `<p><strong>matched_rules:</strong> ${escapeHtml(JSON.stringify((selectedCell.matched_rules ?? selectedCell.draft_matched_rules) as unknown) ?? '[]')}</p>`
+    + `<p><strong>overridden_rules:</strong> ${escapeHtml(JSON.stringify((selectedCell.draft_overridden_rules ?? []) as unknown) ?? '[]')}</p>`
+    + `<p><strong>relation_path:</strong> ${escapeHtml(readPathString(selectedCell, ['subject_id']))} -> ${escapeHtml(readPathString(selectedCell, ['object_id']))}</p>`;
 }
 
 function renderMatrixView(viewModel: ConsolePageViewModel): string {
@@ -354,7 +480,11 @@ function renderMatrixView(viewModel: ConsolePageViewModel): string {
       const href = buildQueryHref(viewModel, {
         cell_key: cellKey,
       });
-      return `<td><a href="${href}" class="matrix-link">Δ${changedCount} / +A${allowGain} / +D${denyGain}</a></td>`;
+      const matchedRules = JSON.stringify((sample.matched_rules ?? sample.draft_matched_rules) as unknown ?? []);
+      const overriddenRules = JSON.stringify((sample.draft_overridden_rules ?? []) as unknown ?? []);
+      const isActive = viewModel.query.cell_key === cellKey;
+
+      return `<td><a href="${href}" class="matrix-link ${isActive ? 'active' : ''}" data-matrix-cell="true" data-cell-key="${escapeHtml(cellKey)}" data-draft-effect="${escapeHtml(readPathString(sample, ['draft_effect']))}" data-baseline-effect="${escapeHtml(readPathString(sample, ['baseline_effect']))}" data-action="${escapeHtml(readPathString(sample, ['action']))}" data-subject-id="${escapeHtml(readPathString(sample, ['subject_id']))}" data-object-id="${escapeHtml(readPathString(sample, ['object_id']))}" data-matched-rules="${escapeHtml(matchedRules)}" data-overridden-rules="${escapeHtml(overriddenRules)}">Δ${changedCount} / +A${allowGain} / +D${denyGain}</a></td>`;
     }).join('');
     return `<tr><th>${escapeHtml(subjectId)}</th>${cols}</tr>`;
   }).join('');
@@ -363,24 +493,15 @@ function renderMatrixView(viewModel: ConsolePageViewModel): string {
     ? cells.find((cell) => readPathString(cell, ['cell_key']) === viewModel.query.cell_key)
     : undefined;
 
-  const drawer = selectedCell
-    ? `<section class="drawer">`
-      + `<h4>单元格详情抽屉</h4>`
-      + `<p><strong>cell_key:</strong> ${escapeHtml(readPathString(selectedCell, ['cell_key']))}</p>`
-      + `<p><strong>final_decision:</strong> ${escapeHtml(readPathString(selectedCell, ['draft_effect']))}</p>`
-      + `<p><strong>baseline_decision:</strong> ${escapeHtml(readPathString(selectedCell, ['baseline_effect']))}</p>`
-      + `<p><strong>effective_actions:</strong> ${escapeHtml(readPathString(selectedCell, ['action']))}</p>`
-      + `<p><strong>matched_rules:</strong> ${escapeHtml(JSON.stringify((selectedCell.matched_rules ?? selectedCell.draft_matched_rules) as unknown) ?? '[]')}</p>`
-      + `<p><strong>overridden_rules:</strong> ${escapeHtml(JSON.stringify((selectedCell.draft_overridden_rules ?? []) as unknown) ?? '[]')}</p>`
-      + `<p><strong>relation_path:</strong> ${escapeHtml(readPathString(selectedCell, ['subject_id']))} -> ${escapeHtml(readPathString(selectedCell, ['object_id']))}</p>`
-      + `</section>`
+  const drawerContent = selectedCell
+    ? renderMatrixDrawerContent(selectedCell)
     : '<p class="muted">点击矩阵单元格可打开详情抽屉。</p>';
 
   return `<article class="card card-hover">`
     + `<h3>权限矩阵视图</h3>`
     + `<p class="muted">行轴=主体场景，列轴=客体场景，单元格展示变更密度并可钻取。</p>`
     + `<div class="table-container"><table class="data-table matrix-table"><thead><tr><th>Subject \\ Object</th>${objects.map((obj) => `<th>${escapeHtml(obj)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`
-    + drawer
+    + `<section class="drawer" data-matrix-drawer>${drawerContent}</section>`
     + `</article>`;
 }
 
@@ -431,10 +552,28 @@ function renderSimulationView(viewModel: ConsolePageViewModel): string {
           + `<td>${readPathNumber(row, ['indeterminate_to_allow']) + readPathNumber(row, ['indeterminate_to_deny'])}</td>`
           + `</tr>`;
       }).join('');
+  const impactedSubjects = report.top_impacted_subjects.slice(0, 8);
+  const impactedObjects = report.top_impacted_objects.slice(0, 8);
+  const subjectRows = impactedSubjects.length === 0
+    ? '<tr><td colspan="3" class="muted">暂无主体影响排行</td></tr>'
+    : impactedSubjects.map((item) => {
+        const subjectId = readPathString(item, ['subject_id'], readPathString(item, ['id'], '-'));
+        const changedCount = readPathNumber(item, ['changed_count'], readPathNumber(item, ['count'], 0));
+        const maxRisk = readPathNumber(item, ['max_risk_score'], readPathNumber(item, ['risk_score'], 0));
+        return `<tr><td>${escapeHtml(subjectId)}</td><td>${changedCount}</td><td>${maxRisk}</td></tr>`;
+      }).join('');
+  const objectRows = impactedObjects.length === 0
+    ? '<tr><td colspan="3" class="muted">暂无客体影响排行</td></tr>'
+    : impactedObjects.map((item) => {
+        const objectId = readPathString(item, ['object_id'], readPathString(item, ['id'], '-'));
+        const changedCount = readPathNumber(item, ['changed_count'], readPathNumber(item, ['count'], 0));
+        const sensitivity = readPathString(item, ['sensitivity'], '-');
+        return `<tr><td>${escapeHtml(objectId)}</td><td>${changedCount}</td><td>${escapeHtml(sensitivity)}</td></tr>`;
+      }).join('');
 
   const simulationSelector = viewModel.simulation_list?.ok
     ? `<form class="filters toolbar" method="GET" action="/">`
-      + `<label>Simulation Report`
+      + `<label>模拟报告 Simulation Report`
       + `<select name="simulation_id">`
       + viewModel.simulation_list.data.items
         .map((item) => `<option value="${escapeHtml(item.report_id)}" ${item.report_id === report.report_id ? 'selected' : ''}>${escapeHtml(item.report_id)} | ${escapeHtml(formatTime(item.generated_at))}</option>`)
@@ -444,18 +583,14 @@ function renderSimulationView(viewModel: ConsolePageViewModel): string {
       + `<input type="hidden" name="decision_id" value="${escapeHtml(viewModel.query.decision_id ?? '')}" />`
       + `<input type="hidden" name="status" value="${escapeHtml(viewModel.query.status ?? '')}" />`
       + `<input type="hidden" name="profile" value="${escapeHtml(viewModel.query.profile ?? '')}" />`
+      + `<input type="hidden" name="detail_mode" value="${escapeHtml(viewModel.query.detail_mode ?? '')}" />`
       + `<input type="hidden" name="namespace" value="${escapeHtml(viewModel.query.namespace ?? '')}" />`
       + `<input type="hidden" name="tab" value="${escapeHtml(viewModel.query.tab ?? '')}" />`
       + `<input type="hidden" name="widget" value="${escapeHtml(viewModel.query.widget ?? '')}" />`
       + `<button type="submit" class="btn btn-primary">切换报告</button>`
       + `</form>`
     : '';
-
-  return `<article class="card card-hover">`
-    + `<h3>影响面模拟视图</h3>`
-    + `<p class="muted">模拟报告: ${escapeHtml(report.report_id)} / ${escapeHtml(formatTime(report.generated_at))}</p>`
-    + simulationSelector
-    + `<section class="decision-grid">`
+  const visualContent = `<section class="decision-grid">`
     + `<div class="metric"><span>delta_allow_subject_count</span><strong>${summary.delta_allow_subject_count}</strong></div>`
     + `<div class="metric"><span>delta_deny_subject_count</span><strong>${summary.delta_deny_subject_count}</strong></div>`
     + `<div class="metric"><span>delta_high_sensitivity_object_count</span><strong>${summary.delta_high_sensitivity_object_count}</strong></div>`
@@ -466,148 +601,395 @@ function renderSimulationView(viewModel: ConsolePageViewModel): string {
     + `<div class="metric"><span>publish_recommendation</span><strong>${escapeHtml(recommendation)}</strong></div>`
     + `</section>`
     + `<div class="table-container"><table class="data-table"><thead><tr><th>Action</th><th>Changed</th><th>Allow→Deny</th><th>Deny→Allow</th><th>NA→Allow</th><th>NA→Deny</th><th>Indeterminate Δ</th></tr></thead><tbody>${actionRows}</tbody></table></div>`
+    + `<section class="split-grid">`
+    + `<div class="table-container"><table class="data-table"><thead><tr><th>Top Impacted Subjects</th><th>Changed</th><th>Max Risk</th></tr></thead><tbody>${subjectRows}</tbody></table></div>`
+    + `<div class="table-container"><table class="data-table"><thead><tr><th>Top Impacted Objects</th><th>Changed</th><th>Sensitivity</th></tr></thead><tbody>${objectRows}</tbody></table></div>`
+    + `</section>`;
+  const rawContent = renderRawJsonPanel(report);
+
+  return `<article class="card card-hover">`
+    + `<div class="card-head"><div class="card-head-main"><h3>影响面模拟视图</h3><p class="muted">模拟报告: ${escapeHtml(report.report_id)} / ${escapeHtml(formatTime(report.generated_at))}</p></div>${renderJsonToggleSwitch()}</div>`
+    + simulationSelector
+    + `${renderSwitchableJsonView(visualContent, rawContent)}`
     + `</article>`;
 }
 
-function buildDefaultModelJson(namespace: string): string {
+function buildDefaultModelTemplate(namespace: string): {
+  model_meta: {
+    model_id: string;
+    tenant_id: string;
+    version: string;
+    status: string;
+    combining_algorithm: string;
+  };
+  catalogs: {
+    action_catalog: string[];
+    subject_type_catalog: string[];
+    object_type_catalog: string[];
+    relation_type_catalog: string[];
+  };
+  object_onboarding: Record<string, unknown>;
+  relations: Record<string, unknown>;
+  policies: {
+    rules: Array<Record<string, unknown>>;
+  };
+  constraints: Record<string, unknown>;
+  lifecycle: Record<string, unknown>;
+  consistency: Record<string, unknown>;
+  quality_guardrails: {
+    attribute_quality: Record<string, unknown>;
+    mandatory_obligations: string[];
+  };
+} {
   const tenantId = namespace.split('.')[0] ?? 'tenant_a';
 
-  return JSON.stringify(
-    {
-      model_meta: {
-        model_id: `${tenantId}_authz_v1`,
-        tenant_id: tenantId,
-        version: '2026.03.04',
-        status: 'draft',
-        combining_algorithm: 'deny-overrides',
-      },
-      catalogs: {
-        action_catalog: ['read', 'update', 'grant'],
-        subject_type_catalog: ['user', 'group'],
-        object_type_catalog: ['kb', 'agent'],
-        relation_type_catalog: ['belongs_to', 'member_of', 'manages', 'derives_to'],
-      },
-      object_onboarding: {
-        compatibility_mode: 'compat_balanced',
-        default_profile: 'minimal',
-        profiles: {
-          minimal: {
-            required_fields: ['tenant_id', 'object_id', 'object_type', 'created_by'],
-            autofill: {
-              owner_ref: 'created_by',
-              sensitivity: 'normal',
-            },
-          },
-        },
-        conditional_required: [
-          {
-            when: 'object.sensitivity == high',
-            add_fields: ['data_domain', 'retention_class'],
-          },
-        ],
-      },
-      relations: {
-        subject_relations: [],
-        object_relations: [],
-        subject_object_relations: [],
-      },
-      policies: {
-        rules: [
-          {
-            id: 'rule_read_kb',
-            subject_selector: 'subject.relations includes member_of(group:g1)',
-            object_selector: 'object.type == kb',
-            action_set: ['read'],
-            effect: 'allow',
-            priority: 100,
-          },
-        ],
-      },
-      constraints: {
-        sod_rules: [],
-        cardinality_rules: [],
-      },
-      lifecycle: {
-        event_rules: [
-          {
-            event_type: 'subject_removed',
-            handler: 'revoke_direct_edges',
-            required: true,
-          },
-        ],
-      },
-      consistency: {
-        default_level: 'bounded_staleness',
-        high_risk_level: 'strong',
-        bounded_staleness_ms: 3000,
-      },
-      quality_guardrails: {
-        attribute_quality: {
-          authority_whitelist: ['hr_system'],
-          freshness_ttl_sec: {
-            department_membership: 900,
-          },
-          reject_unknown_source: true,
-        },
-        mandatory_obligations: ['audit_write'],
-      },
+  return {
+    model_meta: {
+      model_id: `${tenantId}_authz_v1`,
+      tenant_id: tenantId,
+      version: '2026.03.04',
+      status: 'draft',
+      combining_algorithm: 'deny-overrides',
     },
-    null,
-    2,
+    catalogs: {
+      action_catalog: ['read', 'update', 'grant'],
+      subject_type_catalog: ['user', 'group'],
+      object_type_catalog: ['kb', 'agent'],
+      relation_type_catalog: ['belongs_to', 'member_of', 'manages', 'derives_to'],
+    },
+    object_onboarding: {
+      compatibility_mode: 'compat_balanced',
+      default_profile: 'minimal',
+      profiles: {
+        minimal: {
+          required_fields: ['tenant_id', 'object_id', 'object_type', 'created_by'],
+          autofill: {
+            owner_ref: 'created_by',
+            sensitivity: 'normal',
+          },
+        },
+      },
+      conditional_required: [
+        {
+          when: 'object.sensitivity == high',
+          add_fields: ['data_domain', 'retention_class'],
+        },
+      ],
+    },
+    relations: {
+      subject_relations: [],
+      object_relations: [],
+      subject_object_relations: [],
+    },
+    policies: {
+      rules: [
+        {
+          id: 'rule_read_kb',
+          subject_selector: 'subject.relations includes member_of(group:g1)',
+          object_selector: 'object.type == kb',
+          action_set: ['read'],
+          effect: 'allow',
+          priority: 100,
+        },
+      ],
+    },
+    constraints: {
+      sod_rules: [],
+      cardinality_rules: [],
+    },
+    lifecycle: {
+      event_rules: [
+        {
+          event_type: 'subject_removed',
+          handler: 'revoke_direct_edges',
+          required: true,
+        },
+      ],
+    },
+    consistency: {
+      default_level: 'bounded_staleness',
+      high_risk_level: 'strong',
+      bounded_staleness_ms: 3000,
+    },
+    quality_guardrails: {
+      attribute_quality: {
+        authority_whitelist: ['hr_system'],
+        freshness_ttl_sec: {
+          department_membership: 900,
+        },
+        reject_unknown_source: true,
+      },
+      mandatory_obligations: ['audit_write'],
+    },
+  };
+}
+
+function buildDefaultModelJson(namespace: string): string {
+  return JSON.stringify(buildDefaultModelTemplate(namespace), null, 2);
+}
+
+interface PublishedModelOverviewMetrics {
+  publish_id: string;
+  model_id: string;
+  model_version: string;
+  subject_types: number;
+  categories: number;
+  object_types: number;
+  relation_types: number;
+  rules: number;
+}
+
+function normalizeStringArray(input: unknown): string[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      input
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
   );
+}
+
+function getModelSnapshotFromPublish(record: PublishRequestRecord): Record<string, unknown> | null {
+  const payload = asRecord(record.payload);
+  return asRecord(payload?.model_snapshot);
+}
+
+function pickPublishRecordForOverview(viewModel: ConsolePageViewModel): PublishRequestRecord | null {
+  if (viewModel.publish_detail?.ok) {
+    const snapshot = getModelSnapshotFromPublish(viewModel.publish_detail.data);
+    if (snapshot) {
+      return viewModel.publish_detail.data;
+    }
+  }
+
+  if (!viewModel.publish_list.ok) {
+    return null;
+  }
+
+  const withSnapshot = viewModel.publish_list.data.items.filter(
+    (item) => getModelSnapshotFromPublish(item) !== null,
+  );
+  if (withSnapshot.length === 0) {
+    return null;
+  }
+
+  const published = withSnapshot.find((item) => item.status === 'published');
+  return published ?? withSnapshot[0] ?? null;
+}
+
+function collectPublishedModelOverviewMetrics(
+  viewModel: ConsolePageViewModel,
+): PublishedModelOverviewMetrics | null {
+  const sourceRecord = pickPublishRecordForOverview(viewModel);
+  if (!sourceRecord) {
+    return null;
+  }
+
+  const modelSnapshot = getModelSnapshotFromPublish(sourceRecord);
+  if (!modelSnapshot) {
+    return null;
+  }
+
+  const modelMeta = asRecord(modelSnapshot.model_meta);
+  const catalogs = asRecord(modelSnapshot.catalogs);
+  const policies = asRecord(modelSnapshot.policies);
+
+  const actionCatalog = normalizeStringArray(catalogs?.action_catalog);
+  const subjectTypeCatalog = normalizeStringArray(catalogs?.subject_type_catalog);
+  const objectTypeCatalog = normalizeStringArray(catalogs?.object_type_catalog);
+  const relationTypeCatalog = normalizeStringArray(catalogs?.relation_type_catalog);
+  const rules = Array.isArray(policies?.rules) ? policies.rules.length : 0;
+
+  return {
+    publish_id: sourceRecord.publish_id,
+    model_id: typeof modelMeta?.model_id === 'string' ? modelMeta.model_id : '-',
+    model_version: typeof modelMeta?.version === 'string' ? modelMeta.version : '-',
+    subject_types: subjectTypeCatalog.length,
+    categories: actionCatalog.length,
+    object_types: objectTypeCatalog.length,
+    relation_types: relationTypeCatalog.length,
+    rules,
+  };
+}
+
+function collectControlOverviewMetrics(viewModel: ConsolePageViewModel): {
+  categories: number;
+  subjects: number;
+  objects: number;
+  relations: number;
+} {
+  const categories = viewModel.control_catalogs?.ok
+    ? new Set(
+      viewModel.control_catalogs.data.items.flatMap((item) =>
+        item.catalogs.action_catalog
+          .map((action) => action.trim())
+          .filter((action) => action.length > 0),
+      ),
+    ).size
+    : 0;
+
+  const objects = viewModel.control_objects?.ok ? viewModel.control_objects.data.total_count : 0;
+  const relations = viewModel.control_relations?.ok ? viewModel.control_relations.data.total_count : 0;
+
+  const objectIdSet = new Set<string>();
+  const subjectIdSet = new Set<string>();
+
+  if (viewModel.control_objects?.ok) {
+    viewModel.control_objects.data.items.forEach((item) => {
+      const objectId = item.object_id.trim();
+      if (objectId.length > 0) {
+        objectIdSet.add(objectId);
+      }
+
+      const ownerRef = item.owner_ref.trim();
+      if (ownerRef.length > 0) {
+        subjectIdSet.add(ownerRef);
+      }
+    });
+  }
+
+  const isObjectStyleRef = (value: string): boolean => {
+    if (objectIdSet.has(value)) {
+      return true;
+    }
+    const lower = value.toLowerCase();
+    return lower.startsWith('obj:') || lower.startsWith('object:') || lower.startsWith('asset:');
+  };
+
+  const addSubjectCandidate = (value: string): void => {
+    const candidate = value.trim();
+    if (candidate.length === 0 || isObjectStyleRef(candidate)) {
+      return;
+    }
+    subjectIdSet.add(candidate);
+  };
+
+  if (viewModel.control_relations?.ok) {
+    viewModel.control_relations.data.items.forEach((item) => {
+      addSubjectCandidate(item.from);
+      addSubjectCandidate(item.to);
+    });
+  }
+
+  return {
+    categories,
+    subjects: subjectIdSet.size,
+    objects,
+    relations,
+  };
 }
 
 function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
   const namespace = viewModel.query.namespace ?? 'tenant_a.crm';
-  const catalogs = viewModel.control_catalogs?.ok ? viewModel.control_catalogs.data.total_count : 0;
-  const objects = viewModel.control_objects?.ok ? viewModel.control_objects.data.total_count : 0;
-  const relations = viewModel.control_relations?.ok ? viewModel.control_relations.data.total_count : 0;
-  const audits = viewModel.control_audits?.ok ? viewModel.control_audits.data.total_count : 0;
+  const overviewMetrics = collectControlOverviewMetrics(viewModel);
+  const publishedModelMetrics = collectPublishedModelOverviewMetrics(viewModel);
+  const modelRouteCount = viewModel.model_routes?.ok ? viewModel.model_routes.data.total_count : 0;
   const hiddenContext = renderHiddenContextFields(viewModel);
   const hiddenWithoutNamespace = renderHiddenContextFields(viewModel, ['namespace']);
+  const defaultModel = buildDefaultModelTemplate(namespace);
+  const defaultRule = defaultModel.policies.rules[0] ?? {};
   const defaultModelJson = escapeHtml(buildDefaultModelJson(namespace));
+  const actionCatalog = escapeHtml(defaultModel.catalogs.action_catalog.join('\n'));
+  const subjectTypeCatalog = escapeHtml(defaultModel.catalogs.subject_type_catalog.join('\n'));
+  const objectTypeCatalog = escapeHtml(defaultModel.catalogs.object_type_catalog.join('\n'));
+  const relationTypeCatalog = escapeHtml(defaultModel.catalogs.relation_type_catalog.join('\n'));
+  const mandatoryObligations = escapeHtml(defaultModel.quality_guardrails.mandatory_obligations.join('\n'));
+  const ruleActionSet = escapeHtml(
+    Array.isArray(defaultRule.action_set)
+      ? defaultRule.action_set
+        .filter((item): item is string => typeof item === 'string')
+        .join('\n')
+      : '',
+  );
+  const ruleId = escapeHtml(typeof defaultRule.id === 'string' ? defaultRule.id : '');
+  const ruleSubjectSelector = escapeHtml(
+    typeof defaultRule.subject_selector === 'string' ? defaultRule.subject_selector : '',
+  );
+  const ruleObjectSelector = escapeHtml(
+    typeof defaultRule.object_selector === 'string' ? defaultRule.object_selector : '',
+  );
+  const ruleEffect = escapeHtml(typeof defaultRule.effect === 'string' ? defaultRule.effect : 'allow');
+  const rulePriority = typeof defaultRule.priority === 'number' ? String(defaultRule.priority) : '100';
 
   const auditRows = viewModel.control_audits?.ok
-    ? (viewModel.control_audits.data.items.length === 0
-      ? '<tr><td colspan="4" class="muted">暂无控制面审计事件</td></tr>'
-      : viewModel.control_audits.data.items.slice(0, 6).map((item) =>
-          `<tr><td>${escapeHtml(item.event_type)}</td><td>${escapeHtml(item.target)}</td><td>${escapeHtml(item.operator)}</td><td>${escapeHtml(formatTime(item.created_at))}</td></tr>`,
-        ).join(''))
+    ? viewModel.control_audits.data.items.slice(0, 6).map((item) =>
+        `<tr><td>${escapeHtml(item.event_type)}</td><td>${escapeHtml(item.target)}</td><td>${escapeHtml(item.operator)}</td><td>${escapeHtml(formatTime(item.created_at))}</td></tr>`,
+      ).join('')
     : '<tr><td colspan="4" class="muted">审计数据加载失败</td></tr>';
 
   const catalogRows = viewModel.control_catalogs?.ok
-    ? (viewModel.control_catalogs.data.items.length === 0
-      ? '<tr><td colspan="5" class="muted">暂无 catalog</td></tr>'
-      : viewModel.control_catalogs.data.items.slice(0, 6).map((item) =>
-          `<tr><td>${escapeHtml(item.system_id)}</td><td>${escapeHtml(item.namespace)}</td><td>${escapeHtml(item.catalogs.action_catalog.join(', '))}</td><td>${escapeHtml(item.catalogs.object_type_catalog.join(', '))}</td><td>${escapeHtml(item.catalogs.relation_type_catalog.join(', '))}</td></tr>`,
-        ).join(''))
+    ? viewModel.control_catalogs.data.items.slice(0, 6).map((item) =>
+        `<tr><td>${escapeHtml(item.system_id)}</td><td>${escapeHtml(item.namespace)}</td><td>${escapeHtml(item.catalogs.action_catalog.join(', '))}</td><td>${escapeHtml(item.catalogs.object_type_catalog.join(', '))}</td><td>${escapeHtml(item.catalogs.relation_type_catalog.join(', '))}</td></tr>`,
+      ).join('')
     : '<tr><td colspan="5" class="muted">catalog 加载失败</td></tr>';
 
   const objectRows = viewModel.control_objects?.ok
-    ? (viewModel.control_objects.data.items.length === 0
-      ? '<tr><td colspan="6" class="muted">暂无 object</td></tr>'
-      : viewModel.control_objects.data.items.slice(0, 6).map((item) =>
-          `<tr><td>${escapeHtml(item.object_id)}</td><td>${escapeHtml(item.object_type)}</td><td>${escapeHtml(item.sensitivity)}</td><td>${escapeHtml(item.owner_ref)}</td><td>${escapeHtml(item.labels.join(', '))}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`,
-        ).join(''))
+    ? viewModel.control_objects.data.items.slice(0, 6).map((item) =>
+        `<tr><td>${escapeHtml(item.object_id)}</td><td>${escapeHtml(item.object_type)}</td><td>${escapeHtml(item.sensitivity)}</td><td>${escapeHtml(item.owner_ref)}</td><td>${escapeHtml(item.labels.join(', '))}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`,
+      ).join('')
     : '<tr><td colspan="6" class="muted">object 加载失败</td></tr>';
 
-  const widgetRows = WIDGET_ITEMS.map((item) => {
-    const embedHref = buildQueryHref(viewModel, {
-      widget: item.id,
-      tab: undefined,
-    });
-    return `<tr>`
-      + `<td>${escapeHtml(item.id)}</td>`
-      + `<td>${escapeHtml(item.label)}</td>`
-      + `<td>${escapeHtml(item.description)}</td>`
-      + `<td><a href="${embedHref}" target="_blank" rel="noreferrer">打开嵌入视图</a></td>`
-      + `</tr>`;
-  }).join('');
+  const modelRouteRows = viewModel.model_routes?.ok
+    ? viewModel.model_routes.data.items.slice(0, 8).map((item) =>
+        `<tr><td>${escapeHtml(item.tenant_id)}</td><td>${escapeHtml(item.environment)}</td><td>${escapeHtml(item.model_id)}</td><td>${escapeHtml(item.model_version ?? '-')}</td><td>${escapeHtml(item.publish_id ?? '-')}</td><td>${escapeHtml(item.namespace)}</td><td>${escapeHtml(item.operator)}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`,
+      ).join('')
+    : '<tr><td colspan="8" class="muted">model route 加载失败</td></tr>';
+
+  const publishedMetricsSection = publishedModelMetrics
+    ? `<section>`
+      + `<p class="muted metric-caption">发布快照统计（无需先维护 Catalog/Object）</p>`
+      + `<p class="muted">统计来源：publish_id=${escapeHtml(publishedModelMetrics.publish_id)} / model_id=${escapeHtml(publishedModelMetrics.model_id)} / version=${escapeHtml(publishedModelMetrics.model_version)}</p>`
+      + `<section class="decision-grid">`
+      + `<div class="metric"><span>subject types</span><strong>${publishedModelMetrics.subject_types}</strong></div>`
+      + `<div class="metric"><span>categories(action)</span><strong>${publishedModelMetrics.categories}</strong></div>`
+      + `<div class="metric"><span>object types</span><strong>${publishedModelMetrics.object_types}</strong></div>`
+      + `<div class="metric"><span>relation types</span><strong>${publishedModelMetrics.relation_types}</strong></div>`
+      + `<div class="metric"><span>policy rules</span><strong>${publishedModelMetrics.rules}</strong></div>`
+      + `</section>`
+      + `</section>`
+    : `<section>`
+      + `<p class="muted metric-caption">发布快照统计（无需先维护 Catalog/Object）</p>`
+      + `<p class="muted">当前未找到可用的 model_snapshot。请先在“发布流程”选择一条包含模型快照的记录，或提交一次发布。</p>`
+      + `</section>`;
+
+  const controlRuntimeHint = (overviewMetrics.categories + overviewMetrics.subjects + overviewMetrics.objects + overviewMetrics.relations + modelRouteCount) === 0
+    ? '<p class="muted">当前运行态控制面为空（这不影响上方发布快照统计）。</p>'
+    : '';
+
+  const hasCatalogItems = Boolean(viewModel.control_catalogs?.ok && viewModel.control_catalogs.data.items.length > 0);
+  const hasObjectItems = Boolean(viewModel.control_objects?.ok && viewModel.control_objects.data.items.length > 0);
+  const hasModelRouteItems = Boolean(viewModel.model_routes?.ok && viewModel.model_routes.data.items.length > 0);
+  const hasAuditItems = Boolean(viewModel.control_audits?.ok && viewModel.control_audits.data.items.length > 0);
+  const runtimeTablesEmpty = !hasCatalogItems && !hasObjectItems && !hasModelRouteItems && !hasAuditItems;
+
+  const runtimeTablesSection = runtimeTablesEmpty
+    ? `<section class="runtime-empty-hint">`
+      + `<p class="muted">当前命名空间暂无运行态数据（catalog / model route / object / audit）。</p>`
+      + `<p class="muted">你可先只看上方发布快照统计；如需运行态回放，再在“高级运维（可选）”里按需维护。</p>`
+      + `</section>`
+    : ''
+      + (viewModel.control_catalogs?.ok && !hasCatalogItems
+        ? ''
+        : `<div class="table-container management-table"><table class="data-table"><thead><tr><th>System</th><th>Namespace</th><th>Actions</th><th>Object Types</th><th>Relation Types</th></tr></thead><tbody>${catalogRows}</tbody></table></div>`)
+      + (viewModel.model_routes?.ok && !hasModelRouteItems
+        ? ''
+        : `<div class="table-container management-table"><table class="data-table"><thead><tr><th>Tenant</th><th>Env</th><th>Model ID</th><th>Version</th><th>Publish ID</th><th>Namespace</th><th>Operator</th><th>Updated</th></tr></thead><tbody>${modelRouteRows}</tbody></table></div>`)
+      + (viewModel.control_objects?.ok && !hasObjectItems
+        ? ''
+        : `<div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div>`)
+      + (viewModel.control_audits?.ok && !hasAuditItems
+        ? ''
+        : `<div class="table-container"><table class="data-table"><thead><tr><th>Event</th><th>Target</th><th>Operator</th><th>Created At</th></tr></thead><tbody>${auditRows}</tbody></table></div>`);
 
   return `<article class="card card-hover">`
     + `<h3>控制面总览</h3>`
     + `<form class="filters toolbar" method="GET" action="/">`
-    + `<label>Namespace`
+    + `<label>命名空间 Namespace`
     + `<input type="text" name="namespace" value="${escapeHtml(namespace)}" placeholder="tenant_a.crm" />`
     + `</label>`
     + `<input type="hidden" name="publish_id" value="${escapeHtml(viewModel.query.publish_id ?? '')}" />`
@@ -615,62 +997,128 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     + `<input type="hidden" name="simulation_id" value="${escapeHtml(viewModel.query.simulation_id ?? '')}" />`
     + `<input type="hidden" name="tab" value="${escapeHtml(viewModel.query.tab ?? '')}" />`
     + `<input type="hidden" name="widget" value="${escapeHtml(viewModel.query.widget ?? '')}" />`
+    + `<input type="hidden" name="detail_mode" value="${escapeHtml(viewModel.query.detail_mode ?? '')}" />`
     + `<button type="submit" class="btn btn-primary">切换命名空间</button>`
     + `</form>`
+    + publishedMetricsSection
+    + `<p class="muted metric-caption">运行态控制面统计（subject 来自 relation 端点与 object.owner_ref 推断）</p>`
+    + controlRuntimeHint
     + `<section class="decision-grid">`
-    + `<div class="metric"><span>catalogs</span><strong>${catalogs}</strong></div>`
-    + `<div class="metric"><span>objects</span><strong>${objects}</strong></div>`
-    + `<div class="metric"><span>relations</span><strong>${relations}</strong></div>`
-    + `<div class="metric"><span>audits</span><strong>${audits}</strong></div>`
+    + `<div class="metric"><span>subjects</span><strong>${overviewMetrics.subjects}</strong></div>`
+    + `<div class="metric"><span>categories(action)</span><strong>${overviewMetrics.categories}</strong></div>`
+    + `<div class="metric"><span>objects</span><strong>${overviewMetrics.objects}</strong></div>`
+    + `<div class="metric"><span>relations</span><strong>${overviewMetrics.relations}</strong></div>`
+    + `<div class="metric"><span>model routes</span><strong>${modelRouteCount}</strong></div>`
     + `</section>`
-    + `<section class="management-grid">`
-    + `<form class="action-form" method="POST" action="/actions/publish/submit">`
+    + `<p class="muted metric-caption">说明：下方维护操作只写入控制面运行态数据，不会回写“策略模型提交”卡片中的 JSON。</p>`
+    + `<section class="management-grid model-submit-grid">`
+    + `<form class="action-form model-submit-form" method="POST" action="/actions/publish/submit">`
     + `<h4>策略模型提交</h4>`
     + hiddenContext
-    + `<label>Publish ID (可选)<input type="text" name="publish_id" placeholder="pub_20260304_001" /></label>`
-    + `<label>Profile<select name="profile"><option value="">auto</option><option value="baseline">baseline</option><option value="strict_compliance">strict_compliance</option></select></label>`
-    + `<label>Submitted By<input type="text" name="submitted_by" value="console_operator" /></label>`
-    + `<label>Model JSON<textarea name="model_json" rows="12" required>${defaultModelJson}</textarea></label>`
+    + `<label>发布ID Publish ID (可选)<input type="text" name="publish_id" placeholder="pub_20260304_001" /></label>`
+    + `<label>档位 Profile<select name="profile"><option value="">auto</option><option value="baseline">baseline</option><option value="strict_compliance">strict_compliance</option></select></label>`
+    + `<label>提交人 Submitted By<input type="text" name="submitted_by" value="console_operator" /></label>`
+    + `<section class="model-editor" data-model-editor data-json-scope>`
+    + `<div class="model-editor-head"><p class="muted">模型编辑模式</p>${renderJsonToggleSwitch()}</div>`
+    + `<section class="json-switchable" data-json-switchable>`
+    + `<div class="json-view" data-json-view="visual">`
+    + `<div class="model-editor-grid">`
+    + `<label>模型ID Model ID<input type="text" value="${escapeHtml(defaultModel.model_meta.model_id)}" data-model-field="model_id" /></label>`
+    + `<label>租户ID Tenant ID<input type="text" value="${escapeHtml(defaultModel.model_meta.tenant_id)}" data-model-field="tenant_id" /></label>`
+    + `<label>版本 Version<input type="text" value="${escapeHtml(defaultModel.model_meta.version)}" data-model-field="version" /></label>`
+    + `<label>合并算法 Combining Algorithm<select data-model-field="combining_algorithm"><option value="deny-overrides" ${defaultModel.model_meta.combining_algorithm === 'deny-overrides' ? 'selected' : ''}>deny-overrides</option><option value="permit-overrides" ${defaultModel.model_meta.combining_algorithm === 'permit-overrides' ? 'selected' : ''}>permit-overrides</option><option value="first-applicable" ${defaultModel.model_meta.combining_algorithm === 'first-applicable' ? 'selected' : ''}>first-applicable</option></select></label>`
+    + `<label>动作目录 Action Catalog<textarea rows="3" data-model-field="action_catalog">${actionCatalog}</textarea></label>`
+    + `<label>主体类型目录 Subject Type Catalog<textarea rows="3" data-model-field="subject_type_catalog">${subjectTypeCatalog}</textarea></label>`
+    + `<label>客体类型目录 Object Type Catalog<textarea rows="3" data-model-field="object_type_catalog">${objectTypeCatalog}</textarea></label>`
+    + `<label>关系类型目录 Relation Type Catalog<textarea rows="3" data-model-field="relation_type_catalog">${relationTypeCatalog}</textarea></label>`
+    + `<label>规则ID Rule ID<input type="text" value="${ruleId}" data-model-field="rule_id" /></label>`
+    + `<label>规则效果 Rule Effect<select data-model-field="rule_effect"><option value="allow" ${ruleEffect === 'allow' ? 'selected' : ''}>allow</option><option value="deny" ${ruleEffect === 'deny' ? 'selected' : ''}>deny</option></select></label>`
+    + `<label>规则优先级 Rule Priority<input type="number" min="1" value="${escapeHtml(rulePriority)}" data-model-field="rule_priority" /></label>`
+    + `<label>规则动作 Rule Actions<textarea rows="3" data-model-field="rule_action_set">${ruleActionSet}</textarea></label>`
+    + `<label>主体选择器 Subject Selector<textarea rows="3" data-model-field="rule_subject_selector">${ruleSubjectSelector}</textarea></label>`
+    + `<label>客体选择器 Object Selector<textarea rows="3" data-model-field="rule_object_selector">${ruleObjectSelector}</textarea></label>`
+    + `<label>强制义务 Mandatory Obligations<textarea rows="3" data-model-field="mandatory_obligations">${mandatoryObligations}</textarea></label>`
+    + `</div>`
+    + `<p class="muted model-editor-note">字段变更会自动同步到 JSON，可直接提交。</p>`
+    + `</div>`
+    + `<div class="json-view" data-json-view="raw" hidden>`
+    + `<div class="raw-json-toolbar"><button type="button" class="btn btn-secondary" data-apply-model-json>从 JSON 刷新字段</button></div>`
+    + `<label>模型JSON Model JSON<textarea name="model_json" rows="12" required data-model-json>${defaultModelJson}</textarea></label>`
+    + `<p class="muted model-editor-note">修改 JSON 后可点“从 JSON 刷新字段”，再回到图形化继续编辑。</p>`
+    + `</div>`
+    + `</section>`
+    + `</section>`
     + `<button type="submit" class="btn btn-primary">提交发布请求</button>`
     + `</form>`
+    + `</section>`
+    + `<details class="card card-hover advanced-ops-card">`
+    + `<summary><strong>高级运维（可选）</strong>：Catalog / Object / Relation / Model Route 维护</summary>`
+    + `<p class="muted">这些维护项用于构建运行态控制面（对象台账、关系边、路由），不会反向修改上方策略模型 JSON。</p>`
+    + `<section class="management-grid">`
     + `<form class="action-form" method="POST" action="/actions/control/catalog/register">`
     + `<h4>Catalog 维护</h4>`
     + hiddenWithoutNamespace
-    + `<label>System ID<input type="text" name="system_id" value="crm" required /></label>`
-    + `<label>Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>`
-    + `<label>Action Catalog(逗号/换行)<textarea name="action_catalog" rows="3" required>read,update,grant,publish</textarea></label>`
-    + `<label>Object Type Catalog<textarea name="object_type_catalog" rows="3" required>kb,agent</textarea></label>`
-    + `<label>Relation Type Catalog<textarea name="relation_type_catalog" rows="3" required>belongs_to,member_of,manages,derives_to</textarea></label>`
+    + `<label>系统ID System ID<input type="text" name="system_id" value="crm" required /></label>`
+    + `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>`
+    + `<label>动作目录 Action Catalog(逗号/换行)<textarea name="action_catalog" rows="3" required>read,update,grant,publish</textarea></label>`
+    + `<label>客体类型目录 Object Type Catalog<textarea name="object_type_catalog" rows="3" required>kb,agent</textarea></label>`
+    + `<label>关系类型目录 Relation Type Catalog<textarea name="relation_type_catalog" rows="3" required>belongs_to,member_of,manages,derives_to</textarea></label>`
     + `<button type="submit" class="btn btn-primary">新增或更新 Catalog</button>`
     + `</form>`
     + `<form class="action-form" method="POST" action="/actions/control/object/upsert">`
     + `<h4>Object 维护</h4>`
     + hiddenWithoutNamespace
-    + `<label>Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>`
-    + `<label>Object ID<input type="text" name="object_id" placeholder="obj_001" required /></label>`
-    + `<label>Object Type<input type="text" name="object_type" placeholder="kb" required /></label>`
-    + `<label>Sensitivity<input type="text" name="sensitivity" value="normal" /></label>`
-    + `<label>Owner Ref<input type="text" name="owner_ref" placeholder="user:alice" /></label>`
-    + `<label>Labels(逗号/换行)<textarea name="labels" rows="2" placeholder="internal,important"></textarea></label>`
+    + `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>`
+    + `<label>客体ID Object ID<input type="text" name="object_id" placeholder="obj_001" required /></label>`
+    + `<label>客体类型 Object Type<input type="text" name="object_type" placeholder="kb" required /></label>`
+    + `<label>敏感级别 Sensitivity<input type="text" name="sensitivity" value="normal" /></label>`
+    + `<label>所有者引用 Owner Ref<input type="text" name="owner_ref" placeholder="user:alice" /></label>`
+    + `<label>标签 Labels(逗号/换行)<textarea name="labels" rows="2" placeholder="internal,important"></textarea></label>`
     + `<button type="submit" class="btn btn-primary">新增或更新 Object</button>`
     + `</form>`
     + `<form class="action-form" method="POST" action="/actions/control/relation/event">`
     + `<h4>Relation 维护</h4>`
     + hiddenWithoutNamespace
-    + `<label>Operation<select name="operation"><option value="upsert">upsert</option><option value="delete">delete</option></select></label>`
-    + `<label>Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>`
-    + `<label>From<input type="text" name="from" placeholder="user:alice" required /></label>`
-    + `<label>To<input type="text" name="to" placeholder="obj_001" required /></label>`
-    + `<label>Relation Type<input type="text" name="relation_type" placeholder="member_of" required /></label>`
-    + `<label>Scope(可选)<input type="text" name="scope" placeholder="project:a" /></label>`
-    + `<label>Source(可选)<input type="text" name="source" placeholder="hr_sync" /></label>`
+    + `<label>操作 Operation<select name="operation"><option value="upsert">upsert</option><option value="delete">delete</option></select></label>`
+    + `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>`
+    + `<label>起点 From<input type="text" name="from" placeholder="user:alice" required /></label>`
+    + `<label>终点 To<input type="text" name="to" placeholder="obj_001" required /></label>`
+    + `<label>关系类型 Relation Type<input type="text" name="relation_type" placeholder="member_of" required /></label>`
+    + `<label>范围 Scope(可选)<input type="text" name="scope" placeholder="project:a" /></label>`
+    + `<label>来源 Source(可选)<input type="text" name="source" placeholder="hr_sync" /></label>`
     + `<button type="submit" class="btn btn-primary">提交 Relation 事件</button>`
     + `</form>`
+    + `<form class="action-form" method="POST" action="/actions/control/model-route/upsert">`
+    + `<h4>模型路由维护</h4>`
+    + hiddenWithoutNamespace
+    + `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>`
+    + `<label>租户 Tenant ID<input type="text" name="tenant_id" value="${escapeHtml((namespace.split('.')[0] ?? 'tenant_a'))}" required /></label>`
+    + `<label>环境 Environment<input type="text" name="environment" value="prod" required /></label>`
+    + `<label>模型ID Model ID<input type="text" name="model_id" placeholder="tenant_a_authz_v1" required /></label>`
+    + `<label>模型版本 Model Version(可选)<input type="text" name="model_version" placeholder="2026.03.04" /></label>`
+    + `<label>发布ID Publish ID(可选)<input type="text" name="publish_id" placeholder="pub_xxx" /></label>`
+    + `<label>操作人 Operator<input type="text" name="operator" value="console_operator" /></label>`
+    + `<button type="submit" class="btn btn-primary">新增或更新 Model Route</button>`
+    + `</form>`
     + `</section>`
+    + `</details>`
+    + runtimeTablesSection
+    + `</article>`;
+}
+
+function renderComponentsIndexView(viewModel: ConsolePageViewModel): string {
+  const widgetRows = renderWidgetRows(viewModel);
+  const hiddenContext = renderHiddenContextFields(viewModel, ['tab']);
+
+  return `<article class="card card-hover">`
+    + `<h3>组件索引</h3>`
+    + `<p class="muted">该页面用于查看可嵌入组件与对应链接，不属于控制面运行态数据。</p>`
+    + `<form class="filters toolbar" method="GET" action="/">`
+    + hiddenContext
+    + `<input type="hidden" name="tab" value="components" />`
+    + `<button type="submit" class="btn btn-secondary">刷新组件索引</button>`
+    + `</form>`
     + `<div class="table-container management-table"><table class="data-table"><thead><tr><th>Widget ID</th><th>组件</th><th>用途</th><th>Embed</th></tr></thead><tbody>${widgetRows}</tbody></table></div>`
-    + `<div class="table-container management-table"><table class="data-table"><thead><tr><th>System</th><th>Namespace</th><th>Actions</th><th>Object Types</th><th>Relation Types</th></tr></thead><tbody>${catalogRows}</tbody></table></div>`
-    + `<div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div>`
-    + `<div class="table-container"><table class="data-table"><thead><tr><th>Event</th><th>Target</th><th>Operator</th><th>Created At</th></tr></thead><tbody>${auditRows}</tbody></table></div>`
     + `</article>`;
 }
 
@@ -761,11 +1209,11 @@ function renderPublishListPanel(
 
   return `<article class="card card-hover animate-enter delay-100 publish-panel">`
     + `<div class="section-head">`
-    + `<h2>发布请求列表</h2>`
+    + `<h3>发布请求</h3>`
     + `${renderPublishSummary(viewModel)}`
     + `</div>`
     + `<form class="filters toolbar" method="GET" action="/">`
-    + `<label>状态`
+    + `<label>状态 Status`
     + `<select name="status">`
     + `<option value="">全部</option>`
     + `<option value="blocked" ${query.status === 'blocked' ? 'selected' : ''}>blocked</option>`
@@ -775,17 +1223,17 @@ function renderPublishListPanel(
     + `<option value="published" ${query.status === 'published' ? 'selected' : ''}>published</option>`
     + `</select>`
     + `</label>`
-    + `<label>Profile`
+    + `<label>档位 Profile`
     + `<select name="profile">`
     + `<option value="">全部</option>`
     + `<option value="baseline" ${query.profile === 'baseline' ? 'selected' : ''}>baseline</option>`
     + `<option value="strict_compliance" ${query.profile === 'strict_compliance' ? 'selected' : ''}>strict_compliance</option>`
     + `</select>`
     + `</label>`
-    + `<label>Limit`
+    + `<label>每页条数 Limit`
     + `<input type="number" min="1" max="100" name="limit" value="${query.limit}" />`
     + `</label>`
-    + `<label>Offset`
+    + `<label>偏移 Offset`
     + `<input type="number" min="0" name="offset" value="${query.offset}" />`
     + `</label>`
     + `<input type="hidden" name="namespace" value="${escapeHtml(query.namespace ?? 'tenant_a.crm')}" />`
@@ -793,6 +1241,7 @@ function renderPublishListPanel(
     + `<input type="hidden" name="simulation_id" value="${escapeHtml(query.simulation_id ?? '')}" />`
     + `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? '')}" />`
     + `<input type="hidden" name="widget" value="${escapeHtml(query.widget ?? '')}" />`
+    + `<input type="hidden" name="detail_mode" value="${escapeHtml(query.detail_mode ?? '')}" />`
     + `<button type="submit" class="btn btn-primary">应用筛选</button>`
     + `</form>`
     + `${renderApiResultError(viewModel.publish_list)}`
@@ -811,8 +1260,8 @@ function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string {
   return `<article class="card card-hover">`
     + `<h3>决策回放查询</h3>`
     + `<form class="filters toolbar" method="GET" action="/">`
-    + `<label>Decision ID`
-    + `<input type="text" name="decision_id" value="${escapeHtml(query.decision_id ?? '')}" placeholder="dec_xxx" />`
+    + `<label class="field-wide">决策ID Decision ID`
+    + `<input type="text" class="input-id-wide" name="decision_id" value="${escapeHtml(query.decision_id ?? '')}" placeholder="dec_xxx" />`
     + `</label>`
     + `<input type="hidden" name="publish_id" value="${escapeHtml(query.publish_id ?? '')}" />`
     + `<input type="hidden" name="status" value="${escapeHtml(query.status ?? '')}" />`
@@ -820,6 +1269,7 @@ function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string {
     + `<input type="hidden" name="namespace" value="${escapeHtml(query.namespace ?? 'tenant_a.crm')}" />`
     + `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? '')}" />`
     + `<input type="hidden" name="widget" value="${escapeHtml(query.widget ?? '')}" />`
+    + `<input type="hidden" name="detail_mode" value="${escapeHtml(query.detail_mode ?? '')}" />`
     + `<button type="submit" class="btn btn-primary">查询回放</button>`
     + `</form>`
     + `</article>`;
@@ -830,22 +1280,23 @@ function renderContextQueryCard(viewModel: ConsolePageViewModel): string {
   return `<article class="card card-hover">`
     + `<h3>上下文筛选</h3>`
     + `<form class="filters toolbar" method="GET" action="/">`
-    + `<label>Publish ID`
+    + `<label>发布ID Publish ID`
     + `<input type="text" name="publish_id" value="${escapeHtml(query.publish_id ?? '')}" placeholder="pub_xxx" />`
     + `</label>`
-    + `<label>Decision ID`
+    + `<label>决策ID Decision ID`
     + `<input type="text" name="decision_id" value="${escapeHtml(query.decision_id ?? '')}" placeholder="dec_xxx" />`
     + `</label>`
-    + `<label>Simulation ID`
+    + `<label>模拟ID Simulation ID`
     + `<input type="text" name="simulation_id" value="${escapeHtml(query.simulation_id ?? '')}" placeholder="sim_xxx" />`
     + `</label>`
-    + `<label>Namespace`
+    + `<label>命名空间 Namespace`
     + `<input type="text" name="namespace" value="${escapeHtml(query.namespace ?? 'tenant_a.crm')}" placeholder="tenant_a.crm" />`
     + `</label>`
     + `<input type="hidden" name="status" value="${escapeHtml(query.status ?? '')}" />`
     + `<input type="hidden" name="profile" value="${escapeHtml(query.profile ?? '')}" />`
     + `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? '')}" />`
     + `<input type="hidden" name="widget" value="${escapeHtml(query.widget ?? '')}" />`
+    + `<input type="hidden" name="detail_mode" value="${escapeHtml(query.detail_mode ?? '')}" />`
     + `<input type="hidden" name="limit" value="${escapeHtml(String(query.limit))}" />`
     + `<input type="hidden" name="offset" value="${escapeHtml(String(query.offset))}" />`
     + `<button type="submit" class="btn btn-primary">应用上下文</button>`
@@ -916,6 +1367,9 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   if (query.widget) {
     queryBase.set('widget', query.widget);
   }
+  if (query.detail_mode) {
+    queryBase.set('detail_mode', query.detail_mode);
+  }
   if (query.publish_id) {
     queryBase.set('publish_id', query.publish_id);
   }
@@ -943,6 +1397,7 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   const simulationStack = `${renderContextQueryCard(viewModel)}${renderSimulationView(viewModel)}${renderMatrixView(viewModel)}`;
   const relationsStack = `${renderContextQueryCard(viewModel)}${decisionQueryCard}${renderDecisionDetail(viewModel.decision_detail)}${renderRelationView(viewModel)}`;
   const controlStack = `${renderControlPlaneOverview(viewModel)}`;
+  const componentsStack = `${renderComponentsIndexView(viewModel)}`;
 
   const pageTitle = query.widget
     ? `ACL 嵌入视图 - ${WIDGET_ITEMS.find((item) => item.id === query.widget)?.label ?? 'Widget'}`
@@ -961,9 +1416,12 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
     + `<section class="tab-panel ${activeTab === 'control' ? 'active' : ''}" data-tab-panel="control" id="tab-panel-control" role="tabpanel" aria-hidden="${activeTab === 'control' ? 'false' : 'true'}">`
     + `<section class="stack stack-main animate-enter delay-200">${controlStack}</section>`
     + `</section>`
+    + `<section class="tab-panel ${activeTab === 'components' ? 'active' : ''}" data-tab-panel="components" id="tab-panel-components" role="tabpanel" aria-hidden="${activeTab === 'components' ? 'false' : 'true'}">`
+    + `<section class="stack stack-main animate-enter delay-200">${componentsStack}</section>`
+    + `</section>`
     + `</section>`;
 
-  const tabScriptTag = query.widget ? '' : '<script src="/assets/dashboard-tabs.js" defer></script>';
+  const tabScriptTag = '<script src="/assets/dashboard-tabs.js" defer></script>';
 
   const body =
     query.widget

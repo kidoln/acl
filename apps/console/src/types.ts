@@ -7,7 +7,7 @@ export type PublishWorkflowStatus =
   | 'rejected'
   | 'published';
 
-export type ConsoleTab = 'workflow' | 'simulation' | 'relations' | 'control';
+export type ConsoleTab = 'workflow' | 'simulation' | 'relations' | 'control' | 'components';
 
 export type ConsoleWidget =
   | 'publish_list'
@@ -17,6 +17,8 @@ export type ConsoleWidget =
   | 'matrix'
   | 'relation'
   | 'control';
+
+export type DetailMode = 'visual' | 'raw';
 
 export interface PublishRequestRecord {
   publish_id: string;
@@ -155,6 +157,25 @@ export interface ControlAuditListResponse {
   offset: number;
 }
 
+export interface ModelRouteListResponse {
+  items: Array<{
+    key: string;
+    namespace: string;
+    tenant_id: string;
+    environment: string;
+    model_id: string;
+    model_version?: string;
+    publish_id?: string;
+    updated_at: string;
+    operator: string;
+  }>;
+  total_count: number;
+  has_more: boolean;
+  next_offset?: number;
+  limit: number;
+  offset: number;
+}
+
 export type ApiResult<T> =
   | {
       ok: true;
@@ -172,6 +193,7 @@ export interface ConsoleQuery {
   profile?: GateProfile;
   tab?: ConsoleTab;
   widget?: ConsoleWidget;
+  detail_mode?: DetailMode;
   limit: number;
   offset: number;
   publish_id?: string;
@@ -199,6 +221,7 @@ export interface ConsolePageViewModel {
   control_objects?: ApiResult<ControlObjectListResponse>;
   control_relations?: ApiResult<ControlRelationListResponse>;
   control_audits?: ApiResult<ControlAuditListResponse>;
+  model_routes?: ApiResult<ModelRouteListResponse>;
   action_flash?: ConsoleActionFlash;
   api_base_url: string;
   generated_at: string;

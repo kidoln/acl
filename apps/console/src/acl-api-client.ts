@@ -6,6 +6,7 @@ import type {
   ControlObjectListResponse,
   ControlRelationListResponse,
   DecisionRecordResponse,
+  ModelRouteListResponse,
   PublishRequestListResponse,
   PublishRequestRecord,
   SimulationReportListResponse,
@@ -215,6 +216,28 @@ export class AclApiClient {
     return this.get<ControlAuditListResponse>(`/control/audits?${params.toString()}`);
   }
 
+  async listModelRoutes(query: {
+    namespace?: string;
+    tenant_id?: string;
+    environment?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ApiResult<ModelRouteListResponse>> {
+    const params = new URLSearchParams();
+    params.set('limit', String(query.limit ?? 20));
+    params.set('offset', String(query.offset ?? 0));
+    if (query.namespace) {
+      params.set('namespace', query.namespace);
+    }
+    if (query.tenant_id) {
+      params.set('tenant_id', query.tenant_id);
+    }
+    if (query.environment) {
+      params.set('environment', query.environment);
+    }
+    return this.get<ModelRouteListResponse>(`/control/model-routes?${params.toString()}`);
+  }
+
   async registerControlCatalog(payload: {
     system_id: string;
     namespace: string;
@@ -254,5 +277,20 @@ export class AclApiClient {
     }>;
   }): Promise<ApiResult<Record<string, unknown>>> {
     return this.post<Record<string, unknown>>('/control/relations:events', payload);
+  }
+
+  async upsertModelRoutes(payload: {
+    namespace: string;
+    routes: Array<{
+      tenant_id: string;
+      environment: string;
+      model_id: string;
+      model_version?: string;
+      publish_id?: string;
+      operator?: string;
+      updated_at?: string;
+    }>;
+  }): Promise<ApiResult<Record<string, unknown>>> {
+    return this.post<Record<string, unknown>>('/control/model-routes:upsert', payload);
   }
 }

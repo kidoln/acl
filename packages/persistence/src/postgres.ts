@@ -6,6 +6,7 @@ import type {
   ControlCatalogListQuery,
   ControlObjectListQuery,
   ControlRelationListQuery,
+  ModelRouteListQuery,
   PersistedControlAuditListResult,
   PersistedControlAuditRecord,
   PersistedControlCatalogListResult,
@@ -17,6 +18,8 @@ import type {
   PersistedDecisionRecord,
   PersistedGateRecord,
   PersistedLifecycleReportRecord,
+  PersistedModelRouteListResult,
+  PersistedModelRouteRecord,
   PersistedPublishRequestListResult,
   PersistedPublishRequestRecord,
   PersistedSimulationReportListResult,
@@ -56,6 +59,8 @@ const CONTROL_RELATION_ID_PREFIX = 'control_relation::';
 const CONTROL_RELATION_MODEL_PREFIX = 'control.relation::';
 const SIMULATION_MODEL_PREFIX = 'simulation.report::';
 const CONTROL_AUDIT_EVENT_PREFIX = 'control.';
+const MODEL_ROUTE_ID_PREFIX = 'model_route::';
+const MODEL_ROUTE_MODEL_PREFIX = 'model.route::';
 
 function normalizeLimit(limit: number | undefined): number {
   if (!Number.isFinite(limit)) {
@@ -866,6 +871,125 @@ export class PostgresPersistence implements AclPersistence {
         payload,
       };
     });
+    const totalCount = Number(countResult.rows[0]?.total_count ?? 0);
+    return toPagedResult(items, totalCount, offset);
+  }
+
+  async upsertModelRoute(record: PersistedModelRouteRecord): Promise<void> {
+    const id = withPrefix(MODEL_ROUTE_ID_PREFIX, record.key);
+    const modelId = withPrefix(MODEL_ROUTE_MODEL_PREFIX, record.namespace);
+    await this.pool.query(
+      `insert into acl_validation_records (id, model_id, created_at, payload)
+       values ($1, $2, $3, $4::jsonb)
+       on conflict (id) do update set model_id = excluded.model_id, created_at = excluded.created_at, payload = excluded.payload`,
+      [id, modelId, record.updated_at, JSON.stringify(record)],
+    );
+  }
+
+  async getModelRoute(key: string): Promise<PersistedModelRouteRecord | null> {
+    const id = withPrefix(MODEL_ROUTE_ID_PREFIX, key);
+    const result = await this.pool.query<PgRow>(
+      `select id, created_at, payload
+       from acl_validation_records
+       where id = $1`,
+      [id],
+    );
+
+    if (result.rowCount === 0) {
+      return null;
+    }
+
+    const row = result.rows[0];
+    const payload = parseJson(row.payload);
+    return {
+      key: typeof payload.key === 'string' ? payload.key : key,
+      namespace: typeof payload.namespace === 'string' ? payload.namespace : '',
+      tenant_id: typeof payload.tenant_id === 'string' ? payload.tenant_id : '',
+      environment: typeof payload.environment === 'string' ? payload.environment : '',
+      model_id: typeof payload.model_id === 'string' ? payload.model_id : '',
+      model_version:
+        typeof payload.model_version === 'string' ? payload.model_version : undefined,
+      publish_id: typeof payload.publish_id === 'string' ? payload.publish_id : undefined,
+      updated_at:
+        typeof payload.updated_at === 'string'
+          ? payload.updated_at
+          : new Date(row.created_at).toISOString(),
+      operator: typeof payload.operator === 'string' ? payload.operator : 'system',
+    };
+  }
+
+  async listModelRoutes(query?: ModelRouteListQuery): Promise<PersistedModelRouteListResult> {
+    const namespace = query?.namespace?.trim();
+    const tenantId = query?.tenant_id?.trim();
+    const environment = query?.environment?.trim();
+    const limit = normalizeLimit(query?.limit);
+    const offset = normalizeOffset(query?.offset);
+
+    const conditions: string[] = ['model_id like $1'];
+    const listParams: unknown[] = [`${MODEL_ROUTE_MODEL_PREFIX}%`];
+    const countParams: unknown[] = [`${MODEL_ROUTE_MODEL_PREFIX}%`];
+
+    if (namespace) {
+      conditions.push(`payload ->> 'namespace' = $${listParams.length + 1}`);
+      listParams.push(namespace);
+      countParams.push(namespace);
+    }
+    if (tenantId) {
+      conditions.push(`payload ->> 'tenant_id' = $${listParams.length + 1}`);
+      listParams.push(tenantId);
+      countParams.push(tenantId);
+    }
+    if (environment) {
+      conditions.push(`payload ->> 'environment' = $${listParams.length + 1}`);
+      listParams.push(environment);
+      countParams.push(environment);
+    }
+
+    listParams.push(limit, offset);
+    const limitIdx = listParams.length - 1;
+    const offsetIdx = listParams.length;
+    const whereClause = `where ${conditions.join(' and ')}`;
+
+    const [listResult, countResult] = await Promise.all([
+      this.pool.query<PgRow>(
+        `select id, created_at, payload
+         from acl_validation_records
+         ${whereClause}
+         order by coalesce(payload ->> 'updated_at', created_at::text) desc, id desc
+         limit $${limitIdx}
+         offset $${offsetIdx}`,
+        listParams,
+      ),
+      this.pool.query<PgRow>(
+        `select count(1)::int as total_count
+         from acl_validation_records
+         ${whereClause}`,
+        countParams,
+      ),
+    ]);
+
+    const items = listResult.rows.map((row) => {
+      const payload = parseJson(row.payload);
+      return {
+        key:
+          typeof payload.key === 'string'
+            ? payload.key
+            : stripPrefix(MODEL_ROUTE_ID_PREFIX, row.id),
+        namespace: typeof payload.namespace === 'string' ? payload.namespace : '',
+        tenant_id: typeof payload.tenant_id === 'string' ? payload.tenant_id : '',
+        environment: typeof payload.environment === 'string' ? payload.environment : '',
+        model_id: typeof payload.model_id === 'string' ? payload.model_id : '',
+        model_version:
+          typeof payload.model_version === 'string' ? payload.model_version : undefined,
+        publish_id: typeof payload.publish_id === 'string' ? payload.publish_id : undefined,
+        updated_at:
+          typeof payload.updated_at === 'string'
+            ? payload.updated_at
+            : new Date(row.created_at).toISOString(),
+        operator: typeof payload.operator === 'string' ? payload.operator : 'system',
+      };
+    });
+
     const totalCount = Number(countResult.rows[0]?.total_count ?? 0);
     return toPagedResult(items, totalCount, offset);
   }

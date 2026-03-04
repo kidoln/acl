@@ -4,6 +4,7 @@ import type {
   ControlCatalogListQuery,
   ControlObjectListQuery,
   ControlRelationListQuery,
+  ModelRouteListQuery,
   PersistedControlAuditListResult,
   PersistedControlAuditRecord,
   PersistedControlCatalogListResult,
@@ -15,6 +16,8 @@ import type {
   PersistedDecisionRecord,
   PersistedGateRecord,
   PersistedLifecycleReportRecord,
+  PersistedModelRouteListResult,
+  PersistedModelRouteRecord,
   PersistedPublishRequestListResult,
   PersistedPublishRequestRecord,
   PersistedSimulationReportListResult,
@@ -83,6 +86,8 @@ export class InMemoryPersistence implements AclPersistence {
   private readonly simulationReports = new Map<string, PersistedSimulationReportRecord>();
 
   private readonly controlAudits = new Map<string, PersistedControlAuditRecord>();
+
+  private readonly modelRoutes = new Map<string, PersistedModelRouteRecord>();
 
   async saveValidation(record: PersistedValidationRecord): Promise<void> {
     this.validations.set(record.validation_id, record);
@@ -299,6 +304,39 @@ export class InMemoryPersistence implements AclPersistence {
         return true;
       })
       .sort((left, right) => right.created_at.localeCompare(left.created_at));
+
+    return buildPagedResult(filtered, limit, offset);
+  }
+
+  async upsertModelRoute(record: PersistedModelRouteRecord): Promise<void> {
+    this.modelRoutes.set(record.key, record);
+  }
+
+  async getModelRoute(key: string): Promise<PersistedModelRouteRecord | null> {
+    return this.modelRoutes.get(key) ?? null;
+  }
+
+  async listModelRoutes(query?: ModelRouteListQuery): Promise<PersistedModelRouteListResult> {
+    const namespace = query?.namespace?.trim();
+    const tenantId = query?.tenant_id?.trim();
+    const environment = query?.environment?.trim();
+    const limit = normalizeLimit(query?.limit);
+    const offset = normalizeOffset(query?.offset);
+
+    const filtered = Array.from(this.modelRoutes.values())
+      .filter((record) => {
+        if (namespace && record.namespace !== namespace) {
+          return false;
+        }
+        if (tenantId && record.tenant_id !== tenantId) {
+          return false;
+        }
+        if (environment && record.environment !== environment) {
+          return false;
+        }
+        return true;
+      })
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
 
     return buildPagedResult(filtered, limit, offset);
   }

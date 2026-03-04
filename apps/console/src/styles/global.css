@@ -125,6 +125,67 @@ body {
   margin-top: 14px;
 }
 
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.card-head-main h3 {
+  margin: 0 0 6px;
+}
+
+.card-head-main .muted {
+  margin: 0;
+}
+
+.json-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #cfdbec;
+  border-radius: var(--radius-pill);
+  background: #f8fbff;
+  padding: 2px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.json-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  color: var(--text-body);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 8px;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+
+.json-toggle-btn:hover {
+  color: var(--primary);
+  transform: none;
+  box-shadow: none;
+}
+
+.json-toggle-btn.active {
+  border-color: #c7d9ff;
+  background: #edf3ff;
+  color: var(--primary);
+}
+
+.json-view[hidden] {
+  display: none !important;
+}
+
 .tab-nav {
   display: flex;
   flex-wrap: wrap;
@@ -244,6 +305,12 @@ body {
   margin-bottom: 8px;
 }
 
+.section-head h3 {
+  margin: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .badge-row {
   display: inline-flex;
   flex-wrap: wrap;
@@ -304,11 +371,93 @@ body {
 .action-form {
   display: grid;
   gap: 10px;
+  align-content: start;
   margin: 12px 0 14px;
   padding: 14px;
   border: 1px dashed #cbd5e1;
   border-radius: var(--radius-md);
   background: #fbfdff;
+}
+
+.action-form.model-submit-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.action-form.model-submit-form > h4,
+.action-form.model-submit-form > .model-editor,
+.action-form.model-submit-form > button {
+  grid-column: 1 / -1;
+}
+
+.action-form.model-submit-form .model-editor-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.action-panel {
+  margin: 10px 0 12px;
+}
+
+.model-editor {
+  margin: 6px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #f9fbff;
+  padding: 12px;
+}
+
+.model-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.model-editor-head .muted {
+  margin: 0;
+}
+
+.model-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  grid-auto-rows: minmax(132px, auto);
+  gap: 10px 12px;
+}
+
+.model-editor-grid > label {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.model-editor-grid > label > input,
+.model-editor-grid > label > select,
+.model-editor-grid > label > textarea {
+  margin-top: 6px;
+  flex: 0 0 auto;
+  align-self: stretch;
+}
+
+.model-editor-grid > label > input,
+.model-editor-grid > label > select {
+  min-height: 40px;
+}
+
+.model-editor-grid label textarea {
+  min-height: 88px;
+}
+
+.raw-json-toolbar {
+  margin: 2px 0 8px;
+}
+
+.model-editor-note {
+  margin: 8px 0 0;
 }
 
 label {
@@ -318,6 +467,16 @@ label {
   font-weight: 500;
   color: var(--text-muted);
   min-width: 130px;
+}
+
+.field-wide {
+  flex: 1 1 460px;
+  min-width: 280px;
+}
+
+.input-id-wide {
+  width: 100%;
+  min-width: 0;
 }
 
 input,
@@ -372,6 +531,12 @@ button {
   background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
 }
 
+.btn-secondary {
+  background: #e9effa;
+  color: #1d3c75;
+  box-shadow: none;
+}
+
 .btn:hover,
 button:hover {
   transform: translateY(-1px);
@@ -381,6 +546,12 @@ button:hover {
 .btn:active,
 button:active {
   transform: translateY(0);
+}
+
+.btn-secondary:hover {
+  background: #dbe8ff;
+  color: #163468;
+  box-shadow: none;
 }
 
 a {
@@ -486,6 +657,10 @@ tbody tr:last-child td {
   margin: 10px 0 12px;
 }
 
+.metric-caption {
+  margin: 6px 0 0;
+}
+
 .metric {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -518,6 +693,33 @@ tbody tr:last-child td {
   color: var(--text-body);
 }
 
+.kv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 10px 0 12px;
+}
+
+.kv-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fbfdff;
+  padding: 9px 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.kv-item span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.kv-item strong {
+  color: var(--text-title);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .matrix-table th:first-child {
   min-width: 180px;
 }
@@ -525,6 +727,11 @@ tbody tr:last-child td {
 .matrix-link {
   font-weight: 600;
   color: var(--primary);
+}
+
+.matrix-link.active {
+  color: #0b5bd3;
+  text-decoration: underline;
 }
 
 .drawer {
@@ -615,6 +822,18 @@ pre {
   line-height: 1.45;
 }
 
+.raw-json-panel pre {
+  margin: 0;
+  max-height: 420px;
+}
+
+.split-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
 .stack {
   display: grid;
   gap: 18px;
@@ -628,8 +847,33 @@ pre {
 .management-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 12px;
   margin: 12px 0;
+}
+
+.management-grid.model-submit-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.advanced-ops-card {
+  margin-bottom: 20px;
+}
+
+.runtime-empty-hint {
+  margin: 8px 0 2px;
+  padding: 12px 14px;
+  border: 1px dashed #d8e2ee;
+  border-radius: var(--radius-md);
+  background: #f8fbff;
+}
+
+.runtime-empty-hint p {
+  margin: 0;
+}
+
+.runtime-empty-hint p + p {
+  margin-top: 8px;
 }
 
 .management-table {
@@ -677,7 +921,35 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .card-head {
+    align-items: flex-start;
+  }
+
+  .kv-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .model-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .action-form.model-submit-form {
+    grid-template-columns: 1fr;
+  }
+
+  .action-form.model-submit-form .model-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .model-editor-head {
+    align-items: flex-start;
+  }
+
   .management-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .split-grid {
     grid-template-columns: 1fr;
   }
 
@@ -714,6 +986,16 @@ pre {
   .pagination-wrapper {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 1320px) and (min-width: 981px) {
+  .action-form.model-submit-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .action-form.model-submit-form .model-editor-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

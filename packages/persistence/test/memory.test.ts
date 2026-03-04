@@ -135,7 +135,7 @@ describe('memory persistence', () => {
     expect(paged.next_offset).toBe(1);
   });
 
-  it('stores and lists control-plane records and simulation reports', async () => {
+  it('stores and lists control-plane records, model routes and simulation reports', async () => {
     const store = new InMemoryPersistence();
 
     await store.upsertControlCatalog({
@@ -190,6 +190,17 @@ describe('memory persistence', () => {
         operation: 'created',
       },
     });
+    await store.upsertModelRoute({
+      key: 'tenant_a.crm::tenant_a::prod',
+      namespace: 'tenant_a.crm',
+      tenant_id: 'tenant_a',
+      environment: 'prod',
+      model_id: 'tenant_a_authz_v1',
+      model_version: '2026.03.04',
+      publish_id: 'pub_1',
+      updated_at: '2026-03-04T00:00:00.000Z',
+      operator: 'ops_admin',
+    });
 
     const catalogs = await store.listControlCatalogs({
       namespace: 'tenant_a.crm',
@@ -230,5 +241,19 @@ describe('memory persistence', () => {
     });
     expect(audits.total_count).toBe(1);
     expect(audits.items[0]?.event_type).toBe('control.catalog.registered');
+
+    const routes = await store.listModelRoutes({
+      namespace: 'tenant_a.crm',
+      tenant_id: 'tenant_a',
+      environment: 'prod',
+      limit: 10,
+      offset: 0,
+    });
+    expect(routes.total_count).toBe(1);
+    expect(routes.items[0]?.model_id).toBe('tenant_a_authz_v1');
+    expect(routes.items[0]?.model_version).toBe('2026.03.04');
+
+    const route = await store.getModelRoute('tenant_a.crm::tenant_a::prod');
+    expect(route?.publish_id).toBe('pub_1');
   });
 });

@@ -8,6 +8,16 @@ cd "$ROOT_DIR"
 API_PORT="${ACL_API_PORT:-3010}"
 CONSOLE_PORT="${ACL_CONSOLE_PORT:-3020}"
 API_BASE_URL="${ACL_API_BASE_URL:-http://127.0.0.1:${API_PORT}}"
+PERSISTENCE_DRIVER="${ACL_PERSISTENCE_DRIVER:-}"
+POSTGRES_DSN="${ACL_POSTGRES_DSN:-}"
+
+if [[ -z "$PERSISTENCE_DRIVER" && -n "$POSTGRES_DSN" ]]; then
+  PERSISTENCE_DRIVER="postgres"
+fi
+
+if [[ -z "$PERSISTENCE_DRIVER" ]]; then
+  PERSISTENCE_DRIVER="memory"
+fi
 
 TSX_BIN="${ROOT_DIR}/node_modules/.bin/tsx"
 
@@ -37,7 +47,22 @@ echo "[start-dev] api port: ${API_PORT}"
 echo "[start-dev] console port: ${CONSOLE_PORT}"
 echo "[start-dev] console -> api: ${API_BASE_URL}"
 
-ACL_API_PORT="$API_PORT" "$TSX_BIN" watch apps/api/src/main.ts &
+if [[ "$PERSISTENCE_DRIVER" == "postgres" && -z "$POSTGRES_DSN" ]]; then
+  echo "[start-dev] ACL_PERSISTENCE_DRIVER=postgres but ACL_POSTGRES_DSN is empty"
+  echo "[start-dev] set ACL_POSTGRES_DSN or switch to ACL_PERSISTENCE_DRIVER=memory"
+  exit 1
+fi
+
+if [[ "$PERSISTENCE_DRIVER" == "memory" ]]; then
+  echo "[start-dev] persistence: memory (non-persistent across restart)"
+else
+  echo "[start-dev] persistence: postgres"
+fi
+
+ACL_API_PORT="$API_PORT" \
+ACL_PERSISTENCE_DRIVER="$PERSISTENCE_DRIVER" \
+ACL_POSTGRES_DSN="$POSTGRES_DSN" \
+"$TSX_BIN" watch apps/api/src/main.ts &
 API_PID=$!
 
 ACL_CONSOLE_PORT="$CONSOLE_PORT" ACL_API_BASE_URL="$API_BASE_URL" "$TSX_BIN" watch apps/console/src/index.ts &

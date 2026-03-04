@@ -191,12 +191,14 @@ describe('console html renderer', () => {
     expect(html).toContain('ACL 治理控制台');
     expect(html).toContain('<link rel="stylesheet" href="/assets/global.css" />');
     expect(html).not.toContain('<style>');
-    expect(html).toContain('发布请求列表');
+    expect(html).toContain('发布请求');
     expect(html).toContain('决策回放');
     expect(html).toContain('/actions/review');
     expect(html).toContain('最终效果');
     expect(html).toContain('review 成功');
     expect(html).toContain('tab-link active');
+    expect(html).toContain('data-json-toggle');
+    expect(html).toContain('data-json-switchable');
     expect(html).toContain('<script src="/assets/dashboard-tabs.js" defer></script>');
     expect(html).toContain('role="tablist"');
     expect(html).toContain('role="tabpanel"');
@@ -316,8 +318,72 @@ describe('console html renderer', () => {
     expect(html).toContain('Embeddable Widget');
     expect(html).toContain('影响面模拟视图');
     expect(html).toContain('widget=simulation');
+    expect(html).toContain('data-json-toggle');
     expect(html).not.toContain('发布流程');
-    expect(html).not.toContain('/assets/dashboard-tabs.js');
+    expect(html).toContain('/assets/dashboard-tabs.js');
+  });
+
+  it('renders per-card visual and raw json blocks for publish and decision detail', () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: 'http://127.0.0.1:3010',
+      generated_at: '2026-03-04T00:00:00.000Z',
+      query: {
+        limit: 20,
+        offset: 0,
+        tab: 'workflow',
+        detail_mode: 'raw',
+        publish_id: 'pub_raw',
+        decision_id: 'dec_raw',
+        namespace: 'tenant_a.crm',
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      publish_detail: {
+        ok: true,
+        status: 200,
+        data: {
+          publish_id: 'pub_raw',
+          profile: 'baseline',
+          status: 'review_required',
+          final_result: 'review_required',
+          created_at: '2026-03-04T00:00:00.000Z',
+          updated_at: '2026-03-04T00:00:00.000Z',
+          payload: {
+            gate_result: {
+              gates: [],
+            },
+          },
+        },
+      },
+      decision_detail: {
+        ok: true,
+        status: 200,
+        data: {
+          decision_id: 'dec_raw',
+          created_at: '2026-03-04T00:00:00.000Z',
+          payload: {
+            final_effect: 'deny',
+          },
+          traces: [],
+        },
+      },
+    };
+
+    const html = renderConsolePage(model);
+    expect(html).toContain('data-json-view="visual"');
+    expect(html).toContain('data-json-view="raw" hidden');
+    expect(html).toContain('class="raw-json-panel"');
+    expect(html).toContain('&quot;decision_id&quot;: &quot;dec_raw&quot;');
+    expect(html).toContain('最终效果');
   });
 
   it('renders control tab actions', () => {
@@ -334,8 +400,34 @@ describe('console html renderer', () => {
         ok: true,
         status: 200,
         data: {
-          items: [],
-          total_count: 0,
+          items: [
+            {
+              publish_id: 'pub_control_1',
+              profile: 'baseline',
+              status: 'published',
+              final_result: 'passed',
+              created_at: '2026-03-04T00:00:00.000Z',
+              updated_at: '2026-03-04T00:00:00.000Z',
+              payload: {
+                model_snapshot: {
+                  model_meta: {
+                    model_id: 'tenant_a_authz_v1',
+                    version: '2026.03.04',
+                  },
+                  catalogs: {
+                    action_catalog: ['read', 'update'],
+                    subject_type_catalog: ['user', 'group'],
+                    object_type_catalog: ['kb'],
+                    relation_type_catalog: ['member_of'],
+                  },
+                  policies: {
+                    rules: [{ id: 'rule_1' }],
+                  },
+                },
+              },
+            },
+          ],
+          total_count: 1,
           has_more: false,
           limit: 20,
           offset: 0,
@@ -395,6 +487,51 @@ describe('console html renderer', () => {
     expect(html).toContain('/actions/control/catalog/register');
     expect(html).toContain('/actions/control/object/upsert');
     expect(html).toContain('/actions/control/relation/event');
+    expect(html).toContain('data-model-editor');
+    expect(html).toContain('data-json-toggle');
+    expect(html).toContain('从 JSON 刷新字段');
+    expect(html).toContain('发布快照统计');
+    expect(html).toContain('统计来源：publish_id=pub_control_1');
+    expect(html).toContain('<span>subject types</span><strong>2</strong>');
+    expect(html).toContain('<span>policy rules</span><strong>1</strong>');
+    expect(html).toContain('高级运维（可选）');
+    expect(html).toContain('不会反向修改上方策略模型 JSON');
+    expect(html).toContain('id="tab-panel-control" role="tabpanel" aria-hidden="false"');
+    expect(html).toContain('id="tab-panel-components" role="tabpanel" aria-hidden="true"');
+    expect(html).toContain('<span>subjects</span>');
+    expect(html).toContain('<span>categories(action)</span>');
+    expect(html).not.toContain('<span>audits</span>');
+  });
+
+  it('renders component index tab with embed widget table', () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: 'http://127.0.0.1:3010',
+      generated_at: '2026-03-04T00:00:00.000Z',
+      query: {
+        limit: 20,
+        offset: 0,
+        tab: 'components',
+        namespace: 'tenant_a.crm',
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+    };
+
+    const html = renderConsolePage(model);
+    expect(html).toContain('id="tab-panel-components" role="tabpanel" aria-hidden="false"');
+    expect(html).toContain('id="tab-panel-control" role="tabpanel" aria-hidden="true"');
     expect(html).toContain('Widget ID');
+    expect(html).toContain('publish_list');
+    expect(html).toContain('widget=publish_list');
+    expect(html).toContain('该页面用于查看可嵌入组件与对应链接，不属于控制面运行态数据。');
   });
 });

@@ -21,6 +21,8 @@ import {
   nextLifecycleId,
   nextValidationId,
   type AclPersistence,
+  type PersistedModelRouteRecord,
+  type PersistedPublishRequestRecord,
 } from '@acl/persistence';
 import { parseSelector, type SelectorScope } from '@acl/policy-dsl';
 import type { AuthzModelConfig } from '@acl/shared-types';
@@ -45,7 +47,12 @@ interface ModelValidateBody {
 }
 
 interface DecisionEvaluateBody {
-  model: unknown;
+  model?: unknown;
+  model_route?: {
+    namespace: string;
+    tenant_id: string;
+    environment: string;
+  };
   input: {
     action: string;
     subject: Partial<DecisionSubject> & { id: string };
@@ -175,6 +182,27 @@ interface ControlAuditListQuery {
   offset?: string;
 }
 
+interface ModelRouteUpsertBody {
+  namespace: string;
+  routes: Array<{
+    tenant_id: string;
+    environment: string;
+    model_id: string;
+    model_version?: string;
+    publish_id?: string;
+    operator?: string;
+    updated_at?: string;
+  }>;
+}
+
+interface ModelRouteListQuery {
+  namespace?: string;
+  tenant_id?: string;
+  environment?: string;
+  limit?: string;
+  offset?: string;
+}
+
 interface SimulationReportListQuery {
   publish_id?: string;
   profile?: string;
@@ -287,6 +315,14 @@ function buildControlCatalogKey(systemId: string, namespace: string): string {
 
 function buildRelationKey(from: string, to: string, relationType: string, scope?: string): string {
   return `${from}|${to}|${relationType}|${scope ?? ''}`;
+}
+
+function normalizeEnvironment(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function buildModelRouteKey(namespace: string, tenantId: string, environment: string): string {
+  return `${namespace}::${tenantId}::${normalizeEnvironment(environment)}`;
 }
 
 function isNonEmptyStringArray(value: unknown): value is string[] {
@@ -444,6 +480,158 @@ function getModelId(model: unknown): string {
   }
   const modelId = (meta as Record<string, unknown>).model_id;
   return typeof modelId === 'string' && modelId.length > 0 ? modelId : 'unknown_model';
+}
+
+function getModelMeta(
+  model: unknown,
+): { model_id: string; tenant_id: string; version: string } | null {
+  if (!isRecord(model)) {
+    return null;
+  }
+  const meta = model.model_meta;
+  if (!isRecord(meta)) {
+    return null;
+  }
+  const modelId = typeof meta.model_id === 'string' ? meta.model_id.trim() : '';
+  const tenantId = typeof meta.tenant_id === 'string' ? meta.tenant_id.trim() : '';
+  const version = typeof meta.version === 'string' ? meta.version.trim() : '';
+  if (!modelId || !tenantId || !version) {
+    return null;
+  }
+  return {
+    model_id: modelId,
+    tenant_id: tenantId,
+    version,
+  };
+}
+
+function getModelSnapshotFromPublishRecord(
+  record: PersistedPublishRequestRecord,
+): AuthzModelConfig | undefined {
+  const snapshot = record.payload.model_snapshot;
+  if (!isRecord(snapshot)) {
+    return undefined;
+  }
+  return snapshot as unknown as AuthzModelConfig;
+}
+
+async function findPublishedModelSnapshot(input: {
+  model_id: string;
+  model_version?: string;
+}): Promise<{
+  record: PersistedPublishRequestRecord;
+  snapshot: AuthzModelConfig;
+} | null> {
+  let offset = 0;
+  const limit = 100;
+
+  while (true) {
+    const page = await persistence.listPublishRequests({
+      status: 'published',
+      limit,
+      offset,
+    });
+
+    for (const record of page.items) {
+      const snapshot = getModelSnapshotFromPublishRecord(record);
+      if (!snapshot) {
+        continue;
+      }
+      const meta = getModelMeta(snapshot);
+      if (!meta) {
+        continue;
+      }
+      if (meta.model_id !== input.model_id) {
+        continue;
+      }
+      if (input.model_version && meta.version !== input.model_version) {
+        continue;
+      }
+      return {
+        record,
+        snapshot,
+      };
+    }
+
+    if (!page.has_more || page.next_offset === undefined) {
+      return null;
+    }
+    offset = page.next_offset;
+  }
+}
+
+async function resolveModelByRoute(input: {
+  namespace: string;
+  tenant_id: string;
+  environment: string;
+}): Promise<
+  | {
+      route: PersistedModelRouteRecord;
+      model: AuthzModelConfig;
+      publish_id?: string;
+    }
+  | null
+> {
+  const routeKey = buildModelRouteKey(
+    input.namespace,
+    input.tenant_id,
+    input.environment,
+  );
+  const route = await persistence.getModelRoute(routeKey);
+  if (!route) {
+    return null;
+  }
+
+  if (route.publish_id) {
+    const publishRecord = await persistence.getPublishRequest(route.publish_id);
+    if (!publishRecord || publishRecord.status !== 'published') {
+      return null;
+    }
+
+    const snapshot = getModelSnapshotFromPublishRecord(publishRecord);
+    if (!snapshot) {
+      return null;
+    }
+
+    const meta = getModelMeta(snapshot);
+    if (!meta) {
+      return null;
+    }
+    if (meta.model_id !== route.model_id) {
+      return null;
+    }
+    if (route.model_version && meta.version !== route.model_version) {
+      return null;
+    }
+    if (meta.tenant_id !== route.tenant_id) {
+      return null;
+    }
+
+    return {
+      route,
+      model: snapshot,
+      publish_id: publishRecord.publish_id,
+    };
+  }
+
+  const matched = await findPublishedModelSnapshot({
+    model_id: route.model_id,
+    model_version: route.model_version,
+  });
+  if (!matched) {
+    return null;
+  }
+
+  const meta = getModelMeta(matched.snapshot);
+  if (!meta || meta.tenant_id !== route.tenant_id) {
+    return null;
+  }
+
+  return {
+    route,
+    model: matched.snapshot,
+    publish_id: matched.record.publish_id,
+  };
 }
 
 function buildSubjectFromSelector(ruleId: string, selector: string): SimulationScenarioSubject | null {
@@ -1384,6 +1572,185 @@ app.get<{ Querystring: ControlAuditListQuery }>('/control/audits', async (reques
   });
 });
 
+app.post<{ Body: ModelRouteUpsertBody }>('/control/model-routes:upsert', async (request, reply) => {
+  const { namespace, routes } = request.body ?? {};
+
+  if (!isNonEmptyString(namespace) || !Array.isArray(routes) || routes.length === 0) {
+    return reply.code(400).send({
+      code: 'INVALID_REQUEST',
+      message: 'namespace and non-empty routes are required',
+    });
+  }
+
+  const createdAt = new Date().toISOString();
+  const records: PersistedModelRouteRecord[] = [];
+  let createdCount = 0;
+  let updatedCount = 0;
+
+  try {
+    for (const route of routes) {
+      if (
+        !isNonEmptyString(route?.tenant_id) ||
+        !isNonEmptyString(route?.environment) ||
+        !isNonEmptyString(route?.model_id)
+      ) {
+        return reply.code(400).send({
+          code: 'INVALID_REQUEST',
+          message: 'each route must include tenant_id/environment/model_id',
+        });
+      }
+
+      const tenantId = route.tenant_id.trim();
+      const environment = normalizeEnvironment(route.environment);
+      const modelId = route.model_id.trim();
+      const modelVersion = isNonEmptyString(route.model_version) ? route.model_version.trim() : undefined;
+      const routeKey = buildModelRouteKey(namespace, tenantId, environment);
+      const existed = await persistence.getModelRoute(routeKey);
+
+      let matched: { record: PersistedPublishRequestRecord; snapshot: AuthzModelConfig } | null = null;
+      if (isNonEmptyString(route.publish_id)) {
+        const record = await persistence.getPublishRequest(route.publish_id);
+        if (!record || record.status !== 'published') {
+          return reply.code(404).send({
+            code: 'NOT_FOUND',
+            message: `published request ${route.publish_id} not found`,
+          });
+        }
+        const snapshot = getModelSnapshotFromPublishRecord(record);
+        if (!snapshot) {
+          return reply.code(404).send({
+            code: 'NOT_FOUND',
+            message: `model_snapshot for publish request ${route.publish_id} not found`,
+          });
+        }
+        matched = { record, snapshot };
+      } else {
+        matched = await findPublishedModelSnapshot({
+          model_id: modelId,
+          model_version: modelVersion,
+        });
+      }
+
+      if (!matched) {
+        return reply.code(404).send({
+          code: 'NOT_FOUND',
+          message: `published model ${modelId}${modelVersion ? `@${modelVersion}` : ''} not found`,
+        });
+      }
+
+      const modelMeta = getModelMeta(matched.snapshot);
+      if (!modelMeta) {
+        return reply.code(409).send({
+          code: 'INVALID_MODEL',
+          message: 'matched model snapshot is missing model_meta.model_id/tenant_id/version',
+        });
+      }
+      if (modelMeta.tenant_id !== tenantId) {
+        return reply.code(409).send({
+          code: 'INVALID_ROUTE',
+          message: `route tenant_id ${tenantId} mismatches model tenant_id ${modelMeta.tenant_id}`,
+        });
+      }
+      if (modelMeta.model_id !== modelId) {
+        return reply.code(409).send({
+          code: 'INVALID_ROUTE',
+          message: `route model_id ${modelId} mismatches snapshot model_id ${modelMeta.model_id}`,
+        });
+      }
+      if (modelVersion && modelMeta.version !== modelVersion) {
+        return reply.code(409).send({
+          code: 'INVALID_ROUTE',
+          message: `route model_version ${modelVersion} mismatches snapshot version ${modelMeta.version}`,
+        });
+      }
+
+      const record: PersistedModelRouteRecord = {
+        key: routeKey,
+        namespace,
+        tenant_id: tenantId,
+        environment,
+        model_id: modelMeta.model_id,
+        model_version: modelMeta.version,
+        publish_id: matched.record.publish_id,
+        updated_at: isNonEmptyString(route.updated_at) ? route.updated_at : createdAt,
+        operator: isNonEmptyString(route.operator) ? route.operator : 'system',
+      };
+
+      await persistence.upsertModelRoute(record);
+      records.push(record);
+      if (existed) {
+        updatedCount += 1;
+      } else {
+        createdCount += 1;
+      }
+    }
+
+    await saveControlAudit({
+      event_type: 'control.model_route.upserted',
+      target: namespace,
+      namespace,
+      operator: records[0]?.operator ?? 'system',
+      payload: {
+        created_count: createdCount,
+        updated_count: updatedCount,
+        route_keys: records.map((item) => item.key),
+      },
+    });
+
+    const totals = await persistence.listModelRoutes({
+      namespace,
+      limit: 1,
+      offset: 0,
+    });
+
+    return reply.code(200).send({
+      namespace,
+      created_count: createdCount,
+      updated_count: updatedCount,
+      total_count: totals.total_count,
+      items: records,
+      persistence_driver: persistenceDriver,
+    });
+  } catch (error) {
+    app.log.error({ err: error, namespace }, 'persist model routes failed');
+    return reply.code(500).send({
+      code: 'PERSISTENCE_FAILED',
+      message: 'persist model routes failed',
+    });
+  }
+});
+
+app.get<{ Querystring: ModelRouteListQuery }>('/control/model-routes', async (request, reply) => {
+  const namespace = request.query?.namespace?.trim();
+  const tenantId = request.query?.tenant_id?.trim();
+  const environmentRaw = request.query?.environment?.trim();
+  const environment = environmentRaw ? normalizeEnvironment(environmentRaw) : undefined;
+  const limit = parseListNumber(request.query?.limit, 20);
+  const offset = parseListNumber(request.query?.offset, 0);
+
+  if (Number.isNaN(limit) || Number.isNaN(offset) || limit < 1 || limit > 100) {
+    return reply.code(400).send({
+      code: 'INVALID_REQUEST',
+      message: 'limit must be integer in [1, 100], offset must be integer >= 0',
+    });
+  }
+
+  const routes = await persistence.listModelRoutes({
+    namespace: namespace && namespace.length > 0 ? namespace : undefined,
+    tenant_id: tenantId && tenantId.length > 0 ? tenantId : undefined,
+    environment,
+    limit,
+    offset,
+  });
+
+  return reply.code(200).send({
+    ...routes,
+    limit,
+    offset,
+    persistence_driver: persistenceDriver,
+  });
+});
+
 app.post<{ Body: PublishSimulateBody }>('/publish:simulate', async (request, reply) => {
   const { model, profile, publish_id, metrics_override, options, top_n } = request.body ?? {};
 
@@ -2095,7 +2462,7 @@ app.get<{ Params: IdParams }>('/lifecycle-reports/:id', async (request, reply) =
 });
 
 app.post<{ Body: DecisionEvaluateBody }>('/decisions:evaluate', async (request, reply) => {
-  const { model, input, options } = request.body ?? {};
+  const { model, model_route: modelRoute, input, options } = request.body ?? {};
 
   if (
     !input ||
@@ -2109,14 +2476,46 @@ app.post<{ Body: DecisionEvaluateBody }>('/decisions:evaluate', async (request, 
     });
   }
 
-  if (model === undefined) {
+  let resolvedModel: unknown = model;
+  let resolvedModelRoute: PersistedModelRouteRecord | undefined;
+  let resolvedPublishId: string | undefined;
+
+  if (resolvedModel === undefined && modelRoute) {
+    if (
+      !isNonEmptyString(modelRoute.namespace) ||
+      !isNonEmptyString(modelRoute.tenant_id) ||
+      !isNonEmptyString(modelRoute.environment)
+    ) {
+      return reply.code(400).send({
+        code: 'INVALID_REQUEST',
+        message: 'model_route.namespace/model_route.tenant_id/model_route.environment are required',
+      });
+    }
+
+    const routeResult = await resolveModelByRoute({
+      namespace: modelRoute.namespace.trim(),
+      tenant_id: modelRoute.tenant_id.trim(),
+      environment: modelRoute.environment.trim(),
+    });
+    if (!routeResult) {
+      return reply.code(404).send({
+        code: 'NOT_FOUND',
+        message: 'model route not found or mapped published model is unavailable',
+      });
+    }
+    resolvedModel = routeResult.model;
+    resolvedModelRoute = routeResult.route;
+    resolvedPublishId = routeResult.publish_id;
+  }
+
+  if (resolvedModel === undefined) {
     return reply.code(400).send({
       code: 'INVALID_REQUEST',
-      message: 'model is required in request body',
+      message: 'model is required in request body (or provide model_route)',
     });
   }
 
-  const validation = validateModelConfig(model, {
+  const validation = validateModelConfig(resolvedModel, {
     available_obligation_executors: options?.available_obligation_executors,
   });
 
@@ -2130,7 +2529,7 @@ app.post<{ Body: DecisionEvaluateBody }>('/decisions:evaluate', async (request, 
   }
 
   const constraintEvaluation = evaluateConstraints({
-    model: model as AuthzModelConfig,
+    model: resolvedModel as AuthzModelConfig,
     cardinality_counts: options?.cardinality_counts,
   });
   if (constraintEvaluation.violations.length > 0) {
@@ -2150,7 +2549,7 @@ app.post<{ Body: DecisionEvaluateBody }>('/decisions:evaluate', async (request, 
   };
 
   const result = evaluateDecision({
-    model: model as AuthzModelConfig,
+    model: resolvedModel as AuthzModelConfig,
     input: decisionInput,
   });
 
@@ -2172,6 +2571,18 @@ app.post<{ Body: DecisionEvaluateBody }>('/decisions:evaluate', async (request, 
     decision_id: decisionId,
     persisted_at: createdAt,
     persistence_driver: persistenceDriver,
+    resolved_model: getModelMeta(resolvedModel) ?? undefined,
+    resolved_route: resolvedModelRoute
+      ? {
+          key: resolvedModelRoute.key,
+          namespace: resolvedModelRoute.namespace,
+          tenant_id: resolvedModelRoute.tenant_id,
+          environment: resolvedModelRoute.environment,
+          model_id: resolvedModelRoute.model_id,
+          model_version: resolvedModelRoute.model_version,
+          publish_id: resolvedPublishId ?? resolvedModelRoute.publish_id,
+        }
+      : undefined,
     decision: result.decision,
     traces: result.traces,
     constraint_evaluation: constraintEvaluation,
