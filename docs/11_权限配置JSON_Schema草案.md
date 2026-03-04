@@ -2,7 +2,7 @@
 
 > 文档编号：55  
 > 更新日期：2026-03-04  
-> 对应主文档：[`54_企业可配置权限模型设计.md`](./54_企业可配置权限模型设计.md) 第 13 章
+> 对应主文档：[`10_企业可配置权限模型设计.md`](./10_企业可配置权限模型设计.md) 第 13 章
 
 ## 1. 目标与范围
 
@@ -27,13 +27,14 @@
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://b_dbrain.local/schemas/authz-model.schema.json",
+  "$id": "https://acl.example.com/schemas/authz-model.schema.json",
   "title": "企业权限模型配置 Schema",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "model_meta",
     "catalogs",
+    "object_onboarding",
     "relations",
     "policies",
     "constraints",
@@ -161,7 +162,7 @@
       "properties": {
         "rules": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "items": { "$ref": "#/$defs/policy_rule" }
         }
       }
@@ -259,10 +260,41 @@
       },
       "then": {
         "properties": {
+          "catalogs": {
+            "properties": {
+              "action_catalog": { "minItems": 1 },
+              "object_type_catalog": { "minItems": 1 },
+              "relation_type_catalog": { "minItems": 1 }
+            }
+          },
           "policies": {
             "properties": {
               "rules": {
                 "minItems": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "consistency": {
+            "properties": {
+              "default_level": { "const": "bounded_staleness" }
+            },
+            "required": ["default_level"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "consistency": {
+            "required": ["bounded_staleness_ms"],
+            "properties": {
+              "bounded_staleness_ms": {
+                "minimum": 1
               }
             }
           }
@@ -441,7 +473,9 @@
 5. 冲突规则可消歧性校验（优先级 + 合并算法）。
 6. `default_profile` 必须存在于 `profiles`。  
 7. 每个 Profile 的 `required_fields` 至少包含硬必填四项。  
-8. `compat_strict` 模式下，条件必填字段缺失应拒绝入管。
+8. `compat_strict` 模式下，条件必填字段缺失应拒绝入管。  
+9. `subject_removed` 等关键事件必须存在且 `required=true`。  
+10. `RULE_CONFLICT_UNRESOLVED` 与 `OBLIGATION_NOT_EXECUTABLE` 归属 `P0` 阻断。
 
 ## 5. 最小通过示例
 
@@ -530,7 +564,7 @@
 ## 6. 常见失败样例（对应错误码）
 
 1. `policies.rules` 为空且状态为 `published`。  
-对应：`MODEL_META_INVALID` 或发布门禁 `P0` 失败。
+对应：`SCHEMA_VALIDATION_FAILED` 或发布门禁 `P0` 失败。
 
 2. `priority` 超出区间（如 `0` 或 `10001`）。  
 对应：Schema 校验失败。
@@ -543,6 +577,6 @@
 
 ## 7. 与主文档映射关系
 
-1. 对应 `54` 文档第 `13.2`、`13.3`、`13.4` 的语法定义。  
-2. 对应 `54` 文档第 `13.5`、`13.6` 的校验与冲突规则。  
-3. 对应 `54` 文档第 `13.10`、`13.11`、`13.12` 的错误码与门禁语义。
+1. 对应 `10` 文档第 `13.2`、`13.3`、`13.4` 的语法定义。  
+2. 对应 `10` 文档第 `13.5`、`13.6` 的校验与冲突规则。  
+3. 对应 `10` 文档第 `13.10`、`13.11`、`13.12` 的错误码与门禁语义。
