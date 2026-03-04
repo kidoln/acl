@@ -1,0 +1,18 @@
+{
+  "name": "@acl/schema",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ACL 配置 JSON Schema 与加载器",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@acl/shared-types": "workspace:*",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  }
+}

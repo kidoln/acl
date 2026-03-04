@@ -1,0 +1,7 @@
+node_modules
+dist
+.turbo
+.corepack
+.pnpm-store
+coverage
+.DS_Store

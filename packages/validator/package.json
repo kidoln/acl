@@ -1,0 +1,19 @@
+{
+  "name": "@acl/validator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ACL 模型五层校验器（Schema/语义/安全/可执行）",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@acl/constraints": "workspace:*",
+    "@acl/policy-dsl": "workspace:*",
+    "@acl/schema": "workspace:*",
+    "@acl/shared-types": "workspace:*"
+  }
+}

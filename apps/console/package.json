@@ -1,0 +1,17 @@
+{
+  "name": "@acl/console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ACL 治理控制台（阶段 1 占位骨架）",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && mkdir -p dist/styles && cp src/styles/global.css dist/styles/global.css",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6"
+  }
+}

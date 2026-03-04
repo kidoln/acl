@@ -1,0 +1,21 @@
+{
+  "name": "@acl/persistence",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ACL 持久化层（内存/PostgreSQL 适配器）",
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "db:init:postgres": "node ./scripts/postgres/init-acl-db.mjs"
+  },
+  "dependencies": {
+    "@acl/shared-types": "workspace:*",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.6"
+  }
+}

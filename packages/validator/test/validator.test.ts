@@ -1,0 +1,296 @@
+import { describe, expect, it } from 'vitest';
+
+import { minimalDraftModel } from '@acl/shared-types';
+
+import { validateModelConfig } from '../src/validator';
+
+describe('model validator', () => {
+  it('passes baseline model with available obligation executors', () => {
+    const result = validateModelConfig(minimalDraftModel, {
+      available_obligation_executors: ['audit_write'],
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.summary.blocking_issues).toBe(0);
+  });
+
+  it('detects unknown action in policy rule', () => {
+    const badModel = {
+      ...minimalDraftModel,
+      policies: {
+        rules: [
+          {
+            ...minimalDraftModel.policies.rules[0],
+            action_set: ['read', 'delete'],
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(badModel);
+    expect(result.issues.some((issue) => issue.code === 'ACTION_NOT_REGISTERED')).toBe(true);
+  });
+
+  it('detects selector parse error', () => {
+    const badModel = {
+      ...minimalDraftModel,
+      policies: {
+        rules: [
+          {
+            ...minimalDraftModel.policies.rules[0],
+            object_selector: 'object.type = kb',
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(badModel);
+    expect(result.issues.some((issue) => issue.code === 'SELECTOR_PARSE_ERROR')).toBe(true);
+  });
+
+  it('detects missing mandatory obligations for high sensitivity allow rule', () => {
+    const badModel = {
+      ...minimalDraftModel,
+      policies: {
+        rules: [
+          {
+            ...minimalDraftModel.policies.rules[0],
+            object_selector: 'object.sensitivity == high',
+            obligations: [],
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(badModel);
+    expect(result.issues.some((issue) => issue.code === 'MANDATORY_OBLIGATION_MISSING')).toBe(true);
+  });
+
+  it('detects unresolved conflict with same priority and opposite effect', () => {
+    const base = minimalDraftModel.policies.rules[0];
+    const badModel = {
+      ...minimalDraftModel,
+      model_meta: {
+        ...minimalDraftModel.model_meta,
+        combining_algorithm: 'first-applicable' as const,
+      },
+      policies: {
+        rules: [
+          base,
+          {
+            ...base,
+            id: 'rule_read_kb_deny',
+            effect: 'deny' as const,
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(badModel);
+    expect(result.issues.some((issue) => issue.code === 'RULE_CONFLICT_UNRESOLVED')).toBe(true);
+  });
+
+  it('detects subject_removed lifecycle handler missing', () => {
+    const badModel = {
+      ...minimalDraftModel,
+      lifecycle: {
+        event_rules: [
+          {
+            event_type: 'subject_removed',
+            handler: 'revoke_direct_edges',
+            required: false,
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(badModel);
+    expect(result.issues.some((issue) => issue.code === 'LIFECYCLE_HANDLER_MISSING')).toBe(true);
+  });
+
+  it('detects obligation executor not available', () => {
+    const result = validateModelConfig(minimalDraftModel, {
+      available_obligation_executors: ['dual_approval'],
+    });
+
+    expect(result.issues.some((issue) => issue.code === 'OBLIGATION_NOT_EXECUTABLE')).toBe(true);
+  });
+
+  it('detects SOD violation from constraints', () => {
+    const model = {
+      ...minimalDraftModel,
+      policies: {
+        rules: [
+          {
+            id: 'rule_allow_read',
+            subject_selector: 'subject.relations includes member_of(group:g1)',
+            object_selector: 'object.type == kb',
+            action_set: ['read'],
+            effect: 'allow' as const,
+            priority: 100,
+          },
+          {
+            id: 'rule_allow_update',
+            subject_selector: 'subject.relations includes member_of(group:g1)',
+            object_selector: 'object.type == kb',
+            action_set: ['update'],
+            effect: 'allow' as const,
+            priority: 90,
+          },
+        ],
+      },
+      constraints: {
+        sod_rules: [
+          {
+            id: 'sod_read_update',
+            forbidden_combination: ['read', 'update'],
+          },
+        ],
+        cardinality_rules: [],
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(result.issues.some((issue) => issue.code === 'SOD_VIOLATION')).toBe(true);
+  });
+
+  it('detects cardinality exceeded from provided counts', () => {
+    const model = {
+      ...minimalDraftModel,
+      constraints: {
+        ...minimalDraftModel.constraints,
+        cardinality_rules: [
+          {
+            target: 'tenant_root',
+            max_count: 2,
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(model, {
+      cardinality_counts: {
+        tenant_root: 3,
+      },
+    });
+
+    expect(result.issues.some((issue) => issue.code === 'CARDINALITY_EXCEEDED')).toBe(true);
+  });
+
+  it('detects duplicate rule id', () => {
+    const base = minimalDraftModel.policies.rules[0];
+    const badModel = {
+      ...minimalDraftModel,
+      policies: {
+        rules: [
+          base,
+          {
+            ...base,
+            effect: 'deny' as const,
+            priority: base.priority + 1,
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(badModel);
+    expect(result.issues.some((issue) => issue.code === 'DUPLICATE_RULE_ID')).toBe(true);
+  });
+
+  it('detects selector type mismatch', () => {
+    const badModel = {
+      ...minimalDraftModel,
+      policies: {
+        rules: [
+          {
+            ...minimalDraftModel.policies.rules[0],
+            subject_selector: 'object.type == kb',
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(badModel);
+    expect(result.issues.some((issue) => issue.code === 'SELECTOR_TYPE_MISMATCH')).toBe(true);
+  });
+
+  it('marks priority collision as warning when algorithm can disambiguate', () => {
+    const base = minimalDraftModel.policies.rules[0];
+    const model = {
+      ...minimalDraftModel,
+      policies: {
+        rules: [
+          base,
+          {
+            ...base,
+            id: 'rule_read_kb_deny',
+            effect: 'deny' as const,
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(model);
+    const issue = result.issues.find((item) => item.code === 'PRIORITY_COLLISION');
+    expect(issue).toBeDefined();
+    expect(issue?.severity).toBe('warning');
+  });
+
+  it('detects unreachable rule shadowed by higher priority', () => {
+    const base = minimalDraftModel.policies.rules[0];
+    const model = {
+      ...minimalDraftModel,
+      policies: {
+        rules: [
+          {
+            ...base,
+            id: 'rule_high',
+            action_set: ['read', 'update'],
+            priority: 200,
+          },
+          {
+            ...base,
+            id: 'rule_low',
+            action_set: ['read'],
+            priority: 100,
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(result.issues.some((issue) => issue.code === 'RULE_UNREACHABLE')).toBe(true);
+  });
+
+  it('detects untrusted attribute source configuration', () => {
+    const model = {
+      ...minimalDraftModel,
+      quality_guardrails: {
+        ...minimalDraftModel.quality_guardrails,
+        attribute_quality: {
+          reject_unknown_source: true,
+          authority_whitelist: [],
+        },
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(result.issues.some((issue) => issue.code === 'ATTRIBUTE_SOURCE_UNTRUSTED')).toBe(true);
+  });
+
+  it('detects strict onboarding config missing conditional rules', () => {
+    const model = {
+      ...minimalDraftModel,
+      object_onboarding: {
+        ...minimalDraftModel.object_onboarding,
+        compatibility_mode: 'compat_strict' as const,
+        conditional_required: [],
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(
+      result.issues.some((issue) => issue.code === 'OBJECT_CONDITIONAL_REQUIRED_MISSING'),
+    ).toBe(true);
+  });
+});
