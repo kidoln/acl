@@ -1,0 +1,106 @@
+{
+  "model_meta": {
+    "model_id": "tenant_acme_same_company_visibility",
+    "tenant_id": "tenant_acme",
+    "version": "2026.03.04",
+    "status": "draft",
+    "combining_algorithm": "deny-overrides"
+  },
+  "catalogs": {
+    "action_catalog": ["read"],
+    "subject_type_catalog": ["user", "company"],
+    "object_type_catalog": ["kb"],
+    "relation_type_catalog": ["in_company", "derives_to"]
+  },
+  "object_onboarding": {
+    "compatibility_mode": "compat_balanced",
+    "default_profile": "minimal",
+    "profiles": {
+      "minimal": {
+        "required_fields": ["tenant_id", "object_id", "object_type", "created_by"],
+        "autofill": {
+          "owner_ref": "created_by",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    "conditional_required": [
+      {
+        "when": "object.sensitivity == high",
+        "add_fields": ["data_domain", "retention_class"]
+      }
+    ]
+  },
+  "relations": {
+    "subject_relations": [],
+    "object_relations": [],
+    "subject_object_relations": []
+  },
+  "policies": {
+    "rules": [
+      {
+        "id": "allow_read_kb_in_same_company",
+        "subject_selector": "subject.type == user and context.same_company == true",
+        "object_selector": "object.type == kb",
+        "action_set": ["read"],
+        "effect": "allow",
+        "priority": 100
+      }
+    ]
+  },
+  "constraints": {
+    "sod_rules": [],
+    "cardinality_rules": []
+  },
+  "lifecycle": {
+    "event_rules": [
+      {
+        "event_type": "subject_removed",
+        "handler": "revoke_direct_edges",
+        "required": true
+      },
+      {
+        "event_type": "object_derived",
+        "handler": "propagate_company_relation_on_derive",
+        "required": false
+      }
+    ]
+  },
+  "consistency": {
+    "default_level": "bounded_staleness",
+    "high_risk_level": "strong",
+    "bounded_staleness_ms": 3000
+  },
+  "quality_guardrails": {
+    "attribute_quality": {
+      "authority_whitelist": ["hr_system", "org_system"],
+      "freshness_ttl_sec": {
+        "org_membership": 900
+      },
+      "reject_unknown_source": true
+    },
+    "mandatory_obligations": []
+  },
+  "context_inference": {
+    "enabled": true,
+    "rules": [
+      {
+        "id": "infer_same_company",
+        "output_field": "same_company",
+        "subject_edges": [
+          {
+            "relation_type": "in_company",
+            "entity_side": "from"
+          }
+        ],
+        "object_edges": [
+          {
+            "relation_type": "in_company",
+            "entity_side": "from"
+          }
+        ],
+        "object_owner_fallback": true
+      }
+    ]
+  }
+}

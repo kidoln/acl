@@ -41,4 +41,35 @@ describe('authz model schema', () => {
     expect(result.valid).toBe(false);
     expect(result.errors.some((error) => error.keyword === 'required')).toBe(true);
   });
+
+  it('accepts context inference rules in model config', () => {
+    const model = {
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_same_scope',
+            output_field: 'same_scope',
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'to' as const,
+              },
+            ],
+            object_owner_fallback: false,
+          },
+        ],
+      },
+    };
+
+    const result = validateAuthzModel(model);
+    expect(result.valid).toBe(true);
+  });
 });

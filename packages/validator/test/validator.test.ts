@@ -293,4 +293,34 @@ describe('model validator', () => {
       result.issues.some((issue) => issue.code === 'OBJECT_CONDITIONAL_REQUIRED_MISSING'),
     ).toBe(true);
   });
+
+  it('detects unknown relation type in context inference rules', () => {
+    const model = {
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_same_scope',
+            output_field: 'same_scope',
+            subject_edges: [
+              {
+                relation_type: 'belongs_to',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'unknown_scope_relation',
+                entity_side: 'to' as const,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(result.issues.some((issue) => issue.code === 'RELATION_TYPE_UNKNOWN')).toBe(true);
+  });
 });

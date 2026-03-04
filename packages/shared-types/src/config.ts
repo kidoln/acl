@@ -87,6 +87,26 @@ export interface QualityGuardrails {
   mandatory_obligations: string[];
 }
 
+export type ContextInferenceEntitySide = 'from' | 'to';
+
+export interface ContextInferenceEdgeSelector {
+  relation_type: string;
+  entity_side: ContextInferenceEntitySide;
+}
+
+export interface ContextInferenceRule {
+  id: string;
+  output_field: string;
+  subject_edges: ContextInferenceEdgeSelector[];
+  object_edges: ContextInferenceEdgeSelector[];
+  object_owner_fallback?: boolean;
+}
+
+export interface ContextInferenceConfig {
+  enabled?: boolean;
+  rules: ContextInferenceRule[];
+}
+
 export interface AuthzModelConfig {
   model_meta: ModelMeta;
   catalogs: {
@@ -113,6 +133,7 @@ export interface AuthzModelConfig {
   };
   consistency: ConsistencyConfig;
   quality_guardrails: QualityGuardrails;
+  context_inference?: ContextInferenceConfig;
 }
 
 export interface DecisionRequest {

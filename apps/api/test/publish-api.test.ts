@@ -491,6 +491,9 @@ describe('publish api integration', () => {
       publishId: publishV1,
       model: modelV1 as unknown as Record<string, unknown>,
     });
+    await new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), 2);
+    });
     await publishModelViaWorkflow({
       publishId: publishV2,
       model: modelV2 as unknown as Record<string, unknown>,
@@ -575,5 +578,226 @@ describe('publish api integration', () => {
     expect(evaluateBody.resolved_model?.model_id).toBe(modelId);
     expect(evaluateBody.resolved_model?.version).toBe(v2);
     expect(evaluateBody.resolved_route?.publish_id).toBe(publishV2);
+  });
+
+  it('infers same-department visibility from control-plane relations', async () => {
+    const namespace = `tenant_auto.kb.${Date.now()}`;
+    const modelId = `tenant_auto_authz_${Date.now()}`;
+    const version = `2026.03.04.${Math.floor(Math.random() * 10000)}`;
+    const publishId = nextPublishId('pub_infer_same_dept');
+    const objectId = `kb:auto_${Date.now()}`;
+
+    const registerCatalog = await app.inject({
+      method: 'POST',
+      url: '/control/catalogs:register',
+      payload: {
+        system_id: 'knowledge_service',
+        namespace,
+        catalogs: {
+          action_catalog: ['read'],
+          object_type_catalog: ['kb'],
+          relation_type_catalog: ['belongs_to', 'owns'],
+        },
+      },
+    });
+    expect(registerCatalog.statusCode).toBe(200);
+
+    const upsertObject = await app.inject({
+      method: 'POST',
+      url: '/control/objects:upsert',
+      payload: {
+        namespace,
+        objects: [
+          {
+            object_id: objectId,
+            object_type: 'kb',
+            owner_ref: 'user:alice',
+            sensitivity: 'normal',
+          },
+        ],
+      },
+    });
+    expect(upsertObject.statusCode).toBe(200);
+
+    const relationEvents = await app.inject({
+      method: 'POST',
+      url: '/control/relations:events',
+      payload: {
+        namespace,
+        events: [
+          {
+            from: 'user:alice',
+            to: 'department:rnd',
+            relation_type: 'belongs_to',
+            operation: 'upsert',
+          },
+          {
+            from: 'user:bob',
+            to: 'department:rnd',
+            relation_type: 'belongs_to',
+            operation: 'upsert',
+          },
+          {
+            from: 'user:charlie',
+            to: 'department:sales',
+            relation_type: 'belongs_to',
+            operation: 'upsert',
+          },
+        ],
+      },
+    });
+    expect(relationEvents.statusCode).toBe(200);
+
+    const sameDeptModel = {
+      ...minimalDraftModel,
+      model_meta: {
+        ...minimalDraftModel.model_meta,
+        model_id: modelId,
+        tenant_id: 'tenant_auto',
+        version,
+      },
+      catalogs: {
+        action_catalog: ['read'],
+        subject_type_catalog: ['user'],
+        object_type_catalog: ['kb'],
+        relation_type_catalog: ['belongs_to', 'owns'],
+      },
+      policies: {
+        rules: [
+          {
+            id: 'rule_same_department_kb_read',
+            subject_selector: 'subject.type == user and context.same_department == true',
+            object_selector: 'object.type == kb',
+            action_set: ['read'],
+            effect: 'allow',
+            priority: 100,
+          },
+        ],
+      },
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_same_department',
+            output_field: 'same_department',
+            subject_edges: [
+              {
+                relation_type: 'belongs_to',
+                entity_side: 'from',
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'owns',
+                entity_side: 'to',
+              },
+            ],
+            object_owner_fallback: true,
+          },
+        ],
+      },
+    };
+
+    await publishModelViaWorkflow({
+      publishId,
+      model: sameDeptModel as unknown as Record<string, unknown>,
+    });
+
+    const upsertRoute = await app.inject({
+      method: 'POST',
+      url: '/control/model-routes:upsert',
+      payload: {
+        namespace,
+        routes: [
+          {
+            tenant_id: 'tenant_auto',
+            environment: 'prod',
+            model_id: modelId,
+            model_version: version,
+            publish_id: publishId,
+            operator: 'ops_auto',
+          },
+        ],
+      },
+    });
+    expect(upsertRoute.statusCode).toBe(200);
+
+    const evaluateSameDept = await app.inject({
+      method: 'POST',
+      url: '/decisions:evaluate',
+      payload: {
+        model_route: {
+          namespace,
+          tenant_id: 'tenant_auto',
+          environment: 'prod',
+        },
+        input: {
+          action: 'read',
+          subject: {
+            id: 'user:bob',
+            type: 'user',
+          },
+          object: {
+            id: objectId,
+            type: 'kb',
+            sensitivity: 'normal',
+          },
+        },
+      },
+    });
+    expect(evaluateSameDept.statusCode).toBe(200);
+    const sameDeptBody = evaluateSameDept.json() as {
+      decision: { final_effect: string };
+      relation_inference?: {
+        applied: boolean;
+        namespace?: string;
+        rules?: Array<{
+          id: string;
+          matched: boolean;
+          object_owner_ref?: string;
+        }>;
+      };
+    };
+    expect(sameDeptBody.decision.final_effect).toBe('allow');
+    expect(sameDeptBody.relation_inference?.applied).toBe(true);
+    expect(sameDeptBody.relation_inference?.namespace).toBe(namespace);
+    expect(sameDeptBody.relation_inference?.rules?.[0]?.id).toBe('infer_same_department');
+    expect(sameDeptBody.relation_inference?.rules?.[0]?.matched).toBe(true);
+    expect(sameDeptBody.relation_inference?.rules?.[0]?.object_owner_ref).toBe('user:alice');
+
+    const evaluateCrossDept = await app.inject({
+      method: 'POST',
+      url: '/decisions:evaluate',
+      payload: {
+        model_route: {
+          namespace,
+          tenant_id: 'tenant_auto',
+          environment: 'prod',
+        },
+        input: {
+          action: 'read',
+          subject: {
+            id: 'user:charlie',
+            type: 'user',
+          },
+          object: {
+            id: objectId,
+            type: 'kb',
+            sensitivity: 'normal',
+          },
+        },
+      },
+    });
+    expect(evaluateCrossDept.statusCode).toBe(200);
+    const crossDeptBody = evaluateCrossDept.json() as {
+      decision: { final_effect: string };
+      relation_inference?: {
+        rules?: Array<{
+          matched: boolean;
+        }>;
+      };
+    };
+    expect(crossDeptBody.decision.final_effect).toBe('not_applicable');
+    expect(crossDeptBody.relation_inference?.rules?.[0]?.matched).toBe(false);
   });
 });

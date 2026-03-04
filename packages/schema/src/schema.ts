@@ -208,6 +208,19 @@ export const authzModelSchema = {
         },
       },
     },
+    context_inference: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['rules'],
+      properties: {
+        enabled: { type: 'boolean' },
+        rules: {
+          type: 'array',
+          minItems: 1,
+          items: { $ref: '#/$defs/context_inference_rule' },
+        },
+      },
+    },
   },
   allOf: [
     {
@@ -412,6 +425,44 @@ export const authzModelSchema = {
           items: { type: 'string', minLength: 1 },
           uniqueItems: true,
         },
+      },
+    },
+    context_inference_edge_selector: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['relation_type', 'entity_side'],
+      properties: {
+        relation_type: { type: 'string', minLength: 1 },
+        entity_side: {
+          type: 'string',
+          enum: ['from', 'to'],
+        },
+      },
+    },
+    context_inference_rule: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'output_field', 'subject_edges', 'object_edges'],
+      properties: {
+        id: {
+          type: 'string',
+          pattern: '^[a-zA-Z0-9._-]{3,128}$',
+        },
+        output_field: {
+          type: 'string',
+          pattern: '^[a-zA-Z_][a-zA-Z0-9_]{0,63}$',
+        },
+        subject_edges: {
+          type: 'array',
+          minItems: 1,
+          items: { $ref: '#/$defs/context_inference_edge_selector' },
+        },
+        object_edges: {
+          type: 'array',
+          minItems: 1,
+          items: { $ref: '#/$defs/context_inference_edge_selector' },
+        },
+        object_owner_fallback: { type: 'boolean' },
       },
     },
   },

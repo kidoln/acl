@@ -32,6 +32,7 @@ import {
   applyPublishReview,
   buildPublishRequestRecord,
 } from './publish-workflow';
+import { inferContextFromControlPlane } from './relation-inference';
 
 interface SelectorParseBody {
   selector: string;
@@ -63,6 +64,11 @@ interface DecisionEvaluateBody {
     available_obligation_executors?: string[];
     cardinality_counts?: Record<string, number>;
     strict_validation?: boolean;
+    relation_inference?: {
+      enabled?: boolean;
+      namespace?: string;
+      max_relations_scan?: number;
+    };
   };
 }
 
@@ -323,6 +329,29 @@ function normalizeEnvironment(value: string): string {
 
 function buildModelRouteKey(namespace: string, tenantId: string, environment: string): string {
   return `${namespace}::${tenantId}::${normalizeEnvironment(environment)}`;
+}
+
+function resolveDecisionControlNamespace(input: {
+  options?: DecisionEvaluateBody['options'];
+  resolvedModelRoute?: PersistedModelRouteRecord;
+  requestContext?: Record<string, unknown>;
+}): string | undefined {
+  const fromOptions = input.options?.relation_inference?.namespace;
+  if (isNonEmptyString(fromOptions)) {
+    return fromOptions.trim();
+  }
+
+  const fromRoute = input.resolvedModelRoute?.namespace;
+  if (isNonEmptyString(fromRoute)) {
+    return fromRoute.trim();
+  }
+
+  const fromContext = input.requestContext?.namespace;
+  if (isNonEmptyString(fromContext)) {
+    return fromContext.trim();
+  }
+
+  return undefined;
 }
 
 function isNonEmptyStringArray(value: unknown): value is string[] {
@@ -2528,8 +2557,10 @@ app.post<{ Body: DecisionEvaluateBody }>('/decisions:evaluate', async (request, 
     });
   }
 
+  const typedModel = resolvedModel as AuthzModelConfig;
+
   const constraintEvaluation = evaluateConstraints({
-    model: resolvedModel as AuthzModelConfig,
+    model: typedModel,
     cardinality_counts: options?.cardinality_counts,
   });
   if (constraintEvaluation.violations.length > 0) {
@@ -2541,15 +2572,108 @@ app.post<{ Body: DecisionEvaluateBody }>('/decisions:evaluate', async (request, 
     });
   }
 
+  const contextInput = isRecord(input.context) ? { ...input.context } : {};
+  const relationInferenceEnabled = options?.relation_inference?.enabled !== false;
   const decisionInput: DecisionInput = {
     action: input.action,
     subject: makeSubject(input.subject),
     object: makeObject(input.object),
-    context: input.context,
+    context: Object.keys(contextInput).length > 0 ? contextInput : undefined,
   };
 
+  let relationInference:
+    | {
+        applied: boolean;
+        enabled: boolean;
+        reason?: string;
+        namespace?: string;
+        rules?: Array<{
+          id: string;
+          output_field: string;
+          matched: boolean;
+          subject_values: string[];
+          object_values: string[];
+          object_owner_ref?: string;
+        }>;
+      }
+    | undefined;
+
+  const modelInferenceConfig = typedModel.context_inference;
+
+  if (relationInferenceEnabled) {
+    const controlNamespace = resolveDecisionControlNamespace({
+      options,
+      resolvedModelRoute,
+      requestContext: contextInput,
+    });
+
+    if (!modelInferenceConfig || modelInferenceConfig.enabled === false) {
+      relationInference = {
+        applied: false,
+        enabled: true,
+        reason: 'model_inference_disabled',
+      };
+    } else if (!Array.isArray(modelInferenceConfig.rules) || modelInferenceConfig.rules.length === 0) {
+      relationInference = {
+        applied: false,
+        enabled: true,
+        reason: 'model_inference_rules_empty',
+      };
+    } else if (!controlNamespace) {
+      relationInference = {
+        applied: false,
+        enabled: true,
+        reason: 'namespace_not_resolved',
+      };
+    } else {
+      try {
+        const inferred = await inferContextFromControlPlane({
+          persistence,
+          namespace: controlNamespace,
+          subjectId: decisionInput.subject.id,
+          objectId: decisionInput.object.id,
+          rules: modelInferenceConfig.rules,
+          maxRelationsScan: options?.relation_inference?.max_relations_scan,
+        });
+        const mergedContext = {
+          ...(decisionInput.context ?? {}),
+          ...inferred.contextPatch,
+        };
+        decisionInput.context = mergedContext;
+        relationInference = {
+          enabled: true,
+          namespace: inferred.metadata.namespace,
+          rules: inferred.metadata.rules,
+          applied: inferred.metadata.applied,
+        };
+      } catch (error) {
+        app.log.error(
+          {
+            err: error,
+            namespace: controlNamespace,
+            subject_id: decisionInput.subject.id,
+            object_id: decisionInput.object.id,
+          },
+          'control-plane relation inference failed',
+        );
+        relationInference = {
+          applied: false,
+          enabled: true,
+          namespace: controlNamespace,
+          reason: 'relation_lookup_failed',
+        };
+      }
+    }
+  } else {
+    relationInference = {
+      applied: false,
+      enabled: false,
+      reason: 'disabled_by_option',
+    };
+  }
+
   const result = evaluateDecision({
-    model: resolvedModel as AuthzModelConfig,
+    model: typedModel,
     input: decisionInput,
   });
 
@@ -2587,6 +2711,7 @@ app.post<{ Body: DecisionEvaluateBody }>('/decisions:evaluate', async (request, 
     traces: result.traces,
     constraint_evaluation: constraintEvaluation,
     model_validation: validation,
+    relation_inference: relationInference,
   });
 });
 

@@ -1,7 +1,12 @@
 import { evaluateConstraints } from '@acl/constraints';
 import { parseSelector } from '@acl/policy-dsl';
 import { validateAuthzModel } from '@acl/schema';
-import type { AuthzModelConfig, PolicyRule, RelationEdge } from '@acl/shared-types';
+import type {
+  AuthzModelConfig,
+  ContextInferenceRule,
+  PolicyRule,
+  RelationEdge,
+} from '@acl/shared-types';
 
 import type {
   ModelValidationResult,
@@ -333,6 +338,73 @@ function validateRelationTypes(model: AuthzModelConfig, issues: ValidationIssue[
   checkEdges(model.relations.subject_relations, '/relations/subject_relations');
   checkEdges(model.relations.object_relations, '/relations/object_relations');
   checkEdges(model.relations.subject_object_relations, '/relations/subject_object_relations');
+}
+
+function validateContextInferenceRules(model: AuthzModelConfig, issues: ValidationIssue[]): void {
+  if (!model.context_inference || !Array.isArray(model.context_inference.rules)) {
+    return;
+  }
+
+  const ruleIdSet = new Set<string>();
+  const outputFieldSet = new Set<string>();
+  const registeredRelationTypes = new Set(model.catalogs.relation_type_catalog);
+
+  const checkEdge = (
+    rule: ContextInferenceRule,
+    edgePath: string,
+    edge: { relation_type: string },
+  ): void => {
+    if (registeredRelationTypes.has(edge.relation_type)) {
+      return;
+    }
+    addIssue(
+      issues,
+      'RELATION_TYPE_UNKNOWN',
+      'semantic',
+      `context inference rule ${rule.id} uses unregistered relation type ${edge.relation_type}`,
+      edgePath,
+    );
+  };
+
+  model.context_inference.rules.forEach((rule, index) => {
+    if (ruleIdSet.has(rule.id)) {
+      addIssue(
+        issues,
+        'DUPLICATE_RULE_ID',
+        'semantic',
+        `context inference rule id ${rule.id} is duplicated`,
+        `/context_inference/rules/${index}/id`,
+      );
+    }
+    ruleIdSet.add(rule.id);
+
+    if (outputFieldSet.has(rule.output_field)) {
+      addIssue(
+        issues,
+        'RULE_CONFLICT_UNRESOLVED',
+        'semantic',
+        `context inference output_field ${rule.output_field} is duplicated`,
+        `/context_inference/rules/${index}/output_field`,
+      );
+    }
+    outputFieldSet.add(rule.output_field);
+
+    rule.subject_edges.forEach((edge, edgeIndex) => {
+      checkEdge(
+        rule,
+        `/context_inference/rules/${index}/subject_edges/${edgeIndex}/relation_type`,
+        edge,
+      );
+    });
+
+    rule.object_edges.forEach((edge, edgeIndex) => {
+      checkEdge(
+        rule,
+        `/context_inference/rules/${index}/object_edges/${edgeIndex}/relation_type`,
+        edge,
+      );
+    });
+  });
 }
 
 function validateObjectOnboarding(model: AuthzModelConfig, issues: ValidationIssue[]): void {
@@ -692,6 +764,7 @@ export function validateModelConfig(
 
     if (model.relations && model.catalogs) {
       validateRelationTypes(model, issues);
+      validateContextInferenceRules(model, issues);
     }
 
     if (model.object_onboarding) {

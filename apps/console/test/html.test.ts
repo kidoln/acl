@@ -489,6 +489,8 @@ describe('console html renderer', () => {
     expect(html).toContain('/actions/control/relation/event');
     expect(html).toContain('data-model-editor');
     expect(html).toContain('data-json-toggle');
+    expect(html).toContain('data-mode="graph"');
+    expect(html).toContain('data-model-graph');
     expect(html).toContain('从 JSON 刷新字段');
     expect(html).toContain('发布快照统计');
     expect(html).toContain('统计来源：publish_id=pub_control_1');
