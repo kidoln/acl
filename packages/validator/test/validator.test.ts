@@ -340,13 +340,10 @@ describe('model validator', () => {
   });
 
   it('detects relation type configured for wrong relation domain when catalogs are split', () => {
-    const catalogs = { ...minimalDraftModel.catalogs };
-    delete catalogs.relation_type_catalog;
-
     const model = {
       ...minimalDraftModel,
       catalogs: {
-        ...catalogs,
+        ...minimalDraftModel.catalogs,
         subject_relation_type_catalog: ['member_of'],
         object_relation_type_catalog: ['derives_to'],
         subject_object_relation_type_catalog: ['owns'],
@@ -369,17 +366,106 @@ describe('model validator', () => {
     );
   });
 
-  it('accepts split relation catalogs and allows context paths to use subject_object relations', () => {
-    const catalogs = { ...minimalDraftModel.catalogs };
-    delete catalogs.relation_type_catalog;
+  it('detects relation signature endpoint mismatch', () => {
+    const model = {
+      ...minimalDraftModel,
+      relation_signature: {
+        ...minimalDraftModel.relation_signature,
+        subject_relations: [
+          {
+            relation_type: 'belongs_to',
+            from_types: ['department'],
+            to_types: ['group'],
+          },
+        ],
+      },
+      catalogs: {
+        ...minimalDraftModel.catalogs,
+        subject_type_catalog: ['user', 'group', 'department'],
+      },
+      relations: {
+        ...minimalDraftModel.relations,
+        subject_relations: [
+          {
+            from: 'user:alice',
+            to: 'group:ops',
+            relation_type: 'belongs_to',
+          },
+        ],
+      },
+    };
 
+    const result = validateModelConfig(model);
+    expect(result.issues.some((issue) => issue.code === 'RELATION_SIGNATURE_MISMATCH')).toBe(true);
+  });
+
+  it('accepts relation edges when relation signature matches endpoint types', () => {
+    const model = {
+      ...minimalDraftModel,
+      relation_signature: {
+        ...minimalDraftModel.relation_signature,
+        subject_relations: [
+          {
+            relation_type: 'member_of',
+            from_types: ['user'],
+            to_types: ['group'],
+          },
+        ],
+      },
+      relations: {
+        ...minimalDraftModel.relations,
+        subject_relations: [
+          {
+            from: 'user:alice',
+            to: 'group:ops',
+            relation_type: 'member_of',
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(model, {
+      available_obligation_executors: ['audit_write'],
+    });
+    expect(result.issues.some((issue) => issue.code === 'RELATION_SIGNATURE_MISMATCH')).toBe(false);
+  });
+
+  it('accepts split relation catalogs and allows context paths to use subject_object relations', () => {
     const model = {
       ...minimalDraftModel,
       catalogs: {
-        ...catalogs,
+        ...minimalDraftModel.catalogs,
         subject_relation_type_catalog: ['member_of', 'belongs_to'],
         object_relation_type_catalog: ['derives_to'],
         subject_object_relation_type_catalog: ['owns'],
+      },
+      relation_signature: {
+        subject_relations: [
+          {
+            relation_type: 'member_of',
+            from_types: ['user'],
+            to_types: ['group'],
+          },
+          {
+            relation_type: 'belongs_to',
+            from_types: ['user'],
+            to_types: ['group'],
+          },
+        ],
+        object_relations: [
+          {
+            relation_type: 'derives_to',
+            from_types: ['kb'],
+            to_types: ['kb'],
+          },
+        ],
+        subject_object_relations: [
+          {
+            relation_type: 'owns',
+            from_types: ['user'],
+            to_types: ['kb'],
+          },
+        ],
       },
       context_inference: {
         enabled: true,
@@ -429,7 +515,7 @@ describe('model validator', () => {
             ],
             object_edges: [
               {
-                relation_type: 'belongs_to',
+                relation_type: 'derives_to',
                 entity_side: 'to' as const,
               },
             ],
@@ -474,7 +560,7 @@ describe('model validator', () => {
             ],
             object_edges: [
               {
-                relation_type: 'belongs_to',
+                relation_type: 'derives_to',
                 entity_side: 'to' as const,
               },
             ],
@@ -509,7 +595,7 @@ describe('model validator', () => {
             ],
             object_edges: [
               {
-                relation_type: 'belongs_to',
+                relation_type: 'derives_to',
                 entity_side: 'to' as const,
               },
             ],

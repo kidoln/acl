@@ -10,17 +10,43 @@
     "action_catalog": ["read"],
     "subject_type_catalog": ["user", "department", "company"],
     "object_type_catalog": ["kb"],
-    "relation_type_catalog": [
-      "belongs_to_department",
-      "belongs_to_company",
-      "derives_to"
-    ],
     "subject_relation_type_catalog": [
       "belongs_to_department",
       "belongs_to_company"
     ],
     "object_relation_type_catalog": [
       "derives_to"
+    ],
+    "subject_object_relation_type_catalog": [
+      "can_read"
+    ]
+  },
+  "relation_signature": {
+    "subject_relations": [
+      {
+        "relation_type": "belongs_to_department",
+        "from_types": ["user"],
+        "to_types": ["department"]
+      },
+      {
+        "relation_type": "belongs_to_company",
+        "from_types": ["department"],
+        "to_types": ["company"]
+      }
+    ],
+    "object_relations": [
+      {
+        "relation_type": "derives_to",
+        "from_types": ["kb"],
+        "to_types": ["kb"]
+      }
+    ],
+    "subject_object_relations": [
+      {
+        "relation_type": "can_read",
+        "from_types": ["user"],
+        "to_types": ["kb"]
+      }
     ]
   },
   "object_onboarding": {
@@ -43,9 +69,48 @@
     ]
   },
   "relations": {
-    "subject_relations": [],
-    "object_relations": [],
-    "subject_object_relations": []
+    "subject_relations": [
+      {
+        "from": "user:alice",
+        "to": "department:rnd",
+        "relation_type": "belongs_to_department",
+        "source": "fixture_seed"
+      },
+      {
+        "from": "department:rnd",
+        "to": "company:acme",
+        "relation_type": "belongs_to_company",
+        "source": "fixture_seed"
+      },
+      {
+        "from": "user:bob",
+        "to": "department:ops",
+        "relation_type": "belongs_to_department",
+        "source": "fixture_seed"
+      },
+      {
+        "from": "department:ops",
+        "to": "company:otherco",
+        "relation_type": "belongs_to_company",
+        "source": "fixture_seed"
+      }
+    ],
+    "object_relations": [
+      {
+        "from": "kb:handbook_source",
+        "to": "kb:handbook_derived",
+        "relation_type": "derives_to",
+        "source": "fixture_seed"
+      }
+    ],
+    "subject_object_relations": [
+      {
+        "from": "user:alice",
+        "to": "kb:handbook_source",
+        "relation_type": "can_read",
+        "source": "fixture_seed"
+      }
+    ]
   },
   "policies": {
     "rules": [

@@ -45,6 +45,19 @@ export interface ActionSignatureConfig {
   tuples: ActionSignatureTuple[];
 }
 
+export interface RelationSignatureTuple {
+  relation_type: string;
+  from_types: string[];
+  to_types: string[];
+  enabled?: boolean;
+}
+
+export interface RelationSignatureConfig {
+  subject_relations: RelationSignatureTuple[];
+  object_relations: RelationSignatureTuple[];
+  subject_object_relations: RelationSignatureTuple[];
+}
+
 export interface ObjectOnboardingConfig {
   compatibility_mode: CompatibilityMode;
   default_profile: string;
@@ -146,12 +159,12 @@ export interface AuthzModelConfig {
     action_catalog: string[];
     subject_type_catalog: string[];
     object_type_catalog: string[];
-    relation_type_catalog?: string[];
-    subject_relation_type_catalog?: string[];
-    object_relation_type_catalog?: string[];
+    subject_relation_type_catalog: string[];
+    object_relation_type_catalog: string[];
     subject_object_relation_type_catalog?: string[];
   };
   action_signature?: ActionSignatureConfig;
+  relation_signature?: RelationSignatureConfig;
   object_onboarding: ObjectOnboardingConfig;
   relations?: {
     subject_relations: RelationEdge[];

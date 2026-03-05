@@ -217,13 +217,11 @@ describe('authz model schema', () => {
     expect(result.errors.some((error) => error.instancePath === '/decision_search')).toBe(true);
   });
 
-  it('accepts split relation type catalogs without legacy relation_type_catalog', () => {
-    const remainingCatalogs = { ...minimalDraftModel.catalogs };
-    delete remainingCatalogs.relation_type_catalog;
+  it('accepts required split relation type catalogs', () => {
     const model = {
       ...minimalDraftModel,
       catalogs: {
-        ...remainingCatalogs,
+        ...minimalDraftModel.catalogs,
         subject_relation_type_catalog: ['member_of', 'belongs_to'],
         object_relation_type_catalog: ['derives_to'],
       },
@@ -233,19 +231,82 @@ describe('authz model schema', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('rejects partially configured split relation type catalogs', () => {
-    const remainingCatalogs = { ...minimalDraftModel.catalogs };
-    delete remainingCatalogs.relation_type_catalog;
+  it('rejects missing object_relation_type_catalog', () => {
     const model = {
       ...minimalDraftModel,
       catalogs: {
-        ...remainingCatalogs,
-        subject_relation_type_catalog: ['member_of'],
-      },
+        ...minimalDraftModel.catalogs,
+      } as Record<string, unknown>,
     };
+    delete model.catalogs.object_relation_type_catalog;
 
     const result = validateAuthzModel(model);
     expect(result.valid).toBe(false);
     expect(result.errors.some((error) => error.instancePath === '/catalogs')).toBe(true);
+  });
+
+  it('rejects non-empty relations without relation_signature', () => {
+    const model = {
+      ...minimalDraftModel,
+      relations: {
+        subject_relations: [
+          {
+            from: 'user:alice',
+            to: 'group:ops',
+            relation_type: 'member_of',
+          },
+        ],
+        object_relations: [],
+        subject_object_relations: [],
+      },
+    };
+    delete (model as { relation_signature?: unknown }).relation_signature;
+
+    const result = validateAuthzModel(model);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((error) => error.keyword === 'required')).toBe(true);
+  });
+
+  it('accepts relation_signature with endpoint tuples', () => {
+    const model = {
+      ...minimalDraftModel,
+      relation_signature: {
+        subject_relations: [
+          {
+            relation_type: 'member_of',
+            from_types: ['user'],
+            to_types: ['group'],
+          },
+        ],
+        object_relations: [
+          {
+            relation_type: 'derives_to',
+            from_types: ['kb'],
+            to_types: ['kb'],
+          },
+        ],
+        subject_object_relations: [],
+      },
+      relations: {
+        subject_relations: [
+          {
+            from: 'user:alice',
+            to: 'group:ops',
+            relation_type: 'member_of',
+          },
+        ],
+        object_relations: [
+          {
+            from: 'kb:source',
+            to: 'kb:derived',
+            relation_type: 'derives_to',
+          },
+        ],
+        subject_object_relations: [],
+      },
+    };
+
+    const result = validateAuthzModel(model);
+    expect(result.valid).toBe(true);
   });
 });

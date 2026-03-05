@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type {
   ApiResult,
   ConsoleTab,
@@ -798,7 +800,9 @@ function buildDefaultModelTemplate(namespace: string): {
     action_catalog: string[];
     subject_type_catalog: string[];
     object_type_catalog: string[];
-    relation_type_catalog: string[];
+    subject_relation_type_catalog: string[];
+    object_relation_type_catalog: string[];
+    subject_object_relation_type_catalog?: string[];
   };
   object_onboarding: Record<string, unknown>;
   relations: Record<string, unknown>;
@@ -813,96 +817,44 @@ function buildDefaultModelTemplate(namespace: string): {
     mandatory_obligations: string[];
   };
 } {
-  const tenantId = namespace.split(".")[0] ?? "tenant_a";
-
-  return {
+  void namespace;
+  const fixturePath = path.resolve(
+    __dirname,
+    "../../api/test/fixtures/same-company-derived.model.json",
+  );
+  const raw = fs.readFileSync(fixturePath, "utf-8");
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`invalid default model fixture: ${fixturePath}`);
+  }
+  return parsed as {
     model_meta: {
-      model_id: `${tenantId}_authz_v1`,
-      tenant_id: tenantId,
-      version: "2026.03.04",
-      status: "draft",
-      combining_algorithm: "deny-overrides",
-    },
+      model_id: string;
+      tenant_id: string;
+      version: string;
+      status: string;
+      combining_algorithm: string;
+    };
     catalogs: {
-      action_catalog: ["read", "update", "grant"],
-      subject_type_catalog: ["user", "group"],
-      object_type_catalog: ["kb", "agent"],
-      relation_type_catalog: [
-        "belongs_to",
-        "member_of",
-        "manages",
-        "derives_to",
-      ],
-    },
-    object_onboarding: {
-      compatibility_mode: "compat_balanced",
-      default_profile: "minimal",
-      profiles: {
-        minimal: {
-          required_fields: [
-            "tenant_id",
-            "object_id",
-            "object_type",
-            "created_by",
-          ],
-          autofill: {
-            owner_ref: "created_by",
-            sensitivity: "normal",
-          },
-        },
-      },
-      conditional_required: [
-        {
-          when: "object.sensitivity == high",
-          add_fields: ["data_domain", "retention_class"],
-        },
-      ],
-    },
-    relations: {
-      subject_relations: [],
-      object_relations: [],
-      subject_object_relations: [],
-    },
+      action_catalog: string[];
+      subject_type_catalog: string[];
+      object_type_catalog: string[];
+      subject_relation_type_catalog: string[];
+      object_relation_type_catalog: string[];
+      subject_object_relation_type_catalog?: string[];
+    };
+    object_onboarding: Record<string, unknown>;
+    relations: Record<string, unknown>;
     policies: {
-      rules: [
-        {
-          id: "rule_read_kb",
-          subject_selector: "subject.relations includes member_of(group:g1)",
-          object_selector: "object.type == kb",
-          action_set: ["read"],
-          effect: "allow",
-          priority: 100,
-        },
-      ],
-    },
-    constraints: {
-      sod_rules: [],
-      cardinality_rules: [],
-    },
-    lifecycle: {
-      event_rules: [
-        {
-          event_type: "subject_removed",
-          handler: "revoke_direct_edges",
-          required: true,
-        },
-      ],
-    },
-    consistency: {
-      default_level: "bounded_staleness",
-      high_risk_level: "strong",
-      bounded_staleness_ms: 3000,
-    },
+      rules: Array<Record<string, unknown>>;
+    };
+    constraints: Record<string, unknown>;
+    lifecycle: Record<string, unknown>;
+    consistency: Record<string, unknown>;
     quality_guardrails: {
-      attribute_quality: {
-        authority_whitelist: ["hr_system"],
-        freshness_ttl_sec: {
-          department_membership: 900,
-        },
-        reject_unknown_source: true,
-      },
-      mandatory_obligations: ["audit_write"],
-    },
+      attribute_quality: Record<string, unknown>;
+      mandatory_obligations: string[];
+    };
   };
 }
 
@@ -990,8 +942,12 @@ function collectPublishedModelOverviewMetrics(
     catalogs?.subject_type_catalog,
   );
   const objectTypeCatalog = normalizeStringArray(catalogs?.object_type_catalog);
-  const relationTypeCatalog = normalizeStringArray(
-    catalogs?.relation_type_catalog,
+  const relationTypeCatalog = Array.from(
+    new Set([
+      ...normalizeStringArray(catalogs?.subject_relation_type_catalog),
+      ...normalizeStringArray(catalogs?.object_relation_type_catalog),
+      ...normalizeStringArray(catalogs?.subject_object_relation_type_catalog),
+    ]),
   );
   const rules = Array.isArray(policies?.rules) ? policies.rules.length : 0;
 
@@ -1107,8 +1063,14 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
   const objectTypeCatalog = escapeHtml(
     defaultModel.catalogs.object_type_catalog.join("\n"),
   );
-  const relationTypeCatalog = escapeHtml(
-    (defaultModel.catalogs.relation_type_catalog ?? []).join("\n"),
+  const subjectRelationTypeCatalog = escapeHtml(
+    (defaultModel.catalogs.subject_relation_type_catalog ?? []).join("\n"),
+  );
+  const objectRelationTypeCatalog = escapeHtml(
+    (defaultModel.catalogs.object_relation_type_catalog ?? []).join("\n"),
+  );
+  const subjectObjectRelationTypeCatalog = escapeHtml(
+    (defaultModel.catalogs.subject_object_relation_type_catalog ?? []).join("\n"),
   );
   const mandatoryObligations = escapeHtml(
     defaultModel.quality_guardrails.mandatory_obligations.join("\n"),
@@ -1293,7 +1255,9 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<label>动作目录 Action Catalog<textarea rows="3" data-model-field="action_catalog">${actionCatalog}</textarea></label>` +
     `<label>主体类型目录 Subject Type Catalog<textarea rows="3" data-model-field="subject_type_catalog">${subjectTypeCatalog}</textarea></label>` +
     `<label>客体类型目录 Object Type Catalog<textarea rows="3" data-model-field="object_type_catalog">${objectTypeCatalog}</textarea></label>` +
-    `<label>关系类型目录 Relation Type Catalog<textarea rows="3" data-model-field="relation_type_catalog">${relationTypeCatalog}</textarea></label>` +
+    `<label>主体关系目录 Subject Relation Catalog<textarea rows="3" data-model-field="subject_relation_type_catalog">${subjectRelationTypeCatalog}</textarea></label>` +
+    `<label>客体关系目录 Object Relation Catalog<textarea rows="3" data-model-field="object_relation_type_catalog">${objectRelationTypeCatalog}</textarea></label>` +
+    `<label>主体-客体关系目录 Subject-Object Relation Catalog<textarea rows="3" data-model-field="subject_object_relation_type_catalog">${subjectObjectRelationTypeCatalog}</textarea></label>` +
     `<label>规则ID Rule ID<input type="text" value="${ruleId}" data-model-field="rule_id" /></label>` +
     `<label>规则效果 Rule Effect<select data-model-field="rule_effect"><option value="allow" ${ruleEffect === "allow" ? "selected" : ""}>allow</option><option value="deny" ${ruleEffect === "deny" ? "selected" : ""}>deny</option></select></label>` +
     `<label>规则优先级 Rule Priority<input type="number" min="1" value="${escapeHtml(rulePriority)}" data-model-field="rule_priority" /></label>` +
@@ -1311,9 +1275,8 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `</div>` +
     `<div class="json-view" data-json-view="graph" hidden>` +
     `<section class="model-graph" data-model-graph>` +
-    `<p class="muted model-graph-placeholder">Graph 视图会根据 relations 自动展示 subject 层级与 object 衍生关系。</p>` +
+    `<p class="muted model-graph-placeholder">Graph 视图会根据 catalogs、relation_signature 与 context_inference 展示模型定义层的关系结构与推理过程。</p>` +
     `</section>` +
-    `<p class="muted model-editor-note">Graph 由当前 JSON 实时生成；source=derived_closure 会以虚线展示。</p>` +
     `</div>` +
     `</section>` +
     `</section>` +

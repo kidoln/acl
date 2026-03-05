@@ -6,6 +6,7 @@ import type {
   ContextInferenceRule,
   PolicyRule,
   RelationEdge,
+  RelationSignatureTuple,
 } from '@acl/shared-types';
 
 import type {
@@ -467,17 +468,16 @@ function unionSets(...sets: Set<string>[]): Set<string> {
 }
 
 function buildRelationTypeCatalogSets(model: AuthzModelConfig): RelationTypeCatalogSets {
-  const legacyCatalog = toStringSet(model.catalogs.relation_type_catalog);
   const subjectCatalog = toStringSet(model.catalogs.subject_relation_type_catalog);
   const objectCatalog = toStringSet(model.catalogs.object_relation_type_catalog);
   const subjectObjectCatalog = toStringSet(model.catalogs.subject_object_relation_type_catalog);
 
   return {
-    subject: unionSets(legacyCatalog, subjectCatalog),
-    object: unionSets(legacyCatalog, objectCatalog),
-    subjectObject: unionSets(legacyCatalog, subjectObjectCatalog),
-    contextSubject: unionSets(legacyCatalog, subjectCatalog, subjectObjectCatalog),
-    contextObject: unionSets(legacyCatalog, objectCatalog, subjectObjectCatalog),
+    subject: unionSets(subjectCatalog),
+    object: unionSets(objectCatalog),
+    subjectObject: unionSets(subjectObjectCatalog),
+    contextSubject: unionSets(subjectCatalog, subjectObjectCatalog),
+    contextObject: unionSets(objectCatalog, subjectObjectCatalog),
   };
 }
 
@@ -499,7 +499,7 @@ function validateRelationTypes(model: AuthzModelConfig, issues: ValidationIssue[
           issues,
           'RELATION_TYPE_UNKNOWN',
           'semantic',
-          `relation type ${edge.relation_type} is not registered in ${catalogHint} or catalogs.relation_type_catalog`,
+          `relation type ${edge.relation_type} is not registered in ${catalogHint}`,
           `${basePath}/${index}/relation_type`,
         );
       }
@@ -523,6 +523,186 @@ function validateRelationTypes(model: AuthzModelConfig, issues: ValidationIssue[
     '/relations/subject_object_relations',
     relationCatalogs.subjectObject,
     'catalogs.subject_object_relation_type_catalog',
+  );
+}
+
+function parseEntityType(ref: string): string {
+  const normalized = ref.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return '';
+  }
+  const [head] = normalized.split(':');
+  return head?.trim() ?? '';
+}
+
+function buildRelationPairSet(fromTypes: string[], toTypes: string[]): Set<string> {
+  const pairs = new Set<string>();
+  fromTypes.forEach((fromType) => {
+    toTypes.forEach((toType) => {
+      pairs.add(`${fromType}::${toType}`);
+    });
+  });
+  return pairs;
+}
+
+function validateRelationSignature(model: AuthzModelConfig, issues: ValidationIssue[]): void {
+  const relationSignature = model.relation_signature;
+  if (!relationSignature) {
+    return;
+  }
+  const subjectSignatureTuples = Array.isArray(relationSignature.subject_relations)
+    ? relationSignature.subject_relations
+    : [];
+  const objectSignatureTuples = Array.isArray(relationSignature.object_relations)
+    ? relationSignature.object_relations
+    : [];
+  const subjectObjectSignatureTuples = Array.isArray(relationSignature.subject_object_relations)
+    ? relationSignature.subject_object_relations
+    : [];
+
+  const subjectTypeCatalog = new Set(model.catalogs.subject_type_catalog);
+  const objectTypeCatalog = new Set(model.catalogs.object_type_catalog);
+  const relationCatalogs = buildRelationTypeCatalogSets(model);
+
+  const validateTupleCatalogs = (
+    tuples: RelationSignatureTuple[],
+    tuplePathPrefix: string,
+    fromTypeCatalog: Set<string>,
+    toTypeCatalog: Set<string>,
+    relationTypeCatalog: Set<string>,
+    relationCatalogHint: string,
+  ): void => {
+    tuples.forEach((tuple, tupleIndex) => {
+      if (!relationTypeCatalog.has(tuple.relation_type)) {
+        addIssue(
+          issues,
+          'RELATION_SIGNATURE_MISMATCH',
+          'semantic',
+          `relation signature relation_type ${tuple.relation_type} is not in ${relationCatalogHint}`,
+          `${tuplePathPrefix}/${tupleIndex}/relation_type`,
+        );
+      }
+
+      tuple.from_types.forEach((fromType, fromTypeIndex) => {
+        if (!fromTypeCatalog.has(fromType)) {
+          addIssue(
+            issues,
+            'RELATION_SIGNATURE_MISMATCH',
+            'semantic',
+            `relation signature from_type ${fromType} is not in domain type catalog`,
+            `${tuplePathPrefix}/${tupleIndex}/from_types/${fromTypeIndex}`,
+          );
+        }
+      });
+
+      tuple.to_types.forEach((toType, toTypeIndex) => {
+        if (!toTypeCatalog.has(toType)) {
+          addIssue(
+            issues,
+            'RELATION_SIGNATURE_MISMATCH',
+            'semantic',
+            `relation signature to_type ${toType} is not in domain type catalog`,
+            `${tuplePathPrefix}/${tupleIndex}/to_types/${toTypeIndex}`,
+          );
+        }
+      });
+    });
+  };
+
+  validateTupleCatalogs(
+    subjectSignatureTuples,
+    '/relation_signature/subject_relations',
+    subjectTypeCatalog,
+    subjectTypeCatalog,
+    relationCatalogs.subject,
+    'catalogs.subject_relation_type_catalog',
+  );
+  validateTupleCatalogs(
+    objectSignatureTuples,
+    '/relation_signature/object_relations',
+    objectTypeCatalog,
+    objectTypeCatalog,
+    relationCatalogs.object,
+    'catalogs.object_relation_type_catalog',
+  );
+  validateTupleCatalogs(
+    subjectObjectSignatureTuples,
+    '/relation_signature/subject_object_relations',
+    subjectTypeCatalog,
+    objectTypeCatalog,
+    relationCatalogs.subjectObject,
+    'catalogs.subject_object_relation_type_catalog',
+  );
+
+  const buildTupleMap = (tuples: RelationSignatureTuple[]): Map<string, Set<string>> => {
+    const map = new Map<string, Set<string>>();
+    tuples.forEach((tuple) => {
+      if (tuple.enabled === false) {
+        return;
+      }
+      const existing = map.get(tuple.relation_type) ?? new Set<string>();
+      buildRelationPairSet(tuple.from_types, tuple.to_types).forEach((pair) => existing.add(pair));
+      map.set(tuple.relation_type, existing);
+    });
+    return map;
+  };
+
+  const subjectTupleMap = buildTupleMap(subjectSignatureTuples);
+  const objectTupleMap = buildTupleMap(objectSignatureTuples);
+  const subjectObjectTupleMap = buildTupleMap(subjectObjectSignatureTuples);
+
+  const checkEdgeAgainstSignature = (
+    edges: RelationEdge[],
+    tupleMap: Map<string, Set<string>>,
+    edgePathPrefix: string,
+  ): void => {
+    edges.forEach((edge, index) => {
+      const fromType = parseEntityType(edge.from);
+      const toType = parseEntityType(edge.to);
+      const tuplePairs = tupleMap.get(edge.relation_type);
+      if (!tuplePairs) {
+        addIssue(
+          issues,
+          'RELATION_SIGNATURE_MISMATCH',
+          'semantic',
+          `relation edge ${edge.relation_type} has no enabled signature tuple`,
+          `${edgePathPrefix}/${index}/relation_type`,
+        );
+        return;
+      }
+      const pair = `${fromType}::${toType}`;
+      if (tuplePairs.has(pair)) {
+        return;
+      }
+
+      addIssue(
+        issues,
+        'RELATION_SIGNATURE_MISMATCH',
+        'semantic',
+        `relation edge ${edge.relation_type} endpoint mismatch: ${fromType} -> ${toType} is not allowed`,
+        `${edgePathPrefix}/${index}`,
+      );
+    });
+  };
+
+  const subjectRelations = model.relations?.subject_relations ?? [];
+  const objectRelations = model.relations?.object_relations ?? [];
+  const subjectObjectRelations = model.relations?.subject_object_relations ?? [];
+
+  checkEdgeAgainstSignature(
+    subjectRelations,
+    subjectTupleMap,
+    '/relations/subject_relations',
+  );
+  checkEdgeAgainstSignature(
+    objectRelations,
+    objectTupleMap,
+    '/relations/object_relations',
+  );
+  checkEdgeAgainstSignature(
+    subjectObjectRelations,
+    subjectObjectTupleMap,
+    '/relations/subject_object_relations',
   );
 }
 
@@ -552,7 +732,7 @@ function validateContextInferenceRules(model: AuthzModelConfig, issues: Validati
       issues,
       'RELATION_TYPE_UNKNOWN',
       'semantic',
-      `context inference rule ${rule.id} uses relation type ${edge.relation_type} not registered in ${catalogHint} or catalogs.relation_type_catalog`,
+      `context inference rule ${rule.id} uses relation type ${edge.relation_type} not registered in ${catalogHint}`,
       edgePath,
     );
   };
@@ -1060,6 +1240,7 @@ export function validateModelConfig(
 
     if (model.relations && model.catalogs) {
       validateRelationTypes(model, issues);
+      validateRelationSignature(model, issues);
     }
 
     if (model.catalogs) {

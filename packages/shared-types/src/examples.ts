@@ -12,7 +12,36 @@ export const minimalDraftModel: AuthzModelConfig = {
     action_catalog: ['read', 'update', 'grant'],
     subject_type_catalog: ['user', 'group'],
     object_type_catalog: ['kb', 'agent'],
-    relation_type_catalog: ['belongs_to', 'member_of', 'manages', 'derives_to'],
+    subject_relation_type_catalog: ['belongs_to', 'member_of', 'manages'],
+    object_relation_type_catalog: ['derives_to'],
+    subject_object_relation_type_catalog: [],
+  },
+  relation_signature: {
+    subject_relations: [
+      {
+        relation_type: 'belongs_to',
+        from_types: ['user'],
+        to_types: ['group'],
+      },
+      {
+        relation_type: 'member_of',
+        from_types: ['user'],
+        to_types: ['group'],
+      },
+      {
+        relation_type: 'manages',
+        from_types: ['user'],
+        to_types: ['group'],
+      },
+    ],
+    object_relations: [
+      {
+        relation_type: 'derives_to',
+        from_types: ['kb', 'agent'],
+        to_types: ['kb', 'agent'],
+      },
+    ],
+    subject_object_relations: [],
   },
   object_onboarding: {
     compatibility_mode: 'compat_balanced',

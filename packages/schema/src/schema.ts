@@ -50,7 +50,13 @@ export const authzModelSchema = {
     catalogs: {
       type: 'object',
       additionalProperties: false,
-      required: ['action_catalog', 'subject_type_catalog', 'object_type_catalog'],
+      required: [
+        'action_catalog',
+        'subject_type_catalog',
+        'object_type_catalog',
+        'subject_relation_type_catalog',
+        'object_relation_type_catalog',
+      ],
       properties: {
         action_catalog: {
           type: 'array',
@@ -63,11 +69,6 @@ export const authzModelSchema = {
           uniqueItems: true,
         },
         object_type_catalog: {
-          type: 'array',
-          items: { type: 'string', minLength: 1 },
-          uniqueItems: true,
-        },
-        relation_type_catalog: {
           type: 'array',
           items: { type: 'string', minLength: 1 },
           uniqueItems: true,
@@ -88,34 +89,6 @@ export const authzModelSchema = {
           uniqueItems: true,
         },
       },
-      allOf: [
-        {
-          anyOf: [
-            { required: ['relation_type_catalog'] },
-            {
-              required: [
-                'subject_relation_type_catalog',
-                'object_relation_type_catalog',
-              ],
-            },
-          ],
-        },
-        {
-          if: {
-            anyOf: [
-              { required: ['subject_relation_type_catalog'] },
-              { required: ['object_relation_type_catalog'] },
-              { required: ['subject_object_relation_type_catalog'] },
-            ],
-          },
-          then: {
-            required: [
-              'subject_relation_type_catalog',
-              'object_relation_type_catalog',
-            ],
-          },
-        },
-      ],
     },
     action_signature: {
       type: 'object',
@@ -126,6 +99,25 @@ export const authzModelSchema = {
           type: 'array',
           minItems: 1,
           items: { $ref: '#/$defs/action_signature_tuple' },
+        },
+      },
+    },
+    relation_signature: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['subject_relations', 'object_relations', 'subject_object_relations'],
+      properties: {
+        subject_relations: {
+          type: 'array',
+          items: { $ref: '#/$defs/relation_signature_tuple' },
+        },
+        object_relations: {
+          type: 'array',
+          items: { $ref: '#/$defs/relation_signature_tuple' },
+        },
+        subject_object_relations: {
+          type: 'array',
+          items: { $ref: '#/$defs/relation_signature_tuple' },
         },
       },
     },
@@ -306,37 +298,9 @@ export const authzModelSchema = {
               action_catalog: { minItems: 1 },
               subject_type_catalog: { minItems: 1 },
               object_type_catalog: { minItems: 1 },
+              subject_relation_type_catalog: { minItems: 1 },
+              object_relation_type_catalog: { minItems: 1 },
             },
-            allOf: [
-              {
-                anyOf: [
-                  {
-                    required: ['relation_type_catalog'],
-                    properties: {
-                      relation_type_catalog: { minItems: 1 },
-                    },
-                  },
-                  {
-                    required: ['subject_relation_type_catalog'],
-                    properties: {
-                      subject_relation_type_catalog: { minItems: 1 },
-                    },
-                  },
-                  {
-                    required: ['object_relation_type_catalog'],
-                    properties: {
-                      object_relation_type_catalog: { minItems: 1 },
-                    },
-                  },
-                  {
-                    required: ['subject_object_relation_type_catalog'],
-                    properties: {
-                      subject_object_relation_type_catalog: { minItems: 1 },
-                    },
-                  },
-                ],
-              },
-            ],
           },
           action_signature: {
             required: ['tuples'],
@@ -352,6 +316,44 @@ export const authzModelSchema = {
             },
           },
         },
+      },
+    },
+    {
+      if: {
+        properties: {
+          relations: {
+            anyOf: [
+              {
+                required: ['subject_relations'],
+                properties: {
+                  subject_relations: {
+                    minItems: 1,
+                  },
+                },
+              },
+              {
+                required: ['object_relations'],
+                properties: {
+                  object_relations: {
+                    minItems: 1,
+                  },
+                },
+              },
+              {
+                required: ['subject_object_relations'],
+                properties: {
+                  subject_object_relations: {
+                    minItems: 1,
+                  },
+                },
+              },
+            ],
+          },
+        },
+        required: ['relations'],
+      },
+      then: {
+        required: ['relation_signature'],
       },
     },
     {
@@ -442,6 +444,27 @@ export const authzModelSchema = {
           type: 'array',
           minItems: 1,
           items: { $ref: '#/$defs/action' },
+          uniqueItems: true,
+        },
+        enabled: { type: 'boolean' },
+      },
+    },
+    relation_signature_tuple: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['relation_type', 'from_types', 'to_types'],
+      properties: {
+        relation_type: { $ref: '#/$defs/type_name' },
+        from_types: {
+          type: 'array',
+          minItems: 1,
+          items: { $ref: '#/$defs/type_name' },
+          uniqueItems: true,
+        },
+        to_types: {
+          type: 'array',
+          minItems: 1,
+          items: { $ref: '#/$defs/type_name' },
           uniqueItems: true,
         },
         enabled: { type: 'boolean' },

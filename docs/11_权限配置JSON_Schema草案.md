@@ -88,7 +88,8 @@
         "action_catalog",
         "subject_type_catalog",
         "object_type_catalog",
-        "relation_type_catalog"
+        "subject_relation_type_catalog",
+        "object_relation_type_catalog"
       ],
       "properties": {
         "action_catalog": {
@@ -106,7 +107,17 @@
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true
         },
-        "relation_type_catalog": {
+        "subject_relation_type_catalog": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "object_relation_type_catalog": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "subject_object_relation_type_catalog": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true
@@ -308,7 +319,8 @@
               "action_catalog": { "minItems": 1 },
               "subject_type_catalog": { "minItems": 1 },
               "object_type_catalog": { "minItems": 1 },
-              "relation_type_catalog": { "minItems": 1 }
+              "subject_relation_type_catalog": { "minItems": 1 },
+              "object_relation_type_catalog": { "minItems": 1 }
             }
           },
           "action_signature": {
@@ -667,7 +679,7 @@
 3. `action_signature.tuples` 中的 `subject_types/object_types/actions` 必须分别在对应 Catalog 中已注册。  
 4. `policies.rules[].action_set` 命中到的 `(subject_type, object_type, action)` 三元组不得越出 `action_signature`。  
 5. `context_inference.rules[]` 仅允许受控可判定子集（纯正规则或分层否定），禁止递归否定与无界聚合。  
-6. `context_inference.rules[].subject_edges/object_edges` 中的 `relation_type` 必须在 `relation_type_catalog` 注册。  
+6. `context_inference.rules[].subject_edges/object_edges` 中的 `relation_type` 必须在对应关系域 catalog 注册。  
 7. `owner_fallback_include_input` 仅在 `object_owner_fallback=true` 时有效；当 `object_owner_fallback=false` 时应视为“无效字段值”（建议告警或拒绝）。  
 8. 若 `decision_search.enabled=true` 且 `require_semantic_equivalence=false`，必须验证“保守候选超集 + 残差精评估”语义成立。  
 9. `Decision Search` 下推计划需可解释：返回可下推子句、残差子句与判据类型。  
@@ -679,6 +691,45 @@
 15. `compat_strict` 模式下，条件必填字段缺失应拒绝入管。  
 16. `subject_removed` 等关键事件必须存在且 `required=true`。  
 17. `RULE_CONFLICT_UNRESOLVED`、`ACTION_SIGNATURE_MISMATCH`、`SEARCH_PUSHDOWN_UNSAFE` 与 `OBLIGATION_NOT_EXECUTABLE` 归属 `P0` 阻断。
+18. `relations.*` 中的每条边，其 `from/to` 端点类型必须命中 `relation_signature` 对应关系域的签名元组。
+
+### 4.2 `relation_signature`（新增）
+
+用于声明关系类型的端点签名，避免把同一 `relation_type` 误用到不合法端点组合：
+
+```json
+{
+  "relation_signature": {
+    "subject_relations": [
+      {
+        "relation_type": "belongs_to_company",
+        "from_types": ["department"],
+        "to_types": ["company"]
+      }
+    ],
+    "object_relations": [
+      {
+        "relation_type": "derives_to",
+        "from_types": ["kb"],
+        "to_types": ["kb"]
+      }
+    ],
+    "subject_object_relations": [
+      {
+        "relation_type": "can_read",
+        "from_types": ["user"],
+        "to_types": ["kb"]
+      }
+    ]
+  }
+}
+```
+
+约束说明：
+
+1. 当 `relations.subject_relations/object_relations/subject_object_relations` 任一非空时，`relation_signature` 必须声明。  
+2. 每个签名元组必须包含 `relation_type/from_types/to_types`，且 `from_types/to_types` 不可为空。  
+3. 端点类型集合由 `catalogs.subject_type_catalog/object_type_catalog` 约束，越界类型由语义校验器拦截为 `RELATION_SIGNATURE_MISMATCH`。
 
 ### 4.1 `owner_fallback_include_input` 使用约定（新增）
 
@@ -763,7 +814,9 @@
     "action_catalog": ["read", "update", "grant"],
     "subject_type_catalog": ["user", "group", "department"],
     "object_type_catalog": ["kb", "agent"],
-    "relation_type_catalog": ["belongs_to", "member_of", "manages", "derives_to", "owns"]
+    "subject_relation_type_catalog": ["belongs_to", "member_of", "manages"],
+    "object_relation_type_catalog": ["derives_to"],
+    "subject_object_relation_type_catalog": ["owns"]
   },
   "action_signature": {
     "tuples": [
@@ -901,9 +954,12 @@
 7. 高敏域规则配置为 `eventual`。  
 对应：`HIGH_SENSITIVITY_DOWNGRADED`。
 
+8. 关系边端点类型不在 `relation_signature` 允许组合中。  
+对应：`RELATION_SIGNATURE_MISMATCH`。
+
 ## 7. 与主文档映射关系
 
-1. 对应 `10` 文档第 `6.1`、`6.2` 的动作类型签名与委派边界。  
+1. 对应 `10` 文档第 `6.1`、`6.2`、`6.3` 的动作签名与关系端点签名边界。  
 2. 对应 `10` 文档第 `10.4.8`、`10.4.9`、`10.4.10` 的推导规则与检索下推语义。  
 3. 对应 `10` 文档第 `13.2`、`13.3`、`13.4` 的语法定义。  
 4. 对应 `10` 文档第 `13.5`、`13.6`、`13.7` 的校验、冲突与编译产物规则。  
@@ -917,6 +973,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `ACTION_NOT_REGISTERED` | error | 语义校验 | `P0` | 是 | `semantic.unregistered_action_count == 0` | 补充动作目录或修正规则动作集 |
 | `ACTION_SIGNATURE_MISMATCH` | error | 语义校验 | `P0` | 是 | `semantic.action_signature_mismatch_count == 0` | 补充 `action_signature.tuples` 或收敛规则类型组合 |
+| `RELATION_SIGNATURE_MISMATCH` | error | 语义校验 | `P0` | 是 | `semantic.relation_signature_mismatch_count == 0` | 补充 `relation_signature` 或修正关系端点类型 |
 | `INFERENCE_RULE_UNSAFE` | error | 语义/安全校验 | `P0` | 是 | `semantic.inference_rule_unsafe_count == 0` | 将推导规则收敛到可判定子集（纯正规则/分层否定） |
 | `SEARCH_PUSHDOWN_UNSAFE` | error | 安全/可执行性校验 | `P0` | 是 | `search.enabled == false or search.pushdown_unsafe_count == 0` | 降级 `EvaluateOnly` 或启用保守超集+残差求值 |
 | `SEARCH_SEMANTIC_DRIFT` | warning | 影子对比/模拟校验 | 未强制（建议 `P2`） | 否 | 检索结果与逐对象完整求值存在差异 | 收紧下推策略并回放差异样本 |
