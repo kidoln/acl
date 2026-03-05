@@ -2,15 +2,26 @@
   "model_meta": {
     "model_id": "tenant_acme_same_company_visibility",
     "tenant_id": "tenant_acme",
-    "version": "2026.03.04",
+    "version": "2026.03.05",
     "status": "draft",
     "combining_algorithm": "deny-overrides"
   },
   "catalogs": {
     "action_catalog": ["read"],
-    "subject_type_catalog": ["user", "company"],
+    "subject_type_catalog": ["user", "department", "company"],
     "object_type_catalog": ["kb"],
-    "relation_type_catalog": ["in_company", "derives_to"]
+    "relation_type_catalog": [
+      "belongs_to_department",
+      "belongs_to_company",
+      "derives_to"
+    ],
+    "subject_relation_type_catalog": [
+      "belongs_to_department",
+      "belongs_to_company"
+    ],
+    "object_relation_type_catalog": [
+      "derives_to"
+    ]
   },
   "object_onboarding": {
     "compatibility_mode": "compat_balanced",
@@ -39,9 +50,17 @@
   "policies": {
     "rules": [
       {
-        "id": "allow_read_kb_in_same_company",
-        "subject_selector": "subject.type == user and context.same_company == true",
+        "id": "allow_read_same_company_owner_resource",
+        "subject_selector": "subject.type == user and context.same_company_direct == true",
         "object_selector": "object.type == kb",
+        "action_set": ["read"],
+        "effect": "allow",
+        "priority": 110
+      },
+      {
+        "id": "allow_read_same_company_derived_resource",
+        "subject_selector": "subject.type == user and context.same_company_via_derived_source == true",
+        "object_selector": "object.type == kb and object.is_derived == true",
         "action_set": ["read"],
         "effect": "allow",
         "priority": 100
@@ -85,22 +104,53 @@
     "enabled": true,
     "rules": [
       {
-        "id": "infer_same_company",
-        "output_field": "same_company",
+        "id": "infer_same_company_direct",
+        "output_field": "same_company_direct",
         "subject_edges": [
           {
-            "relation_type": "in_company",
+            "relation_type": "belongs_to_department",
+            "entity_side": "from"
+          },
+          {
+            "relation_type": "belongs_to_company",
             "entity_side": "from"
           }
         ],
         "object_edges": [
           {
-            "relation_type": "in_company",
+            "relation_type": "derives_to",
             "entity_side": "from"
           }
         ],
-        "object_owner_fallback": true
+        "object_owner_fallback": true,
+        "owner_fallback_include_input": true
+      },
+      {
+        "id": "infer_same_company_via_derived_source",
+        "output_field": "same_company_via_derived_source",
+        "subject_edges": [
+          {
+            "relation_type": "belongs_to_department",
+            "entity_side": "from"
+          },
+          {
+            "relation_type": "belongs_to_company",
+            "entity_side": "from"
+          }
+        ],
+        "object_edges": [
+          {
+            "relation_type": "derives_to",
+            "entity_side": "to"
+          }
+        ],
+        "object_owner_fallback": true,
+        "owner_fallback_include_input": false
       }
-    ]
+    ],
+    "constraints": {
+      "monotonic_only": true,
+      "stratified_negation": false
+    }
   }
 }

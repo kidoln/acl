@@ -9,7 +9,11 @@
     "catalogs": {
       "action_catalog": ["read"],
       "object_type_catalog": ["kb"],
-      "relation_type_catalog": ["in_company", "derives_to"]
+      "relation_type_catalog": [
+        "belongs_to_department",
+        "belongs_to_company",
+        "derives_to"
+      ]
     }
   },
   "objects": [
@@ -22,33 +26,57 @@
     {
       "object_id": "kb:wiki_core_redacted",
       "object_type": "kb",
-      "owner_ref": "user:bob",
+      "owner_ref": "user:eve",
       "sensitivity": "normal"
     }
   ],
   "relation_events": [
     {
       "from": "user:alice",
-      "to": "company:acme",
-      "relation_type": "in_company",
+      "to": "department:rnd",
+      "relation_type": "belongs_to_department",
       "operation": "upsert"
     },
     {
       "from": "user:bob",
-      "to": "company:acme",
-      "relation_type": "in_company",
+      "to": "department:legal",
+      "relation_type": "belongs_to_department",
       "operation": "upsert"
     },
     {
       "from": "user:eve",
-      "to": "company:otherco",
-      "relation_type": "in_company",
+      "to": "department:ops",
+      "relation_type": "belongs_to_department",
       "operation": "upsert"
     },
     {
-      "from": "kb:wiki_core",
+      "from": "user:frank",
+      "to": "department:ext",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:rnd",
       "to": "company:acme",
-      "relation_type": "in_company",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:legal",
+      "to": "company:acme",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:ops",
+      "to": "company:otherco",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:ext",
+      "to": "company:thirdco",
+      "relation_type": "belongs_to_company",
       "operation": "upsert"
     },
     {
@@ -58,7 +86,7 @@
       "operation": "upsert"
     }
   ],
-  "decision_cases": [
+  "decision_inputs": [
     {
       "name": "same_company_can_read_source_object",
       "input": {
@@ -70,14 +98,12 @@
         "object": {
           "id": "kb:wiki_core",
           "type": "kb",
-          "sensitivity": "normal"
+          "sensitivity": "normal",
+          "attributes": {
+            "is_derived": false
+          }
         }
-      },
-      "expected_effect": "allow",
-      "expected_same_company": true,
-      "expected_subject_company": "company:acme",
-      "expected_object_company": "company:acme",
-      "expected_object_owner_ref": "user:alice"
+      }
     },
     {
       "name": "same_company_can_read_derived_object",
@@ -90,34 +116,30 @@
         "object": {
           "id": "kb:wiki_core_redacted",
           "type": "kb",
-          "sensitivity": "normal"
+          "sensitivity": "normal",
+          "attributes": {
+            "is_derived": true
+          }
         }
-      },
-      "expected_effect": "allow",
-      "expected_same_company": true,
-      "expected_subject_company": "company:acme",
-      "expected_object_company": "company:acme",
-      "expected_object_owner_ref": "user:bob"
+      }
     },
     {
       "name": "cross_company_cannot_read_derived_object",
       "input": {
         "action": "read",
         "subject": {
-          "id": "user:eve",
+          "id": "user:frank",
           "type": "user"
         },
         "object": {
           "id": "kb:wiki_core_redacted",
           "type": "kb",
-          "sensitivity": "normal"
+          "sensitivity": "normal",
+          "attributes": {
+            "is_derived": true
+          }
         }
-      },
-      "expected_effect": "not_applicable",
-      "expected_same_company": false,
-      "expected_subject_company": "company:otherco",
-      "expected_object_company": "company:acme",
-      "expected_object_owner_ref": "user:bob"
+      }
     }
   ]
 }

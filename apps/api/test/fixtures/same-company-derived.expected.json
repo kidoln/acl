@@ -1,0 +1,38 @@
+{
+  "decision_expectations": [
+    {
+      "name": "same_company_can_read_source_object",
+      "expected_effect": "allow",
+      "expected_same_company": true,
+      "expected_subject_company": "company:acme",
+      "expected_object_company": "company:acme",
+      "expected_object_owner_ref": "user:alice",
+      "expected_rule_matches": {
+        "infer_same_company_direct": true,
+        "infer_same_company_via_derived_source": false
+      }
+    },
+    {
+      "name": "same_company_can_read_derived_object",
+      "expected_effect": "allow",
+      "expected_same_company": true,
+      "expected_subject_company": "company:acme",
+      "expected_object_company": "company:acme",
+      "expected_rule_matches": {
+        "infer_same_company_direct": false,
+        "infer_same_company_via_derived_source": true
+      }
+    },
+    {
+      "name": "cross_company_cannot_read_derived_object",
+      "expected_effect": "not_applicable",
+      "expected_same_company": false,
+      "expected_subject_company": "company:thirdco",
+      "expected_object_company": "company:acme",
+      "expected_rule_matches": {
+        "infer_same_company_direct": false,
+        "infer_same_company_via_derived_source": false
+      }
+    }
+  ]
+}

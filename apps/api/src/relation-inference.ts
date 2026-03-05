@@ -8,6 +8,15 @@ import type { ContextInferenceRule } from '@acl/shared-types';
 const DEFAULT_PAGE_LIMIT = 100;
 const DEFAULT_MAX_RELATIONS_SCAN = 500;
 const UNKNOWN_OWNER = 'unknown';
+const DEFAULT_STEP_MAX_DEPTH = 1;
+const MIN_STEP_MAX_DEPTH = 1;
+const MAX_STEP_MAX_DEPTH = 16;
+
+type InferencePathStep = {
+  relation_type: string;
+  entity_side: 'from' | 'to';
+  max_depth?: number;
+};
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
@@ -49,36 +58,55 @@ async function listRelationsWithCap(input: {
   return list;
 }
 
-async function resolveValuesByEdges(input: {
+async function resolveValuesByPath(input: {
   persistence: AclPersistence;
   namespace: string;
   entityId: string;
-  ruleEdges: ContextInferenceRule['subject_edges'];
+  rulePath: InferencePathStep[];
   maxScan: number;
 }): Promise<string[]> {
-  const values = new Set<string>();
-
-  for (const edge of input.ruleEdges) {
-    const list = await listRelationsWithCap({
-      persistence: input.persistence,
-      query: {
-        namespace: input.namespace,
-        relation_type: edge.relation_type,
-        from: edge.entity_side === 'from' ? input.entityId : undefined,
-        to: edge.entity_side === 'to' ? input.entityId : undefined,
-      },
-      maxScan: input.maxScan,
-    });
-
-    list.forEach((item) => {
-      const opposite = edge.entity_side === 'from' ? item.to : item.from;
-      if (isNonEmptyString(opposite)) {
-        values.add(opposite);
-      }
-    });
+  if (input.rulePath.length === 0) {
+    return [];
   }
 
-  return Array.from(values);
+  let frontier = new Set<string>([input.entityId]);
+
+  for (const step of input.rulePath) {
+    const repeatDepth = Number.isInteger(step.max_depth)
+      ? Math.min(Math.max(step.max_depth ?? DEFAULT_STEP_MAX_DEPTH, MIN_STEP_MAX_DEPTH), MAX_STEP_MAX_DEPTH)
+      : DEFAULT_STEP_MAX_DEPTH;
+
+    for (let depth = 0; depth < repeatDepth; depth += 1) {
+      if (frontier.size === 0) {
+        break;
+      }
+
+      const next = new Set<string>();
+      for (const current of frontier) {
+        const list = await listRelationsWithCap({
+          persistence: input.persistence,
+          query: {
+            namespace: input.namespace,
+            relation_type: step.relation_type,
+            from: step.entity_side === 'from' ? current : undefined,
+            to: step.entity_side === 'to' ? current : undefined,
+          },
+          maxScan: input.maxScan,
+        });
+
+        list.forEach((item) => {
+          const opposite = step.entity_side === 'from' ? item.to : item.from;
+          if (isNonEmptyString(opposite)) {
+            next.add(opposite);
+          }
+        });
+      }
+
+      frontier = next;
+    }
+  }
+
+  return Array.from(frontier);
 }
 
 export interface RelationInferenceRuleResult {
@@ -99,6 +127,45 @@ export interface RelationInferenceResult {
   };
 }
 
+async function resolveOwnerCompanyValues(input: {
+  persistence: AclPersistence;
+  namespace: string;
+  inputObjectId: string;
+  objectIds: string[];
+  subjectPath: InferencePathStep[];
+  maxScan: number;
+}): Promise<{ ownerValues: string[]; inputObjectOwnerRef?: string }> {
+  const ownerValues = new Set<string>();
+  let inputObjectOwnerRef: string | undefined;
+
+  for (const objectId of input.objectIds) {
+    const objectRecord = await input.persistence.getControlObject(input.namespace, objectId);
+    const ownerRef = objectRecord?.owner_ref;
+    if (!isNonEmptyString(ownerRef) || ownerRef === UNKNOWN_OWNER) {
+      continue;
+    }
+
+    if (objectId === input.inputObjectId) {
+      inputObjectOwnerRef = ownerRef;
+    }
+
+    const ownerPathValues = await resolveValuesByPath({
+      persistence: input.persistence,
+      namespace: input.namespace,
+      entityId: ownerRef,
+      rulePath: input.subjectPath,
+      maxScan: input.maxScan,
+    });
+
+    ownerPathValues.forEach((value) => ownerValues.add(value));
+  }
+
+  return {
+    ownerValues: Array.from(ownerValues),
+    inputObjectOwnerRef,
+  };
+}
+
 export async function inferContextFromControlPlane(input: {
   persistence: AclPersistence;
   namespace: string;
@@ -115,37 +182,44 @@ export async function inferContextFromControlPlane(input: {
   const ruleResults: RelationInferenceRuleResult[] = [];
 
   for (const rule of input.rules) {
-    const subjectValues = uniqueStrings(await resolveValuesByEdges({
+    const subjectPath = rule.subject_edges;
+    const objectPath = rule.object_edges;
+
+    const subjectValues = uniqueStrings(await resolveValuesByPath({
       persistence: input.persistence,
       namespace: input.namespace,
       entityId: input.subjectId,
-      ruleEdges: rule.subject_edges,
+      rulePath: subjectPath,
       maxScan,
     }));
 
-    const objectValueSet = new Set<string>(await resolveValuesByEdges({
+    const objectValueSet = new Set<string>(await resolveValuesByPath({
       persistence: input.persistence,
       namespace: input.namespace,
       entityId: input.objectId,
-      ruleEdges: rule.object_edges,
+      rulePath: objectPath,
       maxScan,
     }));
 
     let ownerRef: string | undefined;
     if (rule.object_owner_fallback === true) {
-      const objectRecord = await input.persistence.getControlObject(input.namespace, input.objectId);
-      const candidateOwner = objectRecord?.owner_ref;
-      if (isNonEmptyString(candidateOwner) && candidateOwner !== UNKNOWN_OWNER) {
-        ownerRef = candidateOwner;
-        const ownerValues = await resolveValuesByEdges({
-          persistence: input.persistence,
-          namespace: input.namespace,
-          entityId: candidateOwner,
-          ruleEdges: rule.subject_edges,
-          maxScan,
-        });
-        ownerValues.forEach((item) => objectValueSet.add(item));
-      }
+      const includeInputObject = rule.owner_fallback_include_input !== false;
+      const traversalObjectIds = Array.from(
+        new Set([
+          ...(includeInputObject ? [input.objectId] : []),
+          ...objectValueSet.values(),
+        ]),
+      );
+      const ownerResolution = await resolveOwnerCompanyValues({
+        persistence: input.persistence,
+        namespace: input.namespace,
+        inputObjectId: input.objectId,
+        objectIds: traversalObjectIds,
+        subjectPath,
+        maxScan,
+      });
+      ownerRef = ownerResolution.inputObjectOwnerRef;
+      ownerResolution.ownerValues.forEach((item) => objectValueSet.add(item));
     }
 
     const objectValues = uniqueStrings(Array.from(objectValueSet));

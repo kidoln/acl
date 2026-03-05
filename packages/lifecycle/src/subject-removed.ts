@@ -87,9 +87,9 @@ export function executeSubjectRemovedLifecycle(
     throw new Error('event.target is required');
   }
 
-  const subjectRelations = input.model.relations.subject_relations;
-  const objectRelations = input.model.relations.object_relations;
-  const subjectObjectRelations = input.model.relations.subject_object_relations;
+  const subjectRelations = input.model.relations?.subject_relations ?? [];
+  const objectRelations = input.model.relations?.object_relations ?? [];
+  const subjectObjectRelations = input.model.relations?.subject_object_relations ?? [];
 
   const revokedSubject = getDirectEdges(subjectId, subjectRelations);
   const revokedObject = getDirectEdges(subjectId, objectRelations);

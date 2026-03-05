@@ -21,11 +21,12 @@ import {
   nextLifecycleId,
   nextValidationId,
   type AclPersistence,
+  type PersistedControlObjectRecord,
   type PersistedModelRouteRecord,
   type PersistedPublishRequestRecord,
 } from '@acl/persistence';
 import { parseSelector, type SelectorScope } from '@acl/policy-dsl';
-import type { AuthzModelConfig } from '@acl/shared-types';
+import type { AuthzModelConfig, PolicyRule } from '@acl/shared-types';
 import { validateModelConfig } from '@acl/validator';
 import {
   applyPublishActivation,
@@ -69,6 +70,44 @@ interface DecisionEvaluateBody {
       namespace?: string;
       max_relations_scan?: number;
     };
+  };
+}
+
+interface DecisionSearchBody {
+  model?: unknown;
+  model_route?: {
+    namespace: string;
+    tenant_id: string;
+    environment: string;
+  };
+  input: {
+    action: string;
+    subject: Partial<DecisionSubject> & { id: string };
+    context?: Record<string, unknown>;
+  };
+  filters?: {
+    object_ids?: string[];
+    object_type_in?: string[];
+    sensitivity_in?: string[];
+    labels_all?: string[];
+    updated_after?: string;
+  };
+  page?: {
+    limit?: number;
+    cursor?: string;
+  };
+  options?: {
+    available_obligation_executors?: string[];
+    cardinality_counts?: Record<string, number>;
+    strict_validation?: boolean;
+    relation_inference?: {
+      enabled?: boolean;
+      namespace?: string;
+      max_relations_scan?: number;
+    };
+    max_candidates_scan?: number;
+    include_plan?: boolean;
+    include_trace_sample?: boolean;
   };
 }
 
@@ -332,7 +371,7 @@ function buildModelRouteKey(namespace: string, tenantId: string, environment: st
 }
 
 function resolveDecisionControlNamespace(input: {
-  options?: DecisionEvaluateBody['options'];
+  options?: DecisionEvaluateBody['options'] | DecisionSearchBody['options'];
   resolvedModelRoute?: PersistedModelRouteRecord;
   requestContext?: Record<string, unknown>;
 }): string | undefined {
@@ -364,6 +403,316 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter((value) => value.trim().length > 0)));
+}
+
+const DEFAULT_SEARCH_LIMIT = 20;
+const MAX_SEARCH_LIMIT = 100;
+const DEFAULT_SEARCH_MAX_SCAN = 2000;
+const MAX_SEARCH_MAX_SCAN = 20000;
+const CONTROL_OBJECT_QUERY_PAGE = 100;
+
+function normalizeSearchLimit(value: number | undefined): number {
+  if (!Number.isInteger(value)) {
+    return DEFAULT_SEARCH_LIMIT;
+  }
+  const normalized = Number(value);
+  return Math.min(Math.max(normalized, 1), MAX_SEARCH_LIMIT);
+}
+
+function normalizeSearchMaxScan(value: number | undefined): number {
+  if (!Number.isInteger(value)) {
+    return DEFAULT_SEARCH_MAX_SCAN;
+  }
+  const normalized = Number(value);
+  return Math.min(Math.max(normalized, 100), MAX_SEARCH_MAX_SCAN);
+}
+
+function encodeSearchCursor(offset: number): string {
+  return Buffer.from(String(Math.max(0, offset)), 'utf8').toString('base64url');
+}
+
+function decodeSearchCursor(cursor: string | undefined): number | null {
+  if (!isNonEmptyString(cursor)) {
+    return 0;
+  }
+
+  try {
+    const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
+    const parsed = Number(decoded);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function toStringSet(values: string[] | undefined): Set<string> | undefined {
+  if (!Array.isArray(values)) {
+    return undefined;
+  }
+  const normalized = uniqueStrings(
+    values
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0),
+  );
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  return new Set(normalized);
+}
+
+function intersectSets(
+  left: Set<string> | undefined,
+  right: Set<string> | undefined,
+): Set<string> | undefined {
+  if (!left && !right) {
+    return undefined;
+  }
+  if (!left) {
+    return new Set(right);
+  }
+  if (!right) {
+    return new Set(left);
+  }
+
+  const output = new Set<string>();
+  left.forEach((item) => {
+    if (right.has(item)) {
+      output.add(item);
+    }
+  });
+  return output;
+}
+
+function normalizeRequestTimestampMs(context: Record<string, unknown> | undefined): number {
+  const raw = context?.request_time;
+  if (typeof raw === 'string') {
+    const parsed = Date.parse(raw);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  return Date.now();
+}
+
+function isRuleActiveAt(rule: PolicyRule, timestampMs: number): boolean {
+  if (!rule.validity) {
+    return true;
+  }
+
+  const start = Date.parse(rule.validity.start);
+  const end = Date.parse(rule.validity.end);
+  if (Number.isNaN(start) || Number.isNaN(end) || start > end) {
+    return false;
+  }
+  return timestampMs >= start && timestampMs <= end;
+}
+
+interface RuleObjectConstraint {
+  object_type?: string;
+  sensitivity?: string;
+  impossible: boolean;
+  parse_error: boolean;
+}
+
+function applyRuleConstraintValue(
+  current: string | undefined,
+  nextValue: string,
+): { value?: string; impossible: boolean } {
+  if (!current) {
+    return {
+      value: nextValue,
+      impossible: false,
+    };
+  }
+  if (current === nextValue) {
+    return {
+      value: current,
+      impossible: false,
+    };
+  }
+  return {
+    value: undefined,
+    impossible: true,
+  };
+}
+
+function collectSelectorObjectConstraint(selector: string): RuleObjectConstraint {
+  const parsed = parseSelector(selector, 'object_selector');
+  if (!parsed.ok || !parsed.ast) {
+    return {
+      impossible: false,
+      parse_error: true,
+    };
+  }
+
+  let objectType: string | undefined;
+  let sensitivity: string | undefined;
+  let impossible = false;
+
+  parsed.ast.clauses.forEach((clause) => {
+    if (clause.type !== 'comparison') {
+      return;
+    }
+
+    if (clause.left === 'object.type') {
+      const merged = applyRuleConstraintValue(objectType, clause.right);
+      objectType = merged.value;
+      impossible = impossible || merged.impossible;
+      return;
+    }
+
+    if (clause.left === 'object.sensitivity') {
+      const merged = applyRuleConstraintValue(sensitivity, clause.right);
+      sensitivity = merged.value;
+      impossible = impossible || merged.impossible;
+    }
+  });
+
+  return {
+    object_type: objectType,
+    sensitivity,
+    impossible,
+    parse_error: false,
+  };
+}
+
+function mergeRuleConstraint(
+  left: RuleObjectConstraint,
+  right: RuleObjectConstraint,
+): RuleObjectConstraint {
+  let objectType = left.object_type;
+  let sensitivity = left.sensitivity;
+  let impossible = left.impossible || right.impossible;
+
+  if (right.object_type) {
+    const merged = applyRuleConstraintValue(objectType, right.object_type);
+    objectType = merged.value;
+    impossible = impossible || merged.impossible;
+  }
+
+  if (right.sensitivity) {
+    const merged = applyRuleConstraintValue(sensitivity, right.sensitivity);
+    sensitivity = merged.value;
+    impossible = impossible || merged.impossible;
+  }
+
+  return {
+    object_type: objectType,
+    sensitivity,
+    impossible,
+    parse_error: left.parse_error || right.parse_error,
+  };
+}
+
+function collectRuleObjectConstraint(rule: PolicyRule): RuleObjectConstraint {
+  let constraint = collectSelectorObjectConstraint(rule.object_selector);
+  if (isNonEmptyString(rule.conditions)) {
+    constraint = mergeRuleConstraint(constraint, collectSelectorObjectConstraint(rule.conditions));
+  }
+  return constraint;
+}
+
+interface SearchPolicyFilterPlan {
+  no_allow_rule: boolean;
+  constrained_object_types?: Set<string>;
+  constrained_sensitivity?: Set<string>;
+  parse_error_rule_count: number;
+  impossible_rule_count: number;
+  active_allow_rule_count: number;
+}
+
+function buildSearchPolicyFilterPlan(input: {
+  model: AuthzModelConfig;
+  action: string;
+  timestampMs: number;
+}): SearchPolicyFilterPlan {
+  const activeAllowRules = input.model.policies.rules.filter(
+    (rule) => rule.effect === 'allow'
+      && rule.action_set.includes(input.action)
+      && isRuleActiveAt(rule, input.timestampMs),
+  );
+
+  if (activeAllowRules.length === 0) {
+    return {
+      no_allow_rule: true,
+      parse_error_rule_count: 0,
+      impossible_rule_count: 0,
+      active_allow_rule_count: 0,
+    };
+  }
+
+  let typeUnconstrained = false;
+  let sensitivityUnconstrained = false;
+  const typeSet = new Set<string>();
+  const sensitivitySet = new Set<string>();
+  let parseErrorRuleCount = 0;
+  let impossibleRuleCount = 0;
+
+  activeAllowRules.forEach((rule) => {
+    const constraint = collectRuleObjectConstraint(rule);
+    if (constraint.impossible) {
+      impossibleRuleCount += 1;
+      return;
+    }
+
+    if (constraint.parse_error) {
+      parseErrorRuleCount += 1;
+      typeUnconstrained = true;
+      sensitivityUnconstrained = true;
+      return;
+    }
+
+    if (constraint.object_type) {
+      typeSet.add(constraint.object_type);
+    } else {
+      typeUnconstrained = true;
+    }
+
+    if (constraint.sensitivity) {
+      sensitivitySet.add(constraint.sensitivity);
+    } else {
+      sensitivityUnconstrained = true;
+    }
+  });
+
+  return {
+    no_allow_rule: false,
+    constrained_object_types: !typeUnconstrained && typeSet.size > 0 ? typeSet : undefined,
+    constrained_sensitivity:
+      !sensitivityUnconstrained && sensitivitySet.size > 0 ? sensitivitySet : undefined,
+    parse_error_rule_count: parseErrorRuleCount,
+    impossible_rule_count: impossibleRuleCount,
+    active_allow_rule_count: activeAllowRules.length,
+  };
+}
+
+function parseIsoTimestampMs(value: string | undefined): number | undefined {
+  if (!isNonEmptyString(value)) {
+    return undefined;
+  }
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return undefined;
+  }
+  return parsed;
+}
+
+function matchesAllLabels(labels: string[], expected: Set<string> | undefined): boolean {
+  if (!expected || expected.size === 0) {
+    return true;
+  }
+
+  const labelSet = new Set(labels);
+  for (const item of expected) {
+    if (!labelSet.has(item)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function normalizeTopN(topN: number | undefined): number {
@@ -1015,6 +1364,94 @@ function buildPublishMetricsOverride(
       takeover_queue_max_pending_hours:
         pendingHours ?? lifecycle?.takeover_queue_max_pending_hours ?? 0,
     },
+  };
+}
+
+interface DecisionSearchObjectFilters {
+  objectIds?: Set<string>;
+  objectTypes?: Set<string>;
+  sensitivity?: Set<string>;
+  labelsAll?: Set<string>;
+  updatedAfterMs?: number;
+}
+
+function objectMatchesDecisionSearchFilters(
+  object: PersistedControlObjectRecord,
+  filters: DecisionSearchObjectFilters,
+): boolean {
+  if (filters.objectIds && !filters.objectIds.has(object.object_id)) {
+    return false;
+  }
+  if (filters.objectTypes && !filters.objectTypes.has(object.object_type)) {
+    return false;
+  }
+  if (filters.sensitivity && !filters.sensitivity.has(object.sensitivity)) {
+    return false;
+  }
+  if (!matchesAllLabels(object.labels, filters.labelsAll)) {
+    return false;
+  }
+  if (filters.updatedAfterMs !== undefined) {
+    const updatedAtMs = Date.parse(object.updated_at);
+    if (Number.isNaN(updatedAtMs) || updatedAtMs < filters.updatedAfterMs) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function listControlObjectsForDecisionSearch(input: {
+  namespace: string;
+  maxScan: number;
+  objectType: string | undefined;
+  sensitivity: string | undefined;
+  runtimeFilters: DecisionSearchObjectFilters;
+}): Promise<{
+  items: PersistedControlObjectRecord[];
+  scanned_count: number;
+  truncated: boolean;
+}> {
+  const items: PersistedControlObjectRecord[] = [];
+  let scannedCount = 0;
+  let offset = 0;
+  let truncated = false;
+
+  while (scannedCount < input.maxScan) {
+    const pageLimit = Math.min(CONTROL_OBJECT_QUERY_PAGE, input.maxScan - scannedCount);
+    const page = await persistence.listControlObjects({
+      namespace: input.namespace,
+      object_type: input.objectType,
+      sensitivity: input.sensitivity,
+      limit: pageLimit,
+      offset,
+    });
+
+    if (page.items.length === 0) {
+      break;
+    }
+
+    scannedCount += page.items.length;
+    page.items.forEach((item) => {
+      if (objectMatchesDecisionSearchFilters(item, input.runtimeFilters)) {
+        items.push(item);
+      }
+    });
+
+    if (!page.has_more || page.next_offset === undefined) {
+      break;
+    }
+
+    offset = page.next_offset;
+  }
+
+  if (scannedCount >= input.maxScan) {
+    truncated = true;
+  }
+
+  return {
+    items,
+    scanned_count: scannedCount,
+    truncated,
   };
 }
 
@@ -2712,6 +3149,438 @@ app.post<{ Body: DecisionEvaluateBody }>('/decisions:evaluate', async (request, 
     constraint_evaluation: constraintEvaluation,
     model_validation: validation,
     relation_inference: relationInference,
+  });
+});
+
+app.post<{ Body: DecisionSearchBody }>('/decisions/search', async (request, reply) => {
+  const { model, model_route: modelRoute, input, options } = request.body ?? {};
+
+  if (!input || !isNonEmptyString(input.action) || !isNonEmptyString(input.subject?.id)) {
+    return reply.code(400).send({
+      code: 'INVALID_REQUEST',
+      message: 'input.action and input.subject.id are required',
+    });
+  }
+
+  const pageLimit = normalizeSearchLimit(request.body?.page?.limit);
+  const pageOffset = decodeSearchCursor(request.body?.page?.cursor);
+  if (pageOffset === null) {
+    return reply.code(400).send({
+      code: 'INVALID_REQUEST',
+      message: 'page.cursor is invalid',
+    });
+  }
+
+  let resolvedModel: unknown = model;
+  let resolvedModelRoute: PersistedModelRouteRecord | undefined;
+  let resolvedPublishId: string | undefined;
+
+  if (resolvedModel === undefined && modelRoute) {
+    if (
+      !isNonEmptyString(modelRoute.namespace) ||
+      !isNonEmptyString(modelRoute.tenant_id) ||
+      !isNonEmptyString(modelRoute.environment)
+    ) {
+      return reply.code(400).send({
+        code: 'INVALID_REQUEST',
+        message: 'model_route.namespace/model_route.tenant_id/model_route.environment are required',
+      });
+    }
+
+    const routeResult = await resolveModelByRoute({
+      namespace: modelRoute.namespace.trim(),
+      tenant_id: modelRoute.tenant_id.trim(),
+      environment: modelRoute.environment.trim(),
+    });
+    if (!routeResult) {
+      return reply.code(404).send({
+        code: 'NOT_FOUND',
+        message: 'model route not found or mapped published model is unavailable',
+      });
+    }
+    resolvedModel = routeResult.model;
+    resolvedModelRoute = routeResult.route;
+    resolvedPublishId = routeResult.publish_id;
+  }
+
+  if (resolvedModel === undefined) {
+    return reply.code(400).send({
+      code: 'INVALID_REQUEST',
+      message: 'model is required in request body (or provide model_route)',
+    });
+  }
+
+  const validation = validateModelConfig(resolvedModel, {
+    available_obligation_executors: options?.available_obligation_executors,
+  });
+
+  const strict = options?.strict_validation ?? true;
+  if (strict && !validation.valid) {
+    return reply.code(422).send({
+      code: 'INVALID_MODEL',
+      message: 'model validation failed before decision search',
+      validation,
+    });
+  }
+
+  const typedModel = resolvedModel as AuthzModelConfig;
+  const constraintEvaluation = evaluateConstraints({
+    model: typedModel,
+    cardinality_counts: options?.cardinality_counts,
+  });
+  if (constraintEvaluation.violations.length > 0) {
+    return reply.code(409).send({
+      code: 'CONSTRAINT_VIOLATION',
+      message: 'constraint evaluation failed before decision search',
+      constraint_evaluation: constraintEvaluation,
+      model_validation: validation,
+    });
+  }
+
+  const contextInput = isRecord(input.context) ? { ...input.context } : {};
+  const controlNamespace = resolveDecisionControlNamespace({
+    options,
+    resolvedModelRoute,
+    requestContext: contextInput,
+  });
+  if (!isNonEmptyString(controlNamespace)) {
+    return reply.code(400).send({
+      code: 'INVALID_REQUEST',
+      message: 'namespace is required for decision search (use model_route or options.relation_inference.namespace or input.context.namespace)',
+    });
+  }
+
+  const requestFilters = request.body?.filters;
+  const requestObjectTypes = toStringSet(requestFilters?.object_type_in);
+  const requestSensitivity = toStringSet(requestFilters?.sensitivity_in);
+  const objectIds = toStringSet(requestFilters?.object_ids);
+  const labelsAll = toStringSet(requestFilters?.labels_all);
+  const updatedAfterMs = parseIsoTimestampMs(requestFilters?.updated_after);
+
+  if (requestFilters?.updated_after !== undefined && updatedAfterMs === undefined) {
+    return reply.code(400).send({
+      code: 'INVALID_REQUEST',
+      message: 'filters.updated_after must be a valid ISO datetime string',
+    });
+  }
+
+  const requestTimeMs = normalizeRequestTimestampMs(contextInput);
+  const policyPlan = buildSearchPolicyFilterPlan({
+    model: typedModel,
+    action: input.action,
+    timestampMs: requestTimeMs,
+  });
+
+  if (policyPlan.no_allow_rule) {
+    return reply.code(200).send({
+      search_id: nextDecisionId(),
+      persisted_at: new Date().toISOString(),
+      persistence_driver: persistenceDriver,
+      resolved_model: getModelMeta(resolvedModel) ?? undefined,
+      resolved_route: resolvedModelRoute
+        ? {
+            key: resolvedModelRoute.key,
+            namespace: resolvedModelRoute.namespace,
+            tenant_id: resolvedModelRoute.tenant_id,
+            environment: resolvedModelRoute.environment,
+            model_id: resolvedModelRoute.model_id,
+            model_version: resolvedModelRoute.model_version,
+            publish_id: resolvedPublishId ?? resolvedModelRoute.publish_id,
+          }
+        : undefined,
+      page: {
+        limit: pageLimit,
+        next_cursor: undefined,
+        has_more: false,
+        total_count: 0,
+      },
+      items: [],
+      model_validation: validation,
+      constraint_evaluation: constraintEvaluation,
+      plan: options?.include_plan
+        ? {
+            mode: 'no_allow_rule',
+            namespace: controlNamespace,
+            pushdown_clauses: [],
+            residual_clauses: [],
+            scanned_count: 0,
+            candidate_count: 0,
+            allow_count: 0,
+            parse_error_rule_count: 0,
+            impossible_rule_count: 0,
+            active_allow_rule_count: 0,
+            truncated_by_max_scan: false,
+          }
+        : undefined,
+    });
+  }
+
+  const effectiveObjectTypes = intersectSets(requestObjectTypes, policyPlan.constrained_object_types);
+  const effectiveSensitivity = intersectSets(requestSensitivity, policyPlan.constrained_sensitivity);
+
+  if ((effectiveObjectTypes && effectiveObjectTypes.size === 0)
+    || (effectiveSensitivity && effectiveSensitivity.size === 0)) {
+    return reply.code(200).send({
+      search_id: nextDecisionId(),
+      persisted_at: new Date().toISOString(),
+      persistence_driver: persistenceDriver,
+      resolved_model: getModelMeta(resolvedModel) ?? undefined,
+      resolved_route: resolvedModelRoute
+        ? {
+            key: resolvedModelRoute.key,
+            namespace: resolvedModelRoute.namespace,
+            tenant_id: resolvedModelRoute.tenant_id,
+            environment: resolvedModelRoute.environment,
+            model_id: resolvedModelRoute.model_id,
+            model_version: resolvedModelRoute.model_version,
+            publish_id: resolvedPublishId ?? resolvedModelRoute.publish_id,
+          }
+        : undefined,
+      page: {
+        limit: pageLimit,
+        next_cursor: undefined,
+        has_more: false,
+        total_count: 0,
+      },
+      items: [],
+      model_validation: validation,
+      constraint_evaluation: constraintEvaluation,
+      plan: options?.include_plan
+        ? {
+            mode: 'filter_conflict',
+            namespace: controlNamespace,
+            pushdown_clauses: [],
+            residual_clauses: [],
+            scanned_count: 0,
+            candidate_count: 0,
+            allow_count: 0,
+            parse_error_rule_count: policyPlan.parse_error_rule_count,
+            impossible_rule_count: policyPlan.impossible_rule_count,
+            active_allow_rule_count: policyPlan.active_allow_rule_count,
+            truncated_by_max_scan: false,
+          }
+        : undefined,
+    });
+  }
+
+  const modelPushdownMaxScan = typedModel.decision_search?.enabled === true
+    ? typedModel.decision_search.pushdown?.max_candidates_scan
+    : undefined;
+  const maxCandidatesScan = normalizeSearchMaxScan(options?.max_candidates_scan ?? modelPushdownMaxScan);
+  const pushdownObjectType = effectiveObjectTypes && effectiveObjectTypes.size === 1
+    ? Array.from(effectiveObjectTypes)[0]
+    : undefined;
+  const pushdownSensitivity = effectiveSensitivity && effectiveSensitivity.size === 1
+    ? Array.from(effectiveSensitivity)[0]
+    : undefined;
+
+  const listResult = await listControlObjectsForDecisionSearch({
+    namespace: controlNamespace,
+    maxScan: maxCandidatesScan,
+    objectType: pushdownObjectType,
+    sensitivity: pushdownSensitivity,
+    runtimeFilters: {
+      objectIds,
+      objectTypes: effectiveObjectTypes,
+      sensitivity: effectiveSensitivity,
+      labelsAll,
+      updatedAfterMs,
+    },
+  });
+
+  const candidates = [...listResult.items].sort((left, right) => left.object_id.localeCompare(right.object_id));
+  const subject = makeSubject(input.subject);
+  const relationInferenceEnabled = options?.relation_inference?.enabled !== false;
+  const modelInferenceConfig = typedModel.context_inference;
+
+  const relationInferenceState:
+    | { enabled: false; reason: string; namespace?: string }
+    | { enabled: true; reason: string; namespace?: string }
+    | { enabled: true; ready: true; namespace: string } =
+    !relationInferenceEnabled
+      ? { enabled: false, reason: 'disabled_by_option', namespace: controlNamespace }
+      : (!modelInferenceConfig || modelInferenceConfig.enabled === false)
+        ? { enabled: true, reason: 'model_inference_disabled', namespace: controlNamespace }
+        : (!Array.isArray(modelInferenceConfig.rules) || modelInferenceConfig.rules.length === 0)
+          ? { enabled: true, reason: 'model_inference_rules_empty', namespace: controlNamespace }
+          : { enabled: true, ready: true, namespace: controlNamespace };
+
+  let relationInferenceAppliedCount = 0;
+  let relationInferenceFailedCount = 0;
+  const decisionStats = {
+    allow: 0,
+    deny: 0,
+    not_applicable: 0,
+    indeterminate: 0,
+  };
+
+  const allowItems: Array<{
+    object_id: string;
+    object_type: string;
+    sensitivity: string;
+    labels: string[];
+    owner_ref: string;
+    updated_at: string;
+    decision_id: string;
+    final_effect: string;
+    reason: string;
+    matched_rules: string[];
+    overridden_rules: string[];
+    obligations: string[];
+    advice: string[];
+    traces?: Array<Record<string, unknown>>;
+  }> = [];
+
+  for (const object of candidates) {
+    const decisionInput: DecisionInput = {
+      action: input.action,
+      subject,
+      object: makeObject({
+        id: object.object_id,
+        type: object.object_type,
+        sensitivity: object.sensitivity,
+        attributes: {
+          labels: object.labels,
+          owner_ref: object.owner_ref,
+          updated_at: object.updated_at,
+        },
+      }),
+      context: Object.keys(contextInput).length > 0 ? { ...contextInput } : undefined,
+    };
+
+    if (relationInferenceState.enabled && 'ready' in relationInferenceState) {
+      try {
+        const inferred = await inferContextFromControlPlane({
+          persistence,
+          namespace: relationInferenceState.namespace,
+          subjectId: subject.id,
+          objectId: object.object_id,
+          rules: modelInferenceConfig?.rules ?? [],
+          maxRelationsScan: options?.relation_inference?.max_relations_scan,
+        });
+        decisionInput.context = {
+          ...(decisionInput.context ?? {}),
+          ...inferred.contextPatch,
+        };
+        if (inferred.metadata.applied) {
+          relationInferenceAppliedCount += 1;
+        }
+      } catch {
+        relationInferenceFailedCount += 1;
+      }
+    }
+
+    const result = evaluateDecision({
+      model: typedModel,
+      input: decisionInput,
+    });
+
+    decisionStats[result.decision.final_effect] += 1;
+    if (result.decision.final_effect !== 'allow') {
+      continue;
+    }
+
+    allowItems.push({
+      object_id: object.object_id,
+      object_type: object.object_type,
+      sensitivity: object.sensitivity,
+      labels: object.labels,
+      owner_ref: object.owner_ref,
+      updated_at: object.updated_at,
+      decision_id: nextDecisionId(),
+      final_effect: result.decision.final_effect,
+      reason: result.decision.reason,
+      matched_rules: result.decision.matched_rules,
+      overridden_rules: result.decision.overridden_rules,
+      obligations: result.decision.obligations ?? [],
+      advice: result.decision.advice ?? [],
+      traces: options?.include_trace_sample ? (result.traces as unknown as Array<Record<string, unknown>>) : undefined,
+    });
+  }
+
+  const start = Math.min(pageOffset, allowItems.length);
+  const end = Math.min(start + pageLimit, allowItems.length);
+  const pageItems = allowItems.slice(start, end);
+  const hasMore = end < allowItems.length;
+  const nextCursor = hasMore ? encodeSearchCursor(end) : undefined;
+
+  const pushdownClauses: string[] = [];
+  if (pushdownObjectType) {
+    pushdownClauses.push(`object.type == ${pushdownObjectType}`);
+  } else if (effectiveObjectTypes && effectiveObjectTypes.size > 0) {
+    pushdownClauses.push(`object.type in [${Array.from(effectiveObjectTypes).join(',')}]`);
+  }
+  if (pushdownSensitivity) {
+    pushdownClauses.push(`object.sensitivity == ${pushdownSensitivity}`);
+  } else if (effectiveSensitivity && effectiveSensitivity.size > 0) {
+    pushdownClauses.push(`object.sensitivity in [${Array.from(effectiveSensitivity).join(',')}]`);
+  }
+  if (objectIds && objectIds.size > 0) {
+    pushdownClauses.push(`object.id in [${Array.from(objectIds).join(',')}]`);
+  }
+  if (labelsAll && labelsAll.size > 0) {
+    pushdownClauses.push(`object.labels contains all [${Array.from(labelsAll).join(',')}]`);
+  }
+  if (requestFilters?.updated_after) {
+    pushdownClauses.push(`object.updated_at >= ${requestFilters.updated_after}`);
+  }
+
+  const residualClauses = [
+    'subject_selector + object_selector + conditions full evaluation in engine',
+    relationInferenceState.enabled && 'ready' in relationInferenceState
+      ? 'context_inference computed per object in current implementation'
+      : `relation_inference:${relationInferenceState.reason}`,
+  ];
+
+  return reply.code(200).send({
+    search_id: nextDecisionId(),
+    persisted_at: new Date().toISOString(),
+    persistence_driver: persistenceDriver,
+    resolved_model: getModelMeta(resolvedModel) ?? undefined,
+    resolved_route: resolvedModelRoute
+      ? {
+          key: resolvedModelRoute.key,
+          namespace: resolvedModelRoute.namespace,
+          tenant_id: resolvedModelRoute.tenant_id,
+          environment: resolvedModelRoute.environment,
+          model_id: resolvedModelRoute.model_id,
+          model_version: resolvedModelRoute.model_version,
+          publish_id: resolvedPublishId ?? resolvedModelRoute.publish_id,
+        }
+      : undefined,
+    page: {
+      limit: pageLimit,
+      next_cursor: nextCursor,
+      has_more: hasMore,
+      total_count: allowItems.length,
+      truncated_by_max_scan: listResult.truncated,
+    },
+    items: pageItems,
+    relation_inference: {
+      enabled: relationInferenceState.enabled,
+      namespace: relationInferenceState.namespace,
+      reason: 'ready' in relationInferenceState ? undefined : relationInferenceState.reason,
+      applied_count: relationInferenceAppliedCount,
+      failed_count: relationInferenceFailedCount,
+    },
+    decision_stats: decisionStats,
+    model_validation: validation,
+    constraint_evaluation: constraintEvaluation,
+    plan: options?.include_plan
+      ? {
+          mode: listResult.truncated ? 'pushdown_with_residual_partial' : 'pushdown_with_residual',
+          namespace: controlNamespace,
+          pushdown_clauses: pushdownClauses,
+          residual_clauses: residualClauses,
+          scanned_count: listResult.scanned_count,
+          candidate_count: candidates.length,
+          allow_count: allowItems.length,
+          parse_error_rule_count: policyPlan.parse_error_rule_count,
+          impossible_rule_count: policyPlan.impossible_rule_count,
+          active_allow_rule_count: policyPlan.active_allow_rule_count,
+          truncated_by_max_scan: listResult.truncated,
+        }
+      : undefined,
   });
 });
 

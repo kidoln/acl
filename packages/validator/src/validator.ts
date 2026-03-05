@@ -47,7 +47,6 @@ function isAuthzModelConfigLike(value: unknown): value is AuthzModelConfig {
     isRecord(value.model_meta) &&
     isRecord(value.catalogs) &&
     isRecord(value.object_onboarding) &&
-    isRecord(value.relations) &&
     isRecord(value.policies) &&
     isRecord(value.constraints) &&
     isRecord(value.lifecycle) &&
@@ -172,7 +171,6 @@ function collectTopLevelStructureIssues(config: unknown, issues: ValidationIssue
     'model_meta',
     'catalogs',
     'object_onboarding',
-    'relations',
     'policies',
     'constraints',
     'lifecycle',
@@ -318,50 +316,243 @@ function validateRegisteredActions(model: AuthzModelConfig, issues: ValidationIs
   });
 }
 
-function validateRelationTypes(model: AuthzModelConfig, issues: ValidationIssue[]): void {
-  const registeredRelationTypes = new Set(model.catalogs.relation_type_catalog);
+function extractSelectorExactTypeValues(
+  selector: string,
+  scope: 'subject_selector' | 'object_selector',
+  typePath: string,
+): string[] | undefined {
+  const parsed = parseSelector(selector, scope);
+  if (!parsed.ok || !parsed.ast) {
+    return undefined;
+  }
 
-  const checkEdges = (edges: RelationEdge[], basePath: string): void => {
+  const values = new Set<string>();
+  parsed.ast.clauses.forEach((clause) => {
+    if (clause.type !== 'comparison') {
+      return;
+    }
+    if (clause.left !== typePath) {
+      return;
+    }
+    values.add(clause.right);
+  });
+
+  if (values.size === 0) {
+    return undefined;
+  }
+  return Array.from(values);
+}
+
+function encodeActionSignatureTriple(subjectType: string, objectType: string, action: string): string {
+  return `${subjectType}::${objectType}::${action}`;
+}
+
+function validateActionSignature(model: AuthzModelConfig, issues: ValidationIssue[]): void {
+  if (!model.action_signature || !Array.isArray(model.action_signature.tuples)) {
+    return;
+  }
+
+  const subjectCatalog = new Set(model.catalogs.subject_type_catalog);
+  const objectCatalog = new Set(model.catalogs.object_type_catalog);
+  const actionCatalog = new Set(model.catalogs.action_catalog);
+  const allowedTriples = new Set<string>();
+
+  model.action_signature.tuples.forEach((tuple, tupleIndex) => {
+    tuple.subject_types.forEach((subjectType) => {
+      if (!subjectCatalog.has(subjectType)) {
+        addIssue(
+          issues,
+          'ACTION_SIGNATURE_MISMATCH',
+          'semantic',
+          `action signature subject type ${subjectType} is not in catalogs.subject_type_catalog`,
+          `/action_signature/tuples/${tupleIndex}/subject_types`,
+        );
+      }
+    });
+
+    tuple.object_types.forEach((objectType) => {
+      if (!objectCatalog.has(objectType)) {
+        addIssue(
+          issues,
+          'ACTION_SIGNATURE_MISMATCH',
+          'semantic',
+          `action signature object type ${objectType} is not in catalogs.object_type_catalog`,
+          `/action_signature/tuples/${tupleIndex}/object_types`,
+        );
+      }
+    });
+
+    tuple.actions.forEach((action) => {
+      if (!actionCatalog.has(action)) {
+        addIssue(
+          issues,
+          'ACTION_SIGNATURE_MISMATCH',
+          'semantic',
+          `action signature action ${action} is not in catalogs.action_catalog`,
+          `/action_signature/tuples/${tupleIndex}/actions`,
+        );
+      }
+    });
+
+    if (tuple.enabled === false) {
+      return;
+    }
+
+    tuple.subject_types.forEach((subjectType) => {
+      tuple.object_types.forEach((objectType) => {
+        tuple.actions.forEach((action) => {
+          allowedTriples.add(encodeActionSignatureTriple(subjectType, objectType, action));
+        });
+      });
+    });
+  });
+
+  model.policies.rules.forEach((rule, ruleIndex) => {
+    const subjectTypes =
+      extractSelectorExactTypeValues(rule.subject_selector, 'subject_selector', 'subject.type')
+      ?? model.catalogs.subject_type_catalog;
+    const objectTypes =
+      extractSelectorExactTypeValues(rule.object_selector, 'object_selector', 'object.type')
+      ?? model.catalogs.object_type_catalog;
+
+    for (const action of rule.action_set) {
+      let covered = true;
+
+      for (const subjectType of subjectTypes) {
+        for (const objectType of objectTypes) {
+          const triple = encodeActionSignatureTriple(subjectType, objectType, action);
+          if (allowedTriples.has(triple)) {
+            continue;
+          }
+          covered = false;
+          break;
+        }
+        if (!covered) {
+          break;
+        }
+      }
+
+      if (!covered) {
+        addIssue(
+          issues,
+          'ACTION_SIGNATURE_MISMATCH',
+          'semantic',
+          `rule ${rule.id} action ${action} exceeds action_signature allowed subject/object/action tuples`,
+          `/policies/rules/${ruleIndex}/action_set`,
+        );
+        break;
+      }
+    }
+  });
+}
+
+interface RelationTypeCatalogSets {
+  subject: Set<string>;
+  object: Set<string>;
+  subjectObject: Set<string>;
+  contextSubject: Set<string>;
+  contextObject: Set<string>;
+}
+
+function toStringSet(values: string[] | undefined): Set<string> {
+  return new Set(values ?? []);
+}
+
+function unionSets(...sets: Set<string>[]): Set<string> {
+  const merged = new Set<string>();
+  sets.forEach((set) => {
+    set.forEach((item) => merged.add(item));
+  });
+  return merged;
+}
+
+function buildRelationTypeCatalogSets(model: AuthzModelConfig): RelationTypeCatalogSets {
+  const legacyCatalog = toStringSet(model.catalogs.relation_type_catalog);
+  const subjectCatalog = toStringSet(model.catalogs.subject_relation_type_catalog);
+  const objectCatalog = toStringSet(model.catalogs.object_relation_type_catalog);
+  const subjectObjectCatalog = toStringSet(model.catalogs.subject_object_relation_type_catalog);
+
+  return {
+    subject: unionSets(legacyCatalog, subjectCatalog),
+    object: unionSets(legacyCatalog, objectCatalog),
+    subjectObject: unionSets(legacyCatalog, subjectObjectCatalog),
+    contextSubject: unionSets(legacyCatalog, subjectCatalog, subjectObjectCatalog),
+    contextObject: unionSets(legacyCatalog, objectCatalog, subjectObjectCatalog),
+  };
+}
+
+function validateRelationTypes(model: AuthzModelConfig, issues: ValidationIssue[]): void {
+  const relationCatalogs = buildRelationTypeCatalogSets(model);
+  const subjectRelations = model.relations?.subject_relations ?? [];
+  const objectRelations = model.relations?.object_relations ?? [];
+  const subjectObjectRelations = model.relations?.subject_object_relations ?? [];
+
+  const checkEdges = (
+    edges: RelationEdge[],
+    basePath: string,
+    allowedRelationTypes: Set<string>,
+    catalogHint: string,
+  ): void => {
     edges.forEach((edge, index) => {
-      if (!registeredRelationTypes.has(edge.relation_type)) {
+      if (!allowedRelationTypes.has(edge.relation_type)) {
         addIssue(
           issues,
           'RELATION_TYPE_UNKNOWN',
           'semantic',
-          `relation type ${edge.relation_type} is not registered in catalogs.relation_type_catalog`,
+          `relation type ${edge.relation_type} is not registered in ${catalogHint} or catalogs.relation_type_catalog`,
           `${basePath}/${index}/relation_type`,
         );
       }
     });
   };
 
-  checkEdges(model.relations.subject_relations, '/relations/subject_relations');
-  checkEdges(model.relations.object_relations, '/relations/object_relations');
-  checkEdges(model.relations.subject_object_relations, '/relations/subject_object_relations');
+  checkEdges(
+    subjectRelations,
+    '/relations/subject_relations',
+    relationCatalogs.subject,
+    'catalogs.subject_relation_type_catalog',
+  );
+  checkEdges(
+    objectRelations,
+    '/relations/object_relations',
+    relationCatalogs.object,
+    'catalogs.object_relation_type_catalog',
+  );
+  checkEdges(
+    subjectObjectRelations,
+    '/relations/subject_object_relations',
+    relationCatalogs.subjectObject,
+    'catalogs.subject_object_relation_type_catalog',
+  );
 }
 
 function validateContextInferenceRules(model: AuthzModelConfig, issues: ValidationIssue[]): void {
   if (!model.context_inference || !Array.isArray(model.context_inference.rules)) {
     return;
   }
+  if (model.context_inference.enabled === false) {
+    return;
+  }
 
   const ruleIdSet = new Set<string>();
   const outputFieldSet = new Set<string>();
-  const registeredRelationTypes = new Set(model.catalogs.relation_type_catalog);
+  const relationCatalogs = buildRelationTypeCatalogSets(model);
 
   const checkEdge = (
     rule: ContextInferenceRule,
     edgePath: string,
     edge: { relation_type: string },
+    allowedRelationTypes: Set<string>,
+    catalogHint: string,
   ): void => {
-    if (registeredRelationTypes.has(edge.relation_type)) {
+    if (allowedRelationTypes.has(edge.relation_type)) {
       return;
     }
     addIssue(
       issues,
       'RELATION_TYPE_UNKNOWN',
       'semantic',
-      `context inference rule ${rule.id} uses unregistered relation type ${edge.relation_type}`,
+      `context inference rule ${rule.id} uses relation type ${edge.relation_type} not registered in ${catalogHint} or catalogs.relation_type_catalog`,
       edgePath,
     );
   };
@@ -389,22 +580,113 @@ function validateContextInferenceRules(model: AuthzModelConfig, issues: Validati
     }
     outputFieldSet.add(rule.output_field);
 
-    rule.subject_edges.forEach((edge, edgeIndex) => {
+    const subjectPath = rule.subject_edges;
+    const objectPath = rule.object_edges;
+
+    if (subjectPath.length === 0 || objectPath.length === 0) {
+      addIssue(
+        issues,
+        'INFERENCE_RULE_UNSAFE',
+        'semantic',
+        `context inference rule ${rule.id} must define non-empty subject_edges and object_edges`,
+        `/context_inference/rules/${index}`,
+      );
+    }
+
+    subjectPath.forEach((edge, edgeIndex) => {
       checkEdge(
         rule,
         `/context_inference/rules/${index}/subject_edges/${edgeIndex}/relation_type`,
         edge,
+        relationCatalogs.contextSubject,
+        'catalogs.subject_relation_type_catalog / catalogs.subject_object_relation_type_catalog',
       );
     });
 
-    rule.object_edges.forEach((edge, edgeIndex) => {
+    objectPath.forEach((edge, edgeIndex) => {
       checkEdge(
         rule,
         `/context_inference/rules/${index}/object_edges/${edgeIndex}/relation_type`,
         edge,
+        relationCatalogs.contextObject,
+        'catalogs.object_relation_type_catalog / catalogs.subject_object_relation_type_catalog',
       );
     });
   });
+
+  const inferenceConstraints = model.context_inference.constraints;
+  if (!inferenceConstraints) {
+    addIssue(
+      issues,
+      'INFERENCE_RULE_UNSAFE',
+      'semantic',
+      'context_inference.constraints must be declared to bound inference decidability',
+      '/context_inference/constraints',
+    );
+    return;
+  }
+
+  const monotonicOnly = inferenceConstraints.monotonic_only;
+  const stratifiedNegation = inferenceConstraints.stratified_negation;
+  if (monotonicOnly === true && stratifiedNegation === true) {
+    addIssue(
+      issues,
+      'INFERENCE_RULE_UNSAFE',
+      'semantic',
+      'monotonic_only=true cannot be combined with stratified_negation=true',
+      '/context_inference/constraints',
+    );
+  }
+
+  if (monotonicOnly !== true && stratifiedNegation !== true) {
+    addIssue(
+      issues,
+      'INFERENCE_RULE_UNSAFE',
+      'semantic',
+      'inference constraints must enable monotonic_only=true or stratified_negation=true',
+      '/context_inference/constraints',
+    );
+  }
+}
+
+function validateDecisionSearchConfig(model: AuthzModelConfig, issues: ValidationIssue[]): void {
+  const search = model.decision_search;
+  if (!search || search.enabled !== true) {
+    return;
+  }
+
+  const pushdown = search.pushdown;
+  if (!pushdown) {
+    addIssue(
+      issues,
+      'SEARCH_PUSHDOWN_UNSAFE',
+      'security',
+      'decision_search.enabled=true requires decision_search.pushdown configuration',
+      '/decision_search/pushdown',
+    );
+    return;
+  }
+
+  if (pushdown.require_semantic_equivalence !== true && pushdown.allow_conservative_superset !== true) {
+    addIssue(
+      issues,
+      'SEARCH_PUSHDOWN_UNSAFE',
+      'security',
+      'pushdown must enforce semantic equivalence or allow conservative superset + residual evaluation',
+      '/decision_search/pushdown',
+    );
+  }
+
+  if (pushdown.mode === 'aggressive' && pushdown.require_semantic_equivalence !== true) {
+    addIssue(
+      issues,
+      'SEARCH_SEMANTIC_DRIFT',
+      'executability',
+      'aggressive pushdown without strict semantic equivalence may introduce search drift',
+      '/decision_search/pushdown/mode',
+      false,
+    );
+  }
 }
 
 function validateObjectOnboarding(model: AuthzModelConfig, issues: ValidationIssue[]): void {
@@ -760,10 +1042,14 @@ export function validateModelConfig(
 
     if (model.catalogs && model.policies && Array.isArray(model.policies.rules)) {
       validateRegisteredActions(model, issues);
+      validateActionSignature(model, issues);
     }
 
     if (model.relations && model.catalogs) {
       validateRelationTypes(model, issues);
+    }
+
+    if (model.catalogs) {
       validateContextInferenceRules(model, issues);
     }
 
@@ -780,6 +1066,7 @@ export function validateModelConfig(
       validateHighSensitivityRules(model, issues);
       validateAttributeQuality(model, issues);
       validateObligationExecutability(model, issues, options);
+      validateDecisionSearchConfig(model, issues);
     }
   }
 

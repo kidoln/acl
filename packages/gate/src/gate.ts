@@ -40,6 +40,7 @@ function deepMergeMetrics(base: GateMetrics, override?: Partial<GateMetrics>): G
     attribute: { ...base.attribute, ...(override.attribute ?? {}) },
     simulation: { ...base.simulation, ...(override.simulation ?? {}) },
     quality: { ...base.quality, ...(override.quality ?? {}) },
+    search: { ...base.search, ...(override.search ?? {}) },
   };
 }
 
@@ -113,7 +114,9 @@ function buildMetrics(model: AuthzModelConfig, validation: ModelValidationResult
       selector_parse_error_count: countIssue(validation, 'SELECTOR_PARSE_ERROR'),
       selector_type_mismatch_count: countIssue(validation, 'SELECTOR_TYPE_MISMATCH'),
       unregistered_action_count: countIssue(validation, 'ACTION_NOT_REGISTERED'),
+      action_signature_mismatch_count: countIssue(validation, 'ACTION_SIGNATURE_MISMATCH'),
       unknown_relation_type_count: countIssue(validation, 'RELATION_TYPE_UNKNOWN'),
+      inference_rule_unsafe_count: countIssue(validation, 'INFERENCE_RULE_UNSAFE'),
       duplicate_rule_id_count: countIssue(validation, 'DUPLICATE_RULE_ID'),
     },
     conflict: {
@@ -150,6 +153,11 @@ function buildMetrics(model: AuthzModelConfig, validation: ModelValidationResult
     quality: {
       unreachable_rule_ratio: toRatio(unreachableRuleCount, totalRules),
       priority_collision_ratio: toRatio(priorityCollisionCount, totalRules),
+    },
+    search: {
+      enabled: model.decision_search?.enabled === true,
+      pushdown_unsafe_count: countIssue(validation, 'SEARCH_PUSHDOWN_UNSAFE'),
+      semantic_drift_count: countIssue(validation, 'SEARCH_SEMANTIC_DRIFT'),
     },
   };
 }
@@ -189,11 +197,27 @@ const BASELINE_RULES: GateRule[] = [
   },
   {
     level: 'P0',
+    rule_id: 'p0_action_signature',
+    code: 'ACTION_SIGNATURE_MISMATCH',
+    decision: 'block',
+    check: (m) => m.semantic.action_signature_mismatch_count === 0,
+    detail: 'policy subject/object/action tuples must stay inside action_signature whitelist',
+  },
+  {
+    level: 'P0',
     rule_id: 'p0_relation_registered',
     code: 'RELATION_TYPE_UNKNOWN',
     decision: 'block',
     check: (m) => m.semantic.unknown_relation_type_count === 0,
     detail: 'all relation type must be registered in catalog',
+  },
+  {
+    level: 'P0',
+    rule_id: 'p0_inference_safe',
+    code: 'INFERENCE_RULE_UNSAFE',
+    decision: 'block',
+    check: (m) => m.semantic.inference_rule_unsafe_count === 0,
+    detail: 'context inference must stay within decidable safe subset',
   },
   {
     level: 'P0',
@@ -250,6 +274,14 @@ const BASELINE_RULES: GateRule[] = [
     decision: 'block',
     check: (m) => m.execution.mandatory_obligation_static_unexecutable_count === 0,
     detail: 'mandatory obligations must be statically executable',
+  },
+  {
+    level: 'P0',
+    rule_id: 'p0_search_pushdown_safe',
+    code: 'SEARCH_PUSHDOWN_UNSAFE',
+    decision: 'block',
+    check: (m) => !m.search.enabled || m.search.pushdown_unsafe_count === 0,
+    detail: 'decision_search pushdown must satisfy semantic safety preconditions',
   },
   {
     level: 'P1',

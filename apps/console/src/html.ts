@@ -1108,7 +1108,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     defaultModel.catalogs.object_type_catalog.join("\n"),
   );
   const relationTypeCatalog = escapeHtml(
-    defaultModel.catalogs.relation_type_catalog.join("\n"),
+    (defaultModel.catalogs.relation_type_catalog ?? []).join("\n"),
   );
   const mandatoryObligations = escapeHtml(
     defaultModel.quality_guardrails.mandatory_obligations.join("\n"),

@@ -269,6 +269,106 @@ describe('publish gate', () => {
     expect(result.gates.some((gate) => gate.code === 'SELECTOR_TYPE_MISMATCH')).toBe(true);
   });
 
+  it('blocks when action signature mismatches policy tuples', () => {
+    const model = {
+      ...minimalDraftModel,
+      action_signature: {
+        tuples: [
+          {
+            subject_types: ['user'],
+            object_types: ['agent'],
+            actions: ['read'],
+          },
+        ],
+      },
+      policies: {
+        rules: [
+          {
+            ...minimalDraftModel.policies.rules[0],
+            subject_selector: 'subject.type == user',
+            object_selector: 'object.type == kb',
+            action_set: ['read'],
+          },
+        ],
+      },
+    };
+
+    const result = runPublishGate({
+      model,
+      profile: 'baseline',
+      validator_options: {
+        available_obligation_executors: ['audit_write'],
+      },
+    });
+
+    expect(result.final_result).toBe('blocked');
+    expect(result.gates.some((gate) => gate.code === 'ACTION_SIGNATURE_MISMATCH')).toBe(true);
+  });
+
+  it('blocks when inference constraints are unsafe', () => {
+    const model = {
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_same_scope',
+            output_field: 'same_scope',
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'belongs_to',
+                entity_side: 'to' as const,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const result = runPublishGate({
+      model,
+      profile: 'baseline',
+      validator_options: {
+        available_obligation_executors: ['audit_write'],
+      },
+    });
+
+    expect(result.final_result).toBe('blocked');
+    expect(result.gates.some((gate) => gate.code === 'INFERENCE_RULE_UNSAFE')).toBe(true);
+  });
+
+  it('blocks when decision_search pushdown config is unsafe', () => {
+    const model = {
+      ...minimalDraftModel,
+      decision_search: {
+        enabled: true,
+        pushdown: {
+          mode: 'safe' as const,
+          require_semantic_equivalence: false,
+          allow_conservative_superset: false,
+          max_candidates_scan: 1000,
+        },
+      },
+    };
+
+    const result = runPublishGate({
+      model,
+      profile: 'baseline',
+      validator_options: {
+        available_obligation_executors: ['audit_write'],
+      },
+    });
+
+    expect(result.final_result).toBe('blocked');
+    expect(result.gates.some((gate) => gate.code === 'SEARCH_PUSHDOWN_UNSAFE')).toBe(true);
+  });
+
   it('strict profile blocks when compat_strict misses conditional required rules', () => {
     const model = {
       ...minimalDraftModel,

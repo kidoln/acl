@@ -31,7 +31,9 @@ export interface GateMetrics {
     selector_parse_error_count: number;
     selector_type_mismatch_count: number;
     unregistered_action_count: number;
+    action_signature_mismatch_count: number;
     unknown_relation_type_count: number;
+    inference_rule_unsafe_count: number;
     duplicate_rule_id_count: number;
   };
   conflict: {
@@ -68,6 +70,11 @@ export interface GateMetrics {
   quality: {
     unreachable_rule_ratio: number;
     priority_collision_ratio: number;
+  };
+  search: {
+    enabled: boolean;
+    pushdown_unsafe_count: number;
+    semantic_drift_count: number;
   };
 }
 

@@ -1,7 +1,7 @@
 # 权限配置 JSON Schema 草案
 
 > 文档编号：55  
-> 更新日期：2026-03-04  
+> 更新日期：2026-03-05  
 > 对应主文档：[`10_企业可配置权限模型设计.md`](./10_企业可配置权限模型设计.md) 第 13 章
 
 ## 1. 目标与范围
@@ -34,6 +34,7 @@
   "required": [
     "model_meta",
     "catalogs",
+    "action_signature",
     "object_onboarding",
     "relations",
     "policies",
@@ -112,6 +113,18 @@
         }
       }
     },
+    "action_signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tuples"],
+      "properties": {
+        "tuples": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/action_signature_tuple" },
+          "uniqueItems": true
+        }
+      }
+    },
     "object_onboarding": {
       "type": "object",
       "additionalProperties": false,
@@ -153,6 +166,36 @@
           "type": "array",
           "items": { "$ref": "#/$defs/relation_edge" }
         }
+      }
+    },
+    "context_inference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "rules", "constraints"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "rules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/inference_rule" }
+        },
+        "constraints": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["monotonic_only", "stratified_negation"],
+          "properties": {
+            "monotonic_only": { "type": "boolean" },
+            "stratified_negation": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "decision_search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "pushdown"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "pushdown": { "$ref": "#/$defs/search_pushdown" }
       }
     },
     "policies": {
@@ -263,8 +306,14 @@
           "catalogs": {
             "properties": {
               "action_catalog": { "minItems": 1 },
+              "subject_type_catalog": { "minItems": 1 },
               "object_type_catalog": { "minItems": 1 },
               "relation_type_catalog": { "minItems": 1 }
+            }
+          },
+          "action_signature": {
+            "properties": {
+              "tuples": { "minItems": 1 }
             }
           },
           "policies": {
@@ -314,12 +363,159 @@
       "then": {
         "$comment": "高敏域 permit-overrides 由语义校验器进一步拦截"
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision_search": {
+            "properties": {
+              "enabled": { "const": true },
+              "pushdown": {
+                "properties": {
+                  "require_semantic_equivalence": { "const": false }
+                },
+                "required": ["require_semantic_equivalence"]
+              }
+            },
+            "required": ["enabled", "pushdown"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "decision_search": {
+            "properties": {
+              "pushdown": {
+                "properties": {
+                  "allow_conservative_superset": { "const": true }
+                },
+                "required": ["allow_conservative_superset"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "context_inference": {
+            "properties": {
+              "enabled": { "const": true }
+            },
+            "required": ["enabled"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "context_inference": {
+            "properties": {
+              "rules": { "minItems": 1 }
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
     "action": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_.-]{1,63}$"
+    },
+    "type_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.-]{1,63}$"
+    },
+    "action_signature_tuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject_types", "object_types", "actions"],
+      "properties": {
+        "subject_types": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/type_name" },
+          "uniqueItems": true
+        },
+        "object_types": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/type_name" },
+          "uniqueItems": true
+        },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/action" },
+          "uniqueItems": true
+        },
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "inference_edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relation_type", "entity_side"],
+      "properties": {
+        "relation_type": { "type": "string", "minLength": 1 },
+        "entity_side": { "type": "string", "enum": ["from", "to"] },
+        "max_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        }
+      }
+    },
+    "inference_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "output_field", "subject_edges", "object_edges"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9._-]{3,128}$"
+        },
+        "output_field": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$"
+        },
+        "subject_edges": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/inference_edge" }
+        },
+        "object_edges": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/inference_edge" }
+        },
+        "object_owner_fallback": { "type": "boolean" },
+        "owner_fallback_include_input": { "type": "boolean" }
+      }
+    },
+    "search_pushdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "require_semantic_equivalence",
+        "allow_conservative_superset",
+        "max_candidates_scan"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["safe", "aggressive"]
+        },
+        "require_semantic_equivalence": { "type": "boolean" },
+        "allow_conservative_superset": { "type": "boolean" },
+        "max_candidates_scan": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        }
+      }
     },
     "validity": {
       "type": "object",
@@ -468,14 +664,33 @@
 
 1. `subject_selector/object_selector` 的表达式 AST 校验与类型推断。  
 2. `relation_type` 是否已在 Catalog 注册并允许在当前关系域使用。  
-3. 高敏域禁止 `eventual` 一致性。  
-4. 高敏 allow 规则必须包含 mandatory obligations。  
-5. 冲突规则可消歧性校验（优先级 + 合并算法）。
-6. `default_profile` 必须存在于 `profiles`。  
-7. 每个 Profile 的 `required_fields` 至少包含硬必填四项。  
-8. `compat_strict` 模式下，条件必填字段缺失应拒绝入管。  
-9. `subject_removed` 等关键事件必须存在且 `required=true`。  
-10. `RULE_CONFLICT_UNRESOLVED` 与 `OBLIGATION_NOT_EXECUTABLE` 归属 `P0` 阻断。
+3. `action_signature.tuples` 中的 `subject_types/object_types/actions` 必须分别在对应 Catalog 中已注册。  
+4. `policies.rules[].action_set` 命中到的 `(subject_type, object_type, action)` 三元组不得越出 `action_signature`。  
+5. `context_inference.rules[]` 仅允许受控可判定子集（纯正规则或分层否定），禁止递归否定与无界聚合。  
+6. `context_inference.rules[].subject_edges/object_edges` 中的 `relation_type` 必须在 `relation_type_catalog` 注册。  
+7. `owner_fallback_include_input` 仅在 `object_owner_fallback=true` 时有效；当 `object_owner_fallback=false` 时应视为“无效字段值”（建议告警或拒绝）。  
+8. 若 `decision_search.enabled=true` 且 `require_semantic_equivalence=false`，必须验证“保守候选超集 + 残差精评估”语义成立。  
+9. `Decision Search` 下推计划需可解释：返回可下推子句、残差子句与判据类型。  
+10. 高敏域禁止 `eventual` 一致性。  
+11. 高敏 allow 规则必须包含 mandatory obligations。  
+12. 冲突规则可消歧性校验（优先级 + 合并算法）。  
+13. `default_profile` 必须存在于 `profiles`。  
+14. 每个 Profile 的 `required_fields` 至少包含硬必填四项。  
+15. `compat_strict` 模式下，条件必填字段缺失应拒绝入管。  
+16. `subject_removed` 等关键事件必须存在且 `required=true`。  
+17. `RULE_CONFLICT_UNRESOLVED`、`ACTION_SIGNATURE_MISMATCH`、`SEARCH_PUSHDOWN_UNSAFE` 与 `OBLIGATION_NOT_EXECUTABLE` 归属 `P0` 阻断。
+
+### 4.1 `owner_fallback_include_input` 使用约定（新增）
+
+为避免“衍生资源可见”与“输入资源 owner 兜底”语义混淆，规则解释固定如下：
+
+1. `object_owner_fallback=true` 且 `owner_fallback_include_input=true`：  
+   owner 兜底对象集合 = `{输入对象} ∪ object_edges 扩展结果`。
+2. `object_owner_fallback=true` 且 `owner_fallback_include_input=false`：  
+   owner 兜底对象集合 = `object_edges 扩展结果`（不含输入对象）。
+3. `object_owner_fallback=false`：  
+   不执行 owner 兜底，`owner_fallback_include_input` 不参与求值。
+4. 默认值建议：`owner_fallback_include_input=true`（与当前运行时保持一致）。
 
 ## 5. 最小通过示例
 
@@ -484,15 +699,31 @@
   "model_meta": {
     "model_id": "tenant_a_authz_v1",
     "tenant_id": "tenant_a",
-    "version": "2026.03.04",
+    "version": "2026.03.05",
     "status": "draft",
     "combining_algorithm": "deny-overrides"
   },
   "catalogs": {
     "action_catalog": ["read", "update", "grant"],
-    "subject_type_catalog": ["user", "group"],
+    "subject_type_catalog": ["user", "group", "department"],
     "object_type_catalog": ["kb", "agent"],
-    "relation_type_catalog": ["belongs_to", "member_of", "manages", "derives_to"]
+    "relation_type_catalog": ["belongs_to", "member_of", "manages", "derives_to", "owns"]
+  },
+  "action_signature": {
+    "tuples": [
+      {
+        "subject_types": ["user"],
+        "object_types": ["kb"],
+        "actions": ["read", "update", "grant"],
+        "enabled": true
+      },
+      {
+        "subject_types": ["group"],
+        "object_types": ["kb"],
+        "actions": ["read"],
+        "enabled": true
+      }
+    ]
   },
   "object_onboarding": {
     "compatibility_mode": "compat_balanced",
@@ -517,6 +748,36 @@
     "subject_relations": [],
     "object_relations": [],
     "subject_object_relations": []
+  },
+  "context_inference": {
+    "enabled": true,
+    "rules": [
+      {
+        "id": "infer_same_department",
+        "output_field": "same_department",
+        "subject_edges": [
+          { "relation_type": "belongs_to", "entity_side": "from" }
+        ],
+        "object_edges": [
+          { "relation_type": "owns", "entity_side": "to" }
+        ],
+        "object_owner_fallback": true,
+        "owner_fallback_include_input": true
+      }
+    ],
+    "constraints": {
+      "monotonic_only": true,
+      "stratified_negation": true
+    }
+  },
+  "decision_search": {
+    "enabled": true,
+    "pushdown": {
+      "mode": "safe",
+      "require_semantic_equivalence": true,
+      "allow_conservative_superset": true,
+      "max_candidates_scan": 5000
+    }
   },
   "policies": {
     "rules": [
@@ -572,11 +833,37 @@
 3. `action_set` 出现未注册动作。  
 对应：`ACTION_NOT_REGISTERED`。
 
-4. 高敏域规则配置为 `eventual`。  
+4. 规则命中的 `subject_type/object_type/action` 三元组不在 `action_signature`。  
+对应：`ACTION_SIGNATURE_MISMATCH`。
+
+5. `context_inference.rules` 出现递归否定或无界聚合。  
+对应：`INFERENCE_RULE_UNSAFE`。
+
+6. `decision_search` 下推无法证明等价，且又不满足“保守超集 + 残差求值”条件。  
+对应：`SEARCH_PUSHDOWN_UNSAFE`。
+
+7. 高敏域规则配置为 `eventual`。  
 对应：`HIGH_SENSITIVITY_DOWNGRADED`。
 
 ## 7. 与主文档映射关系
 
-1. 对应 `10` 文档第 `13.2`、`13.3`、`13.4` 的语法定义。  
-2. 对应 `10` 文档第 `13.5`、`13.6` 的校验与冲突规则。  
-3. 对应 `10` 文档第 `13.10`、`13.11`、`13.12` 的错误码与门禁语义。
+1. 对应 `10` 文档第 `6.1`、`6.2` 的动作类型签名与委派边界。  
+2. 对应 `10` 文档第 `10.4.8`、`10.4.9`、`10.4.10` 的推导规则与检索下推语义。  
+3. 对应 `10` 文档第 `13.2`、`13.3`、`13.4` 的语法定义。  
+4. 对应 `10` 文档第 `13.5`、`13.6`、`13.7` 的校验、冲突与编译产物规则。  
+5. 对应 `10` 文档第 `13.10`、`13.11`、`13.12` 的错误码与门禁语义。
+
+## 8. 统一错误码索引（新增）
+
+以下索引用于把 Schema 校验、语义校验与发布门禁统一到同一组错误码语义（以 `10` 文档 `13.14` 为准）。
+
+| 错误码 | 默认级别 | 典型检测层 | 12 门禁层级（默认） | 是否阻断发布（默认） | 典型检测指标/条件 | 最小处置建议 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `ACTION_NOT_REGISTERED` | error | 语义校验 | `P0` | 是 | `semantic.unregistered_action_count == 0` | 补充动作目录或修正规则动作集 |
+| `ACTION_SIGNATURE_MISMATCH` | error | 语义校验 | `P0` | 是 | `semantic.action_signature_mismatch_count == 0` | 补充 `action_signature.tuples` 或收敛规则类型组合 |
+| `INFERENCE_RULE_UNSAFE` | error | 语义/安全校验 | `P0` | 是 | `semantic.inference_rule_unsafe_count == 0` | 将推导规则收敛到可判定子集（纯正规则/分层否定） |
+| `SEARCH_PUSHDOWN_UNSAFE` | error | 安全/可执行性校验 | `P0` | 是 | `search.enabled == false or search.pushdown_unsafe_count == 0` | 降级 `EvaluateOnly` 或启用保守超集+残差求值 |
+| `SEARCH_SEMANTIC_DRIFT` | warning | 影子对比/模拟校验 | 未强制（建议 `P2`） | 否 | 检索结果与逐对象完整求值存在差异 | 收紧下推策略并回放差异样本 |
+| `RULE_CONFLICT_UNRESOLVED` | error | 冲突校验 | `P0` | 是 | `conflict.unresolved_count == 0` | 拆分选择器、调整优先级或改合并算法 |
+| `OBLIGATION_NOT_EXECUTABLE` | error | 可执行性校验 | `P0` | 是 | `execution.mandatory_obligation_static_unexecutable_count == 0` | 修复 obligations 执行链路与依赖 |
+| `OBLIGATION_EXECUTION_DEGRADED` | warning | 运行可执行性校验 | `P2` | 否（进入复核） | `execution.mandatory_obligation_pass_rate >= threshold` | 修复执行稳定性并收敛阈值 |

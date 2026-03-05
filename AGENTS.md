@@ -21,8 +21,7 @@
 6. 类型共享：`zod` 或 schema-to-ts 生成共享类型
 7. 测试：`vitest` + `supertest` + Playwright（控制台关键流程）
 
-## 2. 网络访问约定
-
+系统级没有安装 pnpm， 请使用 corepack pnpm 调用
 
 ## 3. 文档语言与风格
 

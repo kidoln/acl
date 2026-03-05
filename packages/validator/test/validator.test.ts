@@ -14,6 +14,17 @@ describe('model validator', () => {
     expect(result.summary.blocking_issues).toBe(0);
   });
 
+  it('accepts model without top-level relations block', () => {
+    const model = { ...minimalDraftModel };
+    delete model.relations;
+
+    const result = validateModelConfig(model, {
+      available_obligation_executors: ['audit_write'],
+    });
+
+    expect(result.valid).toBe(true);
+  });
+
   it('detects unknown action in policy rule', () => {
     const badModel = {
       ...minimalDraftModel,
@@ -317,10 +328,183 @@ describe('model validator', () => {
             ],
           },
         ],
+        constraints: {
+          monotonic_only: true,
+          stratified_negation: false,
+        },
       },
     };
 
     const result = validateModelConfig(model);
     expect(result.issues.some((issue) => issue.code === 'RELATION_TYPE_UNKNOWN')).toBe(true);
+  });
+
+  it('detects relation type configured for wrong relation domain when catalogs are split', () => {
+    const catalogs = { ...minimalDraftModel.catalogs };
+    delete catalogs.relation_type_catalog;
+
+    const model = {
+      ...minimalDraftModel,
+      catalogs: {
+        ...catalogs,
+        subject_relation_type_catalog: ['member_of'],
+        object_relation_type_catalog: ['derives_to'],
+        subject_object_relation_type_catalog: ['owns'],
+      },
+      relations: {
+        ...minimalDraftModel.relations,
+        subject_relations: [
+          {
+            from: 'user:alice',
+            to: 'group:ops',
+            relation_type: 'derives_to',
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(result.issues.some((issue) => issue.path === '/relations/subject_relations/0/relation_type')).toBe(
+      true,
+    );
+  });
+
+  it('accepts split relation catalogs and allows context paths to use subject_object relations', () => {
+    const catalogs = { ...minimalDraftModel.catalogs };
+    delete catalogs.relation_type_catalog;
+
+    const model = {
+      ...minimalDraftModel,
+      catalogs: {
+        ...catalogs,
+        subject_relation_type_catalog: ['member_of', 'belongs_to'],
+        object_relation_type_catalog: ['derives_to'],
+        subject_object_relation_type_catalog: ['owns'],
+      },
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_same_owner_group',
+            output_field: 'same_owner_group',
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'owns',
+                entity_side: 'to' as const,
+              },
+            ],
+          },
+        ],
+        constraints: {
+          monotonic_only: true,
+          stratified_negation: false,
+        },
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(result.valid).toBe(true);
+  });
+
+  it('detects action signature mismatch on policy subject/object/action tuple', () => {
+    const model = {
+      ...minimalDraftModel,
+      action_signature: {
+        tuples: [
+          {
+            subject_types: ['user'],
+            object_types: ['agent'],
+            actions: ['read'],
+          },
+        ],
+      },
+      policies: {
+        rules: [
+          {
+            ...minimalDraftModel.policies.rules[0],
+            subject_selector: 'subject.type == user',
+            object_selector: 'object.type == kb',
+            action_set: ['read'],
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(result.issues.some((issue) => issue.code === 'ACTION_SIGNATURE_MISMATCH')).toBe(true);
+  });
+
+  it('detects inference rule unsafe when constraints are missing', () => {
+    const model = {
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_same_scope',
+            output_field: 'same_scope',
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'belongs_to',
+                entity_side: 'to' as const,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(result.issues.some((issue) => issue.code === 'INFERENCE_RULE_UNSAFE')).toBe(true);
+  });
+
+  it('detects decision_search pushdown unsafe config', () => {
+    const model = {
+      ...minimalDraftModel,
+      decision_search: {
+        enabled: true,
+        pushdown: {
+          mode: 'safe' as const,
+          require_semantic_equivalence: false,
+          allow_conservative_superset: false,
+          max_candidates_scan: 1000,
+        },
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(result.issues.some((issue) => issue.code === 'SEARCH_PUSHDOWN_UNSAFE')).toBe(true);
+  });
+
+  it('emits semantic drift warning for aggressive pushdown without strict equivalence', () => {
+    const model = {
+      ...minimalDraftModel,
+      decision_search: {
+        enabled: true,
+        pushdown: {
+          mode: 'aggressive' as const,
+          require_semantic_equivalence: false,
+          allow_conservative_superset: true,
+          max_candidates_scan: 1000,
+        },
+      },
+    };
+
+    const result = validateModelConfig(model);
+    const issue = result.issues.find((item) => item.code === 'SEARCH_SEMANTIC_DRIFT');
+    expect(issue).toBeDefined();
+    expect(issue?.severity).toBe('warning');
   });
 });

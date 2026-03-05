@@ -1,8 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { minimalDraftModel } from '@acl/shared-types';
 
-import { app } from '../src/main';
+let app: FastifyInstance;
+let previousPersistenceDriver: string | undefined;
 
 function nextPublishId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
@@ -73,12 +75,22 @@ async function publishModelViaWorkflow(input: {
 }
 
 describe('publish api integration', () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
+    previousPersistenceDriver = process.env.ACL_PERSISTENCE_DRIVER;
+    process.env.ACL_PERSISTENCE_DRIVER = 'memory';
+    vi.resetModules();
+    const moduleRef = await import('../src/main');
+    app = moduleRef.app;
     await app.ready();
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     await app.close();
+    if (previousPersistenceDriver === undefined) {
+      delete process.env.ACL_PERSISTENCE_DRIVER;
+    } else {
+      process.env.ACL_PERSISTENCE_DRIVER = previousPersistenceDriver;
+    }
   });
 
   it('lists publish requests with status/profile filters', async () => {
@@ -695,6 +707,10 @@ describe('publish api integration', () => {
             object_owner_fallback: true,
           },
         ],
+        constraints: {
+          monotonic_only: true,
+          stratified_negation: false,
+        },
       },
     };
 
@@ -800,4 +816,5 @@ describe('publish api integration', () => {
     expect(crossDeptBody.decision.final_effect).toBe('not_applicable');
     expect(crossDeptBody.relation_inference?.rules?.[0]?.matched).toBe(false);
   });
+
 });

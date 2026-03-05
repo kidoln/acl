@@ -34,7 +34,9 @@ function mockGateResult(finalResult: PublishGateResult['final_result']): Publish
         selector_parse_error_count: 0,
         selector_type_mismatch_count: 0,
         unregistered_action_count: 0,
+        action_signature_mismatch_count: 0,
         unknown_relation_type_count: 0,
+        inference_rule_unsafe_count: 0,
         duplicate_rule_id_count: 0,
       },
       conflict: { unresolved_count: 0 },
@@ -69,6 +71,11 @@ function mockGateResult(finalResult: PublishGateResult['final_result']): Publish
       quality: {
         unreachable_rule_ratio: 0,
         priority_collision_ratio: 0,
+      },
+      search: {
+        enabled: false,
+        pushdown_unsafe_count: 0,
+        semantic_drift_count: 0,
       },
     },
   };

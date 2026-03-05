@@ -8,7 +8,6 @@ export const authzModelSchema = {
     'model_meta',
     'catalogs',
     'object_onboarding',
-    'relations',
     'policies',
     'constraints',
     'lifecycle',
@@ -51,7 +50,7 @@ export const authzModelSchema = {
     catalogs: {
       type: 'object',
       additionalProperties: false,
-      required: ['action_catalog', 'subject_type_catalog', 'object_type_catalog', 'relation_type_catalog'],
+      required: ['action_catalog', 'subject_type_catalog', 'object_type_catalog'],
       properties: {
         action_catalog: {
           type: 'array',
@@ -72,6 +71,61 @@ export const authzModelSchema = {
           type: 'array',
           items: { type: 'string', minLength: 1 },
           uniqueItems: true,
+        },
+        subject_relation_type_catalog: {
+          type: 'array',
+          items: { type: 'string', minLength: 1 },
+          uniqueItems: true,
+        },
+        object_relation_type_catalog: {
+          type: 'array',
+          items: { type: 'string', minLength: 1 },
+          uniqueItems: true,
+        },
+        subject_object_relation_type_catalog: {
+          type: 'array',
+          items: { type: 'string', minLength: 1 },
+          uniqueItems: true,
+        },
+      },
+      allOf: [
+        {
+          anyOf: [
+            { required: ['relation_type_catalog'] },
+            {
+              required: [
+                'subject_relation_type_catalog',
+                'object_relation_type_catalog',
+              ],
+            },
+          ],
+        },
+        {
+          if: {
+            anyOf: [
+              { required: ['subject_relation_type_catalog'] },
+              { required: ['object_relation_type_catalog'] },
+              { required: ['subject_object_relation_type_catalog'] },
+            ],
+          },
+          then: {
+            required: [
+              'subject_relation_type_catalog',
+              'object_relation_type_catalog',
+            ],
+          },
+        },
+      ],
+    },
+    action_signature: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tuples'],
+      properties: {
+        tuples: {
+          type: 'array',
+          minItems: 1,
+          items: { $ref: '#/$defs/action_signature_tuple' },
         },
       },
     },
@@ -219,6 +273,16 @@ export const authzModelSchema = {
           minItems: 1,
           items: { $ref: '#/$defs/context_inference_rule' },
         },
+        constraints: { $ref: '#/$defs/context_inference_constraints' },
+      },
+    },
+    decision_search: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['enabled'],
+      properties: {
+        enabled: { type: 'boolean' },
+        pushdown: { $ref: '#/$defs/search_pushdown' },
       },
     },
   },
@@ -235,12 +299,49 @@ export const authzModelSchema = {
         },
       },
       then: {
+        required: ['action_signature'],
         properties: {
           catalogs: {
             properties: {
               action_catalog: { minItems: 1 },
+              subject_type_catalog: { minItems: 1 },
               object_type_catalog: { minItems: 1 },
-              relation_type_catalog: { minItems: 1 },
+            },
+            allOf: [
+              {
+                anyOf: [
+                  {
+                    required: ['relation_type_catalog'],
+                    properties: {
+                      relation_type_catalog: { minItems: 1 },
+                    },
+                  },
+                  {
+                    required: ['subject_relation_type_catalog'],
+                    properties: {
+                      subject_relation_type_catalog: { minItems: 1 },
+                    },
+                  },
+                  {
+                    required: ['object_relation_type_catalog'],
+                    properties: {
+                      object_relation_type_catalog: { minItems: 1 },
+                    },
+                  },
+                  {
+                    required: ['subject_object_relation_type_catalog'],
+                    properties: {
+                      subject_object_relation_type_catalog: { minItems: 1 },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          action_signature: {
+            required: ['tuples'],
+            properties: {
+              tuples: { minItems: 1 },
             },
           },
           policies: {
@@ -249,6 +350,25 @@ export const authzModelSchema = {
                 minItems: 1,
               },
             },
+          },
+        },
+      },
+    },
+    {
+      if: {
+        properties: {
+          decision_search: {
+            properties: {
+              enabled: { const: true },
+            },
+            required: ['enabled'],
+          },
+        },
+      },
+      then: {
+        properties: {
+          decision_search: {
+            required: ['pushdown'],
           },
         },
       },
@@ -296,6 +416,36 @@ export const authzModelSchema = {
     action: {
       type: 'string',
       pattern: '^[a-z][a-z0-9_.-]{1,63}$',
+    },
+    type_name: {
+      type: 'string',
+      pattern: '^[a-z][a-z0-9_.-]{1,63}$',
+    },
+    action_signature_tuple: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['subject_types', 'object_types', 'actions'],
+      properties: {
+        subject_types: {
+          type: 'array',
+          minItems: 1,
+          items: { $ref: '#/$defs/type_name' },
+          uniqueItems: true,
+        },
+        object_types: {
+          type: 'array',
+          minItems: 1,
+          items: { $ref: '#/$defs/type_name' },
+          uniqueItems: true,
+        },
+        actions: {
+          type: 'array',
+          minItems: 1,
+          items: { $ref: '#/$defs/action' },
+          uniqueItems: true,
+        },
+        enabled: { type: 'boolean' },
+      },
     },
     validity: {
       type: 'object',
@@ -437,6 +587,19 @@ export const authzModelSchema = {
           type: 'string',
           enum: ['from', 'to'],
         },
+        max_depth: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 16,
+        },
+      },
+    },
+    context_inference_constraints: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        monotonic_only: { type: 'boolean' },
+        stratified_negation: { type: 'boolean' },
       },
     },
     context_inference_rule: {
@@ -463,6 +626,30 @@ export const authzModelSchema = {
           items: { $ref: '#/$defs/context_inference_edge_selector' },
         },
         object_owner_fallback: { type: 'boolean' },
+        owner_fallback_include_input: { type: 'boolean' },
+      },
+    },
+    search_pushdown: {
+      type: 'object',
+      additionalProperties: false,
+      required: [
+        'mode',
+        'require_semantic_equivalence',
+        'allow_conservative_superset',
+        'max_candidates_scan',
+      ],
+      properties: {
+        mode: {
+          type: 'string',
+          enum: ['safe', 'aggressive'],
+        },
+        require_semantic_equivalence: { type: 'boolean' },
+        allow_conservative_superset: { type: 'boolean' },
+        max_candidates_scan: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 1000000,
+        },
       },
     },
   },

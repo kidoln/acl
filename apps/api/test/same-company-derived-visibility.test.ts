@@ -1,10 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AuthzModelConfig, DecisionEffect } from '@acl/shared-types';
 
-import { app } from '../src/main';
-import instanceFixtureRaw from './fixtures/same-company-derived.instances.json';
+import expectedFixtureRaw from './fixtures/same-company-derived.expected.json';
 import modelFixtureRaw from './fixtures/same-company-derived.model.json';
+import setupFixtureRaw from './fixtures/same-company-derived.setup.json';
+
+let app: FastifyInstance;
+let previousPersistenceDriver: string | undefined;
 
 interface PublishSubmitResponse {
   status: string;
@@ -28,6 +32,15 @@ interface DecisionEvaluateResponse {
   };
 }
 
+interface ControlRelationListResponse {
+  items: Array<{
+    from: string;
+    to: string;
+    relation_type: string;
+  }>;
+  total_count: number;
+}
+
 interface FixtureDecisionInput {
   action: string;
   subject: {
@@ -38,20 +51,26 @@ interface FixtureDecisionInput {
     id: string;
     type: string;
     sensitivity: string;
+    attributes?: Record<string, unknown>;
   };
 }
 
-interface FixtureDecisionCase {
+interface FixtureDecisionInputCase {
   name: string;
   input: FixtureDecisionInput;
+}
+
+interface FixtureDecisionExpectation {
+  name: string;
   expected_effect: DecisionEffect;
   expected_same_company: boolean;
   expected_subject_company: string;
   expected_object_company: string;
   expected_object_owner_ref?: string;
+  expected_rule_matches: Record<string, boolean>;
 }
 
-interface InstanceFixture {
+interface SetupFixture {
   route: {
     tenant_id: string;
     environment: string;
@@ -77,7 +96,11 @@ interface InstanceFixture {
     relation_type: string;
     operation: 'upsert' | 'delete';
   }>;
-  decision_cases: FixtureDecisionCase[];
+  decision_inputs: FixtureDecisionInputCase[];
+}
+
+interface ExpectedFixture {
+  decision_expectations: FixtureDecisionExpectation[];
 }
 
 function nextId(prefix: string): string {
@@ -133,30 +156,42 @@ async function publishModel(input: {
 }
 
 describe('same-company derived resource visibility e2e', () => {
-  const instanceFixture = instanceFixtureRaw as InstanceFixture;
+  const expectedFixture = expectedFixtureRaw as ExpectedFixture;
   const baseModel = modelFixtureRaw as AuthzModelConfig;
+  const setupFixture = setupFixtureRaw as SetupFixture;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
+    previousPersistenceDriver = process.env.ACL_PERSISTENCE_DRIVER;
+    process.env.ACL_PERSISTENCE_DRIVER = 'memory';
+    vi.resetModules();
+    const moduleRef = await import('../src/main');
+    app = moduleRef.app;
     await app.ready();
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     await app.close();
+    if (previousPersistenceDriver === undefined) {
+      delete process.env.ACL_PERSISTENCE_DRIVER;
+    } else {
+      process.env.ACL_PERSISTENCE_DRIVER = previousPersistenceDriver;
+    }
   });
 
   it('loads model file and evaluates subject/object instances correctly', async () => {
     const suffix = nextId('same_company_case');
-    const namespace = `${instanceFixture.namespace_prefix}.${suffix}`;
+    const namespace = `${setupFixture.namespace_prefix}.${suffix}`;
     const publishId = nextId('pub_same_company');
 
     const model = structuredClone(baseModel);
     model.model_meta.model_id = `${baseModel.model_meta.model_id}_${suffix}`;
-    model.model_meta.tenant_id = instanceFixture.route.tenant_id;
+    model.model_meta.tenant_id = setupFixture.route.tenant_id;
     model.model_meta.version = `2026.03.04.${Math.floor(Math.random() * 10000)}`;
 
-    expect(model.relations.subject_relations).toEqual([]);
-    expect(model.relations.object_relations).toEqual([]);
-    expect(model.relations.subject_object_relations).toEqual([]);
+    expect((model.catalogs.relation_type_catalog ?? []).includes('in_company')).toBe(false);
+    expect(
+      setupFixture.relation_events.some((event) => event.relation_type === 'in_company'),
+    ).toBe(false);
 
     const validate = await app.inject({
       method: 'POST',
@@ -180,9 +215,9 @@ describe('same-company derived resource visibility e2e', () => {
       method: 'POST',
       url: '/control/catalogs:register',
       payload: {
-        system_id: instanceFixture.catalog_registration.system_id,
+        system_id: setupFixture.catalog_registration.system_id,
         namespace,
-        catalogs: instanceFixture.catalog_registration.catalogs,
+        catalogs: setupFixture.catalog_registration.catalogs,
       },
     });
     expect(registerCatalog.statusCode).toBe(200);
@@ -192,7 +227,7 @@ describe('same-company derived resource visibility e2e', () => {
       url: '/control/objects:upsert',
       payload: {
         namespace,
-        objects: instanceFixture.objects,
+        objects: setupFixture.objects,
       },
     });
     expect(upsertObjects.statusCode).toBe(200);
@@ -202,10 +237,42 @@ describe('same-company derived resource visibility e2e', () => {
       url: '/control/relations:events',
       payload: {
         namespace,
-        events: instanceFixture.relation_events,
+        events: setupFixture.relation_events,
       },
     });
     expect(relationEvents.statusCode).toBe(200);
+
+    const listRelations = await app.inject({
+      method: 'GET',
+      url: `/control/relations?namespace=${encodeURIComponent(namespace)}&limit=100&offset=0`,
+    });
+    expect(listRelations.statusCode).toBe(200);
+    const relationListBody = listRelations.json() as ControlRelationListResponse;
+    expect(relationListBody.total_count).toBeGreaterThanOrEqual(setupFixture.relation_events.length);
+    expect(
+      relationListBody.items.some(
+        (item) =>
+          item.from === 'user:alice'
+          && item.to === 'department:rnd'
+          && item.relation_type === 'belongs_to_department',
+      ),
+    ).toBe(true);
+    expect(
+      relationListBody.items.some(
+        (item) =>
+          item.from === 'department:rnd'
+          && item.to === 'company:acme'
+          && item.relation_type === 'belongs_to_company',
+      ),
+    ).toBe(true);
+    expect(
+      relationListBody.items.some(
+        (item) =>
+          item.from === 'department:legal'
+          && item.to === 'company:acme'
+          && item.relation_type === 'belongs_to_company',
+      ),
+    ).toBe(true);
 
     await publishModel({
       publishId,
@@ -219,8 +286,8 @@ describe('same-company derived resource visibility e2e', () => {
         namespace,
         routes: [
           {
-            tenant_id: instanceFixture.route.tenant_id,
-            environment: instanceFixture.route.environment,
+            tenant_id: setupFixture.route.tenant_id,
+            environment: setupFixture.route.environment,
             model_id: model.model_meta.model_id,
             model_version: model.model_meta.version,
             publish_id: publishId,
@@ -231,15 +298,29 @@ describe('same-company derived resource visibility e2e', () => {
     });
     expect(upsertRoute.statusCode).toBe(200);
 
-    for (const testCase of instanceFixture.decision_cases) {
+    const expectedByCaseName = new Map(
+      expectedFixture.decision_expectations.map((item) => [item.name, item]),
+    );
+    expect(expectedByCaseName.size).toBe(setupFixture.decision_inputs.length);
+
+    for (const testCase of setupFixture.decision_inputs) {
+      const expectedCase = expectedByCaseName.get(testCase.name);
+      expect(
+        expectedCase,
+        `missing expected fixture for decision input: ${testCase.name}`,
+      ).toBeDefined();
+      if (!expectedCase) {
+        continue;
+      }
+
       const evaluate = await app.inject({
         method: 'POST',
         url: '/decisions:evaluate',
         payload: {
           model_route: {
             namespace,
-            tenant_id: instanceFixture.route.tenant_id,
-            environment: instanceFixture.route.environment,
+            tenant_id: setupFixture.route.tenant_id,
+            environment: setupFixture.route.environment,
           },
           input: testCase.input,
         },
@@ -247,17 +328,26 @@ describe('same-company derived resource visibility e2e', () => {
       expect(evaluate.statusCode).toBe(200);
 
       const evaluateBody = evaluate.json() as DecisionEvaluateResponse;
-      expect(evaluateBody.decision.final_effect).toBe(testCase.expected_effect);
+      expect(evaluateBody.decision.final_effect).toBe(expectedCase.expected_effect);
 
-      const inferenceRule = evaluateBody.relation_inference?.rules?.[0];
       expect(evaluateBody.relation_inference?.applied).toBe(true);
-      expect(inferenceRule?.id).toBe('infer_same_company');
-      expect(inferenceRule?.matched).toBe(testCase.expected_same_company);
-      expect(inferenceRule?.subject_values).toContain(testCase.expected_subject_company);
-      expect(inferenceRule?.object_values).toContain(testCase.expected_object_company);
+      const ruleList = evaluateBody.relation_inference?.rules ?? [];
+      const ruleById = new Map(ruleList.map((rule) => [rule.id, rule]));
+      const matchedAnyRule = ruleList.some((rule) => rule.matched);
+      expect(matchedAnyRule).toBe(expectedCase.expected_same_company);
 
-      if (testCase.expected_object_owner_ref) {
-        expect(inferenceRule?.object_owner_ref).toBe(testCase.expected_object_owner_ref);
+      for (const [ruleId, expectedMatched] of Object.entries(expectedCase.expected_rule_matches)) {
+        const rule = ruleById.get(ruleId);
+        expect(rule?.matched).toBe(expectedMatched);
+        expect(rule?.subject_values).toContain(expectedCase.expected_subject_company);
+        if (expectedMatched) {
+          expect(rule?.object_values).toContain(expectedCase.expected_object_company);
+        }
+      }
+
+      if (expectedCase.expected_object_owner_ref) {
+        const directRule = ruleById.get('infer_same_company_direct');
+        expect(directRule?.object_owner_ref).toBe(expectedCase.expected_object_owner_ref);
       }
     }
   });

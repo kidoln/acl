@@ -34,6 +34,17 @@ export interface ConditionalRequiredRule {
   add_fields: string[];
 }
 
+export interface ActionSignatureTuple {
+  subject_types: string[];
+  object_types: string[];
+  actions: string[];
+  enabled?: boolean;
+}
+
+export interface ActionSignatureConfig {
+  tuples: ActionSignatureTuple[];
+}
+
 export interface ObjectOnboardingConfig {
   compatibility_mode: CompatibilityMode;
   default_profile: string;
@@ -92,6 +103,7 @@ export type ContextInferenceEntitySide = 'from' | 'to';
 export interface ContextInferenceEdgeSelector {
   relation_type: string;
   entity_side: ContextInferenceEntitySide;
+  max_depth?: number;
 }
 
 export interface ContextInferenceRule {
@@ -100,11 +112,32 @@ export interface ContextInferenceRule {
   subject_edges: ContextInferenceEdgeSelector[];
   object_edges: ContextInferenceEdgeSelector[];
   object_owner_fallback?: boolean;
+  owner_fallback_include_input?: boolean;
+}
+
+export interface ContextInferenceConstraints {
+  monotonic_only?: boolean;
+  stratified_negation?: boolean;
 }
 
 export interface ContextInferenceConfig {
   enabled?: boolean;
   rules: ContextInferenceRule[];
+  constraints?: ContextInferenceConstraints;
+}
+
+export type DecisionSearchPushdownMode = 'safe' | 'aggressive';
+
+export interface DecisionSearchPushdownConfig {
+  mode?: DecisionSearchPushdownMode;
+  require_semantic_equivalence?: boolean;
+  allow_conservative_superset?: boolean;
+  max_candidates_scan?: number;
+}
+
+export interface DecisionSearchConfig {
+  enabled?: boolean;
+  pushdown?: DecisionSearchPushdownConfig;
 }
 
 export interface AuthzModelConfig {
@@ -113,10 +146,14 @@ export interface AuthzModelConfig {
     action_catalog: string[];
     subject_type_catalog: string[];
     object_type_catalog: string[];
-    relation_type_catalog: string[];
+    relation_type_catalog?: string[];
+    subject_relation_type_catalog?: string[];
+    object_relation_type_catalog?: string[];
+    subject_object_relation_type_catalog?: string[];
   };
+  action_signature?: ActionSignatureConfig;
   object_onboarding: ObjectOnboardingConfig;
-  relations: {
+  relations?: {
     subject_relations: RelationEdge[];
     object_relations: RelationEdge[];
     subject_object_relations: RelationEdge[];
@@ -134,6 +171,7 @@ export interface AuthzModelConfig {
   consistency: ConsistencyConfig;
   quality_guardrails: QualityGuardrails;
   context_inference?: ContextInferenceConfig;
+  decision_search?: DecisionSearchConfig;
 }
 
 export interface DecisionRequest {
