@@ -628,6 +628,21 @@ export const authzModelSchema = {
         object_owner_fallback: { type: 'boolean' },
         owner_fallback_include_input: { type: 'boolean' },
       },
+      allOf: [
+        {
+          if: {
+            required: ['owner_fallback_include_input'],
+          },
+          then: {
+            required: ['object_owner_fallback'],
+            properties: {
+              object_owner_fallback: {
+                const: true,
+              },
+            },
+          },
+        },
+      ],
     },
     search_pushdown: {
       type: 'object',

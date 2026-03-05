@@ -343,6 +343,93 @@ describe('publish gate', () => {
     expect(result.gates.some((gate) => gate.code === 'INFERENCE_RULE_UNSAFE')).toBe(true);
   });
 
+  it('passes when owner_fallback_include_input is used with object_owner_fallback=true', () => {
+    const model = {
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_same_scope_owner_fallback_enabled',
+            output_field: 'same_scope_owner_fallback_enabled',
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'belongs_to',
+                entity_side: 'to' as const,
+              },
+            ],
+            object_owner_fallback: true,
+            owner_fallback_include_input: false,
+          },
+        ],
+        constraints: {
+          monotonic_only: true,
+          stratified_negation: false,
+        },
+      },
+    };
+
+    const result = runPublishGate({
+      model,
+      profile: 'baseline',
+      validator_options: {
+        available_obligation_executors: ['audit_write'],
+      },
+    });
+
+    expect(result.final_result).toBe('passed');
+  });
+
+  it('blocks when owner_fallback_include_input is configured without owner fallback', () => {
+    const model = {
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_invalid_owner_fallback_combo',
+            output_field: 'same_scope_invalid_owner_fallback_combo',
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'belongs_to',
+                entity_side: 'to' as const,
+              },
+            ],
+            object_owner_fallback: false,
+            owner_fallback_include_input: true,
+          },
+        ],
+        constraints: {
+          monotonic_only: true,
+          stratified_negation: false,
+        },
+      },
+    };
+
+    const result = runPublishGate({
+      model,
+      profile: 'baseline',
+      validator_options: {
+        available_obligation_executors: ['audit_write'],
+      },
+    });
+
+    expect(result.final_result).toBe('blocked');
+    expect(result.gates.some((gate) => gate.code === 'INFERENCE_RULE_UNSAFE')).toBe(true);
+  });
+
   it('blocks when decision_search pushdown config is unsafe', () => {
     const model = {
       ...minimalDraftModel,

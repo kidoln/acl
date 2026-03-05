@@ -583,6 +583,19 @@ function validateContextInferenceRules(model: AuthzModelConfig, issues: Validati
     const subjectPath = rule.subject_edges;
     const objectPath = rule.object_edges;
 
+    if (
+      rule.owner_fallback_include_input !== undefined &&
+      rule.object_owner_fallback !== true
+    ) {
+      addIssue(
+        issues,
+        'INFERENCE_RULE_UNSAFE',
+        'semantic',
+        `context inference rule ${rule.id} sets owner_fallback_include_input but object_owner_fallback is not true`,
+        `/context_inference/rules/${index}/owner_fallback_include_input`,
+      );
+    }
+
     if (subjectPath.length === 0 || objectPath.length === 0) {
       addIssue(
         issues,

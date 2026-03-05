@@ -412,6 +412,169 @@ describe('model validator', () => {
     expect(result.valid).toBe(true);
   });
 
+  it('accepts owner fallback include_input true/false when object_owner_fallback is true', () => {
+    const buildModel = (ownerFallbackIncludeInput: boolean) => ({
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: `infer_same_scope_${ownerFallbackIncludeInput ? 'include' : 'exclude'}`,
+            output_field: `same_scope_${ownerFallbackIncludeInput ? 'include' : 'exclude'}`,
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'belongs_to',
+                entity_side: 'to' as const,
+              },
+            ],
+            object_owner_fallback: true,
+            owner_fallback_include_input: ownerFallbackIncludeInput,
+          },
+        ],
+        constraints: {
+          monotonic_only: true,
+          stratified_negation: false,
+        },
+      },
+    });
+
+    [true, false].forEach((ownerFallbackIncludeInput) => {
+      const result = validateModelConfig(buildModel(ownerFallbackIncludeInput));
+      expect(result.valid).toBe(true);
+      expect(
+        result.issues.some(
+          (issue) =>
+            issue.code === 'INFERENCE_RULE_UNSAFE' &&
+            issue.path === '/context_inference/rules/0/owner_fallback_include_input',
+        ),
+      ).toBe(false);
+    });
+  });
+
+  it('accepts object_owner_fallback=true when include_input is omitted', () => {
+    const model = {
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_same_scope_owner_default',
+            output_field: 'same_scope_owner_default',
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'belongs_to',
+                entity_side: 'to' as const,
+              },
+            ],
+            object_owner_fallback: true,
+          },
+        ],
+        constraints: {
+          monotonic_only: true,
+          stratified_negation: false,
+        },
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(result.valid).toBe(true);
+  });
+
+  it('detects owner_fallback_include_input configured when object_owner_fallback is disabled', () => {
+    const model = {
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_invalid_owner_fallback_combo',
+            output_field: 'same_scope_invalid_owner_fallback',
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'belongs_to',
+                entity_side: 'to' as const,
+              },
+            ],
+            object_owner_fallback: false,
+            owner_fallback_include_input: true,
+          },
+        ],
+        constraints: {
+          monotonic_only: true,
+          stratified_negation: false,
+        },
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(
+      result.issues.some(
+        (issue) =>
+          issue.code === 'INFERENCE_RULE_UNSAFE' &&
+          issue.path === '/context_inference/rules/0/owner_fallback_include_input',
+      ),
+    ).toBe(true);
+  });
+
+  it('detects owner_fallback_include_input configured without object_owner_fallback', () => {
+    const model = {
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_missing_owner_fallback_switch',
+            output_field: 'same_scope_missing_owner_fallback_switch',
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'belongs_to',
+                entity_side: 'to' as const,
+              },
+            ],
+            owner_fallback_include_input: false,
+          },
+        ],
+        constraints: {
+          monotonic_only: true,
+          stratified_negation: false,
+        },
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(
+      result.issues.some(
+        (issue) =>
+          issue.code === 'INFERENCE_RULE_UNSAFE' &&
+          issue.path === '/context_inference/rules/0/owner_fallback_include_input',
+      ),
+    ).toBe(true);
+  });
+
   it('detects action signature mismatch on policy subject/object/action tuple', () => {
     const model = {
       ...minimalDraftModel,

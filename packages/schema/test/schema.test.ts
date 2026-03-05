@@ -81,6 +81,37 @@ describe('authz model schema', () => {
     expect(result.valid).toBe(true);
   });
 
+  it('accepts owner fallback when include_input is omitted', () => {
+    const model = {
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_owner_fallback_default_include',
+            output_field: 'same_owner_scope',
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'belongs_to',
+                entity_side: 'to' as const,
+              },
+            ],
+            object_owner_fallback: true,
+          },
+        ],
+      },
+    };
+
+    const result = validateAuthzModel(model);
+    expect(result.valid).toBe(true);
+  });
+
   it('accepts action signature + decision search with inference edges form', () => {
     const model = {
       ...minimalDraftModel,
@@ -134,6 +165,43 @@ describe('authz model schema', () => {
 
     const result = validateAuthzModel(model);
     expect(result.valid).toBe(true);
+  });
+
+  it('rejects owner_fallback_include_input when object_owner_fallback is false', () => {
+    const model = {
+      ...minimalDraftModel,
+      context_inference: {
+        enabled: true,
+        rules: [
+          {
+            id: 'infer_invalid_owner_fallback_combo',
+            output_field: 'same_scope',
+            subject_edges: [
+              {
+                relation_type: 'member_of',
+                entity_side: 'from' as const,
+              },
+            ],
+            object_edges: [
+              {
+                relation_type: 'derives_to',
+                entity_side: 'to' as const,
+              },
+            ],
+            object_owner_fallback: false,
+            owner_fallback_include_input: true,
+          },
+        ],
+      },
+    };
+
+    const result = validateAuthzModel(model);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (error) => error.instancePath === '/context_inference/rules/0/object_owner_fallback',
+      ),
+    ).toBe(true);
   });
 
   it('rejects decision_search.enabled=true without pushdown config', () => {

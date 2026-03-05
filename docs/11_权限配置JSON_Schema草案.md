@@ -692,6 +692,62 @@
    不执行 owner 兜底，`owner_fallback_include_input` 不参与求值。
 4. 默认值建议：`owner_fallback_include_input=true`（与当前运行时保持一致）。
 
+配置决策速查表（面向普通配置用户）：
+
+| 场景描述 | `object_owner_fallback` | `owner_fallback_include_input` |
+| --- | --- | --- |
+| 直接对象按 owner 归属判权 | `true` | `true` |
+| 衍生对象按来源对象 owner 判权 | `true` | `false` |
+| 完全基于对象关系边判权（不看 owner） | `false` | 不填 |
+
+可直接复制的规则片段：
+
+```json
+{
+  "id": "infer_same_company_direct",
+  "output_field": "same_company_direct",
+  "subject_edges": [
+    { "relation_type": "belongs_to_department", "entity_side": "from" },
+    { "relation_type": "belongs_to_company", "entity_side": "from" }
+  ],
+  "object_edges": [
+    { "relation_type": "derives_to", "entity_side": "from" }
+  ],
+  "object_owner_fallback": true,
+  "owner_fallback_include_input": true
+}
+```
+
+```json
+{
+  "id": "infer_same_company_via_source",
+  "output_field": "same_company_via_source",
+  "subject_edges": [
+    { "relation_type": "belongs_to_department", "entity_side": "from" },
+    { "relation_type": "belongs_to_company", "entity_side": "from" }
+  ],
+  "object_edges": [
+    { "relation_type": "derives_to", "entity_side": "to" }
+  ],
+  "object_owner_fallback": true,
+  "owner_fallback_include_input": false
+}
+```
+
+```json
+{
+  "id": "infer_same_department_no_owner_fallback",
+  "output_field": "same_department",
+  "subject_edges": [
+    { "relation_type": "belongs_to", "entity_side": "from" }
+  ],
+  "object_edges": [
+    { "relation_type": "owned_by_department", "entity_side": "from" }
+  ],
+  "object_owner_fallback": false
+}
+```
+
 ## 5. 最小通过示例
 
 ```json
