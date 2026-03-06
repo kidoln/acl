@@ -323,6 +323,30 @@ async function loadEchartsScript(): Promise<string> {
   );
 }
 
+async function loadVanillaJsonEditorScript(): Promise<string> {
+  const fileCandidates = [
+    resolve(__dirname, "../node_modules/vanilla-jsoneditor/standalone.js"),
+    resolve(process.cwd(), "node_modules/vanilla-jsoneditor/standalone.js"),
+    resolve(__dirname, "vendor/vanilla-jsoneditor.js"),
+    resolve(__dirname, "../src/vendor/vanilla-jsoneditor.js"),
+  ];
+
+  for (const filePath of fileCandidates) {
+    try {
+      return await readFile(filePath, "utf-8");
+    } catch (error) {
+      const errorCode = (error as NodeJS.ErrnoException).code;
+      if (errorCode !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error(
+    `vanilla jsoneditor script not found, checked: ${fileCandidates.join(", ")}`,
+  );
+}
+
 async function readFormBody(req: IncomingMessage): Promise<URLSearchParams> {
   const chunks: Buffer[] = [];
   let receivedBytes = 0;
@@ -1592,6 +1616,23 @@ export async function startConsoleServer(
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "load echarts failed";
+          sendJson(res, 500, {
+            code: "INTERNAL_ERROR",
+            message,
+          });
+        }
+        return;
+      }
+
+      if (inputUrl.pathname === "/assets/vanilla-jsoneditor.js") {
+        try {
+          const script = await loadVanillaJsonEditorScript();
+          sendJs(res, script);
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "load vanilla jsoneditor failed";
           sendJson(res, 500, {
             code: "INTERNAL_ERROR",
             message,

@@ -16,11 +16,18 @@ export interface SubjectRemovedOptions {
   fallback_owner?: string;
 }
 
+export interface LifecycleRelationSnapshot {
+  subject_relations: RelationEdge[];
+  object_relations: RelationEdge[];
+  subject_object_relations: RelationEdge[];
+}
+
 export interface ExecuteSubjectRemovedInput {
   model: AuthzModelConfig;
   event: LifecycleEvent & {
     target: string;
   };
+  relations?: LifecycleRelationSnapshot;
   object_snapshots?: LifecycleObjectSnapshot[];
   options?: SubjectRemovedOptions;
 }

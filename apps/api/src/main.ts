@@ -26,7 +26,7 @@ import {
   type PersistedPublishRequestRecord,
 } from '@acl/persistence';
 import { parseSelector, type SelectorScope } from '@acl/policy-dsl';
-import type { AuthzModelConfig, PolicyRule } from '@acl/shared-types';
+import type { AuthzModelConfig, PolicyRule, RelationEdge } from '@acl/shared-types';
 import { validateModelConfig } from '@acl/validator';
 import {
   applyPublishActivation,
@@ -154,6 +154,11 @@ interface LifecycleSubjectRemovedBody {
     target: string;
     operator?: string;
     occurred_at?: string;
+  };
+  relations?: {
+    subject_relations?: RelationEdge[];
+    object_relations?: RelationEdge[];
+    subject_object_relations?: RelationEdge[];
   };
   object_snapshots?: LifecycleObjectSnapshot[];
   options?: {
@@ -2748,7 +2753,7 @@ app.post<{ Body: PublishActivateBody }>('/publish/activate', async (request, rep
 app.post<{ Body: LifecycleSubjectRemovedBody }>(
   '/lifecycle:subject-removed',
   async (request, reply) => {
-    const { model, event, object_snapshots, options } = request.body ?? {};
+    const { model, event, relations, object_snapshots, options } = request.body ?? {};
 
     if (model === undefined) {
       return reply.code(400).send({
@@ -2768,6 +2773,19 @@ app.post<{ Body: LifecycleSubjectRemovedBody }>(
       ? event.occurred_at
       : new Date().toISOString();
     const operator = isNonEmptyString(event.operator) ? event.operator : 'system';
+    const relationSnapshot = isRecord(relations)
+      ? {
+          subject_relations: Array.isArray(relations.subject_relations)
+            ? relations.subject_relations
+            : [],
+          object_relations: Array.isArray(relations.object_relations)
+            ? relations.object_relations
+            : [],
+          subject_object_relations: Array.isArray(relations.subject_object_relations)
+            ? relations.subject_object_relations
+            : [],
+        }
+      : undefined;
 
     const result = executeSubjectRemovedLifecycle({
       model: model as AuthzModelConfig,
@@ -2777,6 +2795,7 @@ app.post<{ Body: LifecycleSubjectRemovedBody }>(
         occurred_at: occurredAt,
         operator,
       },
+      relations: relationSnapshot,
       object_snapshots,
       options,
     });

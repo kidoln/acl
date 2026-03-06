@@ -59,6 +59,22 @@
     'form[data-control-setup-form="true"]',
     'form[data-control-instance-json-form="true"]',
   ];
+  const VANILLA_JSONEDITOR_MODULE_PATH = "/assets/vanilla-jsoneditor.js";
+  let vanillaJsonEditorModulePromise = null;
+
+  function loadVanillaJsonEditorModule() {
+    if (vanillaJsonEditorModulePromise) {
+      return vanillaJsonEditorModulePromise;
+    }
+
+    vanillaJsonEditorModulePromise = import(VANILLA_JSONEDITOR_MODULE_PATH).catch(
+      (error) => {
+        vanillaJsonEditorModulePromise = null;
+        throw error;
+      },
+    );
+    return vanillaJsonEditorModulePromise;
+  }
 
   function initControlIncrementalRefresh() {
     if (
@@ -183,6 +199,9 @@
       if (nextDoc.title && nextDoc.title.trim().length > 0) {
         document.title = nextDoc.title;
       }
+      if (changed) {
+        document.dispatchEvent(new CustomEvent("acl:control-partial-updated"));
+      }
       return changed;
     };
 
@@ -206,6 +225,20 @@
       form.setAttribute("data-control-incremental-bypass", "true");
       form.removeAttribute("data-control-incremental-pending");
       HTMLFormElement.prototype.submit.call(form);
+    };
+
+    const buildPostBody = (form) => {
+      const formData = new FormData(form);
+      let hasBinaryPayload = false;
+      const urlencoded = new URLSearchParams();
+      formData.forEach((value, key) => {
+        if (typeof value === "string") {
+          urlencoded.append(key, value);
+          return;
+        }
+        hasBinaryPayload = true;
+      });
+      return hasBinaryPayload ? formData : urlencoded;
     };
 
     document.addEventListener("submit", async (event) => {
@@ -255,10 +288,10 @@
             form.getAttribute("action") || window.location.href,
             window.location.href,
           );
-          const formData = new FormData(form);
+          const body = buildPostBody(form);
           response = await fetch(requestUrl.toString(), {
             method,
-            body: formData,
+            body,
             headers: {
               Accept: "text/html,application/xhtml+xml",
             },
@@ -641,11 +674,6 @@
           },
         ],
       },
-      relations: {
-        subject_relations: [],
-        object_relations: [],
-        subject_object_relations: [],
-      },
       policies: {
         rules: [],
       },
@@ -824,6 +852,52 @@
         return "#eaf0ff";
       }
       return "#f4f7fb";
+    };
+
+    const nodeSymbol = (type) => {
+      if (type === "subject_input" || type === "object_input") {
+        return "circle";
+      }
+      if (type === "owner_fallback") {
+        return "triangle";
+      }
+      if (type === "inference_rule") {
+        return "roundRect";
+      }
+      if (type === "context_var") {
+        return "diamond";
+      }
+      if (type === "policy_rule") {
+        return "rect";
+      }
+      return "circle";
+    };
+
+    const nodeSymbolSize = (type) => {
+      if (
+        type === "from_type" ||
+        type === "to_type" ||
+        type === "both_type" ||
+        type === "type"
+      ) {
+        return 74;
+      }
+      if (type === "subject_input" || type === "object_input") {
+        return 82;
+      }
+      if (type === "owner_fallback") {
+        return [98, 72];
+      }
+      if (type === "inference_rule") {
+        return [150, 62];
+      }
+      if (type === "context_var") {
+        return [132, 84];
+      }
+      if (type === "policy_rule") {
+        return [142, 58];
+      }
+      return 88;
     };
 
     const edgeColor = (relationType) => {
@@ -1783,7 +1857,7 @@
         chartWrap.clientHeight || container.clientHeight,
         220,
       );
-      // padding 需要足够大以容纳节点（symbolSize 最大 88，半径 44）
+      // padding 需要足够大以容纳节点（圆/矩形/菱形等不同 symbolSize）
       const viewportPadding = 50;
       const viewportWidth = Math.max(width - viewportPadding * 2, 1);
       const viewportHeight = Math.max(height - viewportPadding * 2, 1);
@@ -1826,14 +1900,8 @@
         x: Number(node.x) || 0,
         y: Number(node.y) || 0,
         draggable: true,
-        symbol: "circle",
-        symbolSize:
-          node.type === "from_type" ||
-          node.type === "to_type" ||
-          node.type === "both_type" ||
-          node.type === "type"
-            ? 74
-            : 88,
+        symbol: nodeSymbol(node.type),
+        symbolSize: nodeSymbolSize(node.type),
         itemStyle: {
           color: nodeColor(node.type),
           borderColor: "#c5d3ec",
@@ -2132,7 +2200,7 @@
         renderGraphCard({
           title: "Context 推理过程图",
           description:
-            "左到右展示：关系输入 → inference rule → context变量 → 被哪些 policy selector 消费。",
+            "左到右展示：关系输入 → inference rule → context变量 → 被哪些 policy selector 消费；形状约定：输入圆形、fallback三角形、rule圆角矩形、context菱形、policy矩形。",
           emptyMessage:
             "暂无 context_inference.rules，可在 JSON 中配置推理规则后查看过程图。",
           payload: inferencePayload,
@@ -2155,6 +2223,9 @@
       if (!textarea) {
         return;
       }
+      const notifyRichEditorRefresh = () => {
+        textarea.dispatchEvent(new Event("acl:jsoneditor-refresh"));
+      };
       const modelTemplateMap = (() => {
         if (!templateMapField) {
           return {};
@@ -2265,6 +2336,7 @@
         };
 
         textarea.value = JSON.stringify(model, null, 2);
+        notifyRichEditorRefresh();
         syncGraph();
       };
 
@@ -2404,6 +2476,7 @@
           return;
         }
         textarea.value = JSON.stringify(nextTemplate, null, 2);
+        notifyRichEditorRefresh();
         syncFromJson();
       };
 
@@ -2442,6 +2515,509 @@
         }
         scheduleHydrateGraphCharts(graphPanel);
       });
+    });
+  }
+
+  function initInstanceJsonEditors() {
+    const forms = Array.from(
+      document.querySelectorAll(
+        'form[data-control-instance-json-form="true"], form[data-model-jsoneditor-form="true"]',
+      ),
+    );
+    if (forms.length === 0) {
+      return;
+    }
+
+    const toTextContent = (content) => {
+      if (!content || typeof content !== "object") {
+        return "";
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(content, "json") &&
+        content.json !== undefined
+      ) {
+        return JSON.stringify(content.json, null, 2);
+      }
+      if (typeof content.text === "string") {
+        return content.text;
+      }
+      return "";
+    };
+
+    const parseTextareaContent = (raw) => {
+      if (!raw || raw.trim().length === 0) {
+        return {
+          content: {
+            json: {},
+          },
+          mode: "tree",
+        };
+      }
+      try {
+        return {
+          content: {
+            json: JSON.parse(raw),
+          },
+          mode: "tree",
+        };
+      } catch {
+        return {
+          content: {
+            text: raw,
+          },
+          mode: "text",
+        };
+      }
+    };
+
+    const formatContentErrors = (contentErrors) => {
+      if (!contentErrors || typeof contentErrors !== "object") {
+        return "";
+      }
+      if (
+        contentErrors.parseError &&
+        typeof contentErrors.parseError.message === "string"
+      ) {
+        const line =
+          Number.isFinite(contentErrors.parseError.line) &&
+          contentErrors.parseError.line > 0
+            ? ` (line ${contentErrors.parseError.line})`
+            : "";
+        return `JSON 解析失败${line}: ${contentErrors.parseError.message}`;
+      }
+      if (Array.isArray(contentErrors.validationErrors)) {
+        if (contentErrors.validationErrors.length === 0) {
+          return "";
+        }
+        return `JSON 校验发现 ${contentErrors.validationErrors.length} 个问题`;
+      }
+      return "JSON 内容存在错误";
+    };
+
+    const bindEditorExpandScrollGuard = (editorTarget) => {
+      if (
+        !(editorTarget instanceof HTMLElement) ||
+        editorTarget.getAttribute("data-instance-jsoneditor-scroll-guard-bound") ===
+          "true"
+      ) {
+        return null;
+      }
+
+      editorTarget.setAttribute(
+        "data-instance-jsoneditor-scroll-guard-bound",
+        "true",
+      );
+
+      const expansionActionSelector = [
+        "button.jse-expand",
+        "button.jse-expand-items",
+        "button.jse-expand-all",
+        "button.jse-collapse-all",
+      ].join(",");
+      const modeActionLabels = new Set(["text", "tree", "table"]);
+      const popupTriggerSelector = [
+        "button.jse-contextmenu",
+        "button.jse-open-dropdown",
+        "button.jse-context-menu-button",
+        "button.jse-navigation-bar-button",
+        "button.jse-color-picker-button",
+      ].join(",");
+      const popupRootSelector = ".jse-absolute-popup";
+
+      const readWindowScrollPosition = () => ({
+        x: window.scrollX || window.pageXOffset || 0,
+        y: window.scrollY || window.pageYOffset || 0,
+      });
+
+      const resolveGuardAction = (target) => {
+        if (!(target instanceof Element)) {
+          return {
+            type: "",
+            trigger: null,
+          };
+        }
+        const expansionTrigger = target.closest(expansionActionSelector);
+        if (expansionTrigger) {
+          return {
+            type: "expand",
+            trigger: expansionTrigger,
+          };
+        }
+        const modeButton = target.closest(".jse-menu button");
+        if (!modeButton) {
+          const popupTrigger = target.closest(popupTriggerSelector);
+          if (!popupTrigger) {
+            return {
+              type: "",
+              trigger: null,
+            };
+          }
+          return {
+            type: "popup-toggle",
+            trigger: popupTrigger,
+          };
+        }
+        const modeLabel = modeButton.textContent
+          ? modeButton.textContent.trim().toLowerCase()
+          : "";
+        if (!modeActionLabels.has(modeLabel)) {
+          const popupTrigger = target.closest(popupTriggerSelector);
+          if (!popupTrigger) {
+            return {
+              type: "",
+              trigger: null,
+            };
+          }
+          return {
+            type: "popup-toggle",
+            trigger: popupTrigger,
+          };
+        }
+        return {
+          type: "mode-switch",
+          trigger: modeButton,
+        };
+      };
+
+      const restoreWindowScrollPosition = (anchorPosition) => {
+        if (!anchorPosition) {
+          return;
+        }
+        const restore = () => {
+          const currentX = window.scrollX || window.pageXOffset || 0;
+          const currentY = window.scrollY || window.pageYOffset || 0;
+          if (
+            Math.abs(currentX - anchorPosition.x) > 1 ||
+            Math.abs(currentY - anchorPosition.y) > 1
+          ) {
+            window.scrollTo(anchorPosition.x, anchorPosition.y);
+          }
+        };
+        window.requestAnimationFrame(() => {
+          restore();
+          window.requestAnimationFrame(restore);
+        });
+      };
+
+      let pendingAnchorPosition = null;
+      let pendingModeAnchorPosition = null;
+      let popupAnchorPosition = null;
+      let popupOpened = false;
+      let popupObserver = null;
+      let popupGuardDisposed = false;
+
+      const hasPopupOpened = () => Boolean(editorTarget.querySelector(popupRootSelector));
+
+      const disposePopupGuard = () => {
+        if (popupGuardDisposed) {
+          return;
+        }
+        popupGuardDisposed = true;
+        if (popupObserver) {
+          popupObserver.disconnect();
+          popupObserver = null;
+        }
+        window.removeEventListener("mousedown", onGlobalPopupInteraction, true);
+        window.removeEventListener("click", onGlobalPopupInteraction, true);
+        window.removeEventListener("wheel", onGlobalPopupInteraction, true);
+        window.removeEventListener("keydown", onGlobalPopupInteraction, true);
+        window.removeEventListener("focusin", onGlobalPopupInteraction, true);
+      };
+
+      const ensureEditorAlive = () => {
+        if (document.body.contains(editorTarget)) {
+          return true;
+        }
+        disposePopupGuard();
+        return false;
+      };
+
+      const syncPopupState = () => {
+        if (!ensureEditorAlive()) {
+          return;
+        }
+        const nextPopupOpened = hasPopupOpened();
+        if (nextPopupOpened && !popupOpened) {
+          popupOpened = true;
+          popupAnchorPosition = popupAnchorPosition || readWindowScrollPosition();
+          return;
+        }
+        if (!nextPopupOpened && popupOpened) {
+          popupOpened = false;
+          restoreWindowScrollPosition(popupAnchorPosition);
+          popupAnchorPosition = null;
+        }
+      };
+
+      const onGlobalPopupInteraction = () => {
+        if (!popupOpened || !ensureEditorAlive()) {
+          return;
+        }
+        const anchorPosition = popupAnchorPosition || readWindowScrollPosition();
+        popupAnchorPosition = anchorPosition;
+        window.requestAnimationFrame(() => {
+          syncPopupState();
+          if (popupOpened) {
+            restoreWindowScrollPosition(anchorPosition);
+          }
+        });
+      };
+
+      if (typeof window.MutationObserver === "function") {
+        popupObserver = new window.MutationObserver(() => {
+          syncPopupState();
+        });
+        popupObserver.observe(editorTarget, {
+          childList: true,
+          subtree: true,
+        });
+      }
+      window.addEventListener("mousedown", onGlobalPopupInteraction, true);
+      window.addEventListener("click", onGlobalPopupInteraction, true);
+      window.addEventListener("wheel", onGlobalPopupInteraction, true);
+      window.addEventListener("keydown", onGlobalPopupInteraction, true);
+      window.addEventListener("focusin", onGlobalPopupInteraction, true);
+      syncPopupState();
+
+      editorTarget.addEventListener(
+        "pointerdown",
+        (event) => {
+          const action = resolveGuardAction(event.target);
+          if (!action.trigger) {
+            return;
+          }
+          const anchorPosition = readWindowScrollPosition();
+          pendingAnchorPosition = anchorPosition;
+          if (action.type === "mode-switch") {
+            pendingModeAnchorPosition = anchorPosition;
+          } else if (action.type === "popup-toggle") {
+            popupAnchorPosition = anchorPosition;
+          }
+        },
+        true,
+      );
+
+      editorTarget.addEventListener(
+        "click",
+        (event) => {
+          const action = resolveGuardAction(event.target);
+          if (!action.trigger) {
+            return;
+          }
+          const anchorPosition =
+            pendingAnchorPosition || readWindowScrollPosition();
+          pendingAnchorPosition = null;
+          if (action.type === "mode-switch") {
+            pendingModeAnchorPosition = anchorPosition;
+          } else if (action.type === "popup-toggle") {
+            popupAnchorPosition = anchorPosition;
+          }
+          restoreWindowScrollPosition(anchorPosition);
+        },
+        true,
+      );
+
+      editorTarget.addEventListener(
+        "keydown",
+        (event) => {
+          if (
+            event.key !== "Enter" &&
+            event.key !== " " &&
+            event.key !== "Spacebar"
+          ) {
+            return;
+          }
+          const action = resolveGuardAction(event.target);
+          if (!action.trigger) {
+            return;
+          }
+          const anchorPosition = readWindowScrollPosition();
+          if (action.type === "mode-switch") {
+            pendingModeAnchorPosition = anchorPosition;
+          } else if (action.type === "popup-toggle") {
+            popupAnchorPosition = anchorPosition;
+          }
+          restoreWindowScrollPosition(anchorPosition);
+        },
+        true,
+      );
+
+      return {
+        restoreWindowScrollPosition,
+        dispose: disposePopupGuard,
+        consumeModeAnchorPosition: () => {
+          const anchorPosition = pendingModeAnchorPosition;
+          pendingModeAnchorPosition = null;
+          return anchorPosition;
+        },
+      };
+    };
+
+    forms.forEach((form) => {
+      if (
+        !(form instanceof HTMLFormElement) ||
+        form.getAttribute("data-instance-jsoneditor-bound") === "true"
+      ) {
+        return;
+      }
+
+      const textarea = form.querySelector("[data-instance-json-textarea]");
+      const textareaField = form.querySelector("[data-instance-json-textarea-field]");
+      const editorWrapper = form.querySelector("[data-instance-json-rich-editor]");
+      const editorTarget = form.querySelector("[data-instance-jsoneditor-target]");
+      const resetButton = form.querySelector("[data-instance-jsoneditor-reset]");
+      const statusNode = form.querySelector("[data-instance-jsoneditor-status]");
+
+      if (
+        !(textarea instanceof HTMLTextAreaElement) ||
+        !(editorWrapper instanceof HTMLElement) ||
+        !(editorTarget instanceof HTMLElement)
+      ) {
+        return;
+      }
+
+      form.setAttribute("data-instance-jsoneditor-bound", "true");
+      let editor = null;
+      let editorReady = false;
+      let scrollGuard = null;
+
+      const updateStatus = (message, isError) => {
+        if (!(statusNode instanceof HTMLElement)) {
+          return;
+        }
+        statusNode.textContent = message;
+        statusNode.setAttribute("data-instance-jsoneditor-status-type", isError ? "error" : "info");
+      };
+      const dispatchTextareaInput = () => {
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+
+      const syncTextareaFromEditor = () => {
+        if (
+          !editorReady ||
+          !editor ||
+          typeof editor.get !== "function" ||
+          !(textarea instanceof HTMLTextAreaElement)
+        ) {
+          return;
+        }
+        try {
+          const content = editor.get();
+          const nextText = toTextContent(content);
+          if (typeof nextText === "string" && textarea.value !== nextText) {
+            textarea.value = nextText;
+          }
+        } catch {
+          // ignore
+        }
+      };
+
+      loadVanillaJsonEditorModule()
+        .then((module) => {
+          if (!document.body.contains(form)) {
+            return;
+          }
+
+          const createJSONEditor =
+            module && typeof module.createJSONEditor === "function"
+              ? module.createJSONEditor
+              : null;
+          if (!createJSONEditor) {
+            updateStatus("结构化编辑器加载失败，已降级为文本模式。", true);
+            return;
+          }
+
+          const modeEnum =
+            module && module.Mode && typeof module.Mode === "object"
+              ? module.Mode
+              : null;
+          const modeTree =
+            modeEnum && typeof modeEnum.tree === "string" ? modeEnum.tree : "tree";
+          const modeText =
+            modeEnum && typeof modeEnum.text === "string" ? modeEnum.text : "text";
+
+          const initial = parseTextareaContent(textarea.value);
+          editor = createJSONEditor({
+            target: editorTarget,
+            props: {
+              content: initial.content,
+              mode: initial.mode === "text" ? modeText : modeTree,
+              mainMenuBar: true,
+              navigationBar: true,
+              statusBar: true,
+              onChange: (updatedContent, _previousContent, status) => {
+                const nextText = toTextContent(updatedContent);
+                if (typeof nextText === "string" && textarea.value !== nextText) {
+                  textarea.value = nextText;
+                  dispatchTextareaInput();
+                }
+                const errorMessage = formatContentErrors(status?.contentErrors);
+                if (errorMessage.length > 0) {
+                  updateStatus(errorMessage, true);
+                  return;
+                }
+                updateStatus(
+                  "结构化编辑器已启用：支持层级折叠、节点级值编辑与搜索。",
+                  false,
+                );
+              },
+              onChangeMode: () => {
+                if (!scrollGuard) {
+                  return;
+                }
+                const anchorPosition = scrollGuard.consumeModeAnchorPosition();
+                if (!anchorPosition) {
+                  return;
+                }
+                scrollGuard.restoreWindowScrollPosition(anchorPosition);
+              },
+            },
+          });
+          scrollGuard = bindEditorExpandScrollGuard(editorTarget);
+          editorReady = true;
+
+          editorWrapper.hidden = false;
+          if (textareaField instanceof HTMLElement) {
+            textareaField.setAttribute("data-jsoneditor-fallback-hidden", "true");
+          }
+
+          form.addEventListener("submit", () => {
+            syncTextareaFromEditor();
+          });
+
+          const refreshEditorFromTextarea = (syncStatus) => {
+            if (!editor || typeof editor.updateProps !== "function") {
+              return;
+            }
+            const parsed = parseTextareaContent(textarea.value);
+            editor.updateProps({
+              content: parsed.content,
+              mode: parsed.mode === "text" ? modeText : modeTree,
+            });
+            if (!syncStatus) {
+              return;
+            }
+            updateStatus(
+              parsed.mode === "text"
+                ? "文本中包含非法 JSON，已切换文本模式展示。"
+                : "已从文本重新加载为结构化树视图。",
+              parsed.mode === "text",
+            );
+          };
+
+          textarea.addEventListener("acl:jsoneditor-refresh", () => {
+            refreshEditorFromTextarea(false);
+          });
+
+          if (resetButton instanceof HTMLButtonElement) {
+            resetButton.addEventListener("click", () => {
+              refreshEditorFromTextarea(true);
+            });
+          }
+        })
+        .catch(() => {
+          updateStatus("结构化编辑器加载失败，已降级为文本模式。", true);
+        });
     });
   }
 
@@ -3620,8 +4196,12 @@
     initMatrixDrawer();
     initJsonViewToggles();
     initModelEditors();
+    initInstanceJsonEditors();
     initInstanceEditors();
     initPolicyRulesTable();
+    document.addEventListener("acl:control-partial-updated", () => {
+      initInstanceJsonEditors();
+    });
   }
 
   // Policy Rules 表格交互：列宽拖拽、hover tooltip、点击填充编辑器

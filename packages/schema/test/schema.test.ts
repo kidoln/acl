@@ -11,14 +11,6 @@ describe('authz model schema', () => {
     expect(result.errors).toHaveLength(0);
   });
 
-  it('accepts model without top-level relations block', () => {
-    const model = { ...minimalDraftModel };
-    delete model.relations;
-
-    const result = validateAuthzModel(model);
-    expect(result.valid).toBe(true);
-  });
-
   it('rejects published model with empty rules', () => {
     const badModel = {
       ...minimalDraftModel,
@@ -245,26 +237,23 @@ describe('authz model schema', () => {
     expect(result.errors.some((error) => error.instancePath === '/catalogs')).toBe(true);
   });
 
-  it('rejects non-empty relations without relation_signature', () => {
+  it('rejects deprecated top-level relations block', () => {
     const model = {
       ...minimalDraftModel,
       relations: {
-        subject_relations: [
-          {
-            from: 'user:alice',
-            to: 'group:ops',
-            relation_type: 'member_of',
-          },
-        ],
+        subject_relations: [],
         object_relations: [],
         subject_object_relations: [],
-      },
+      } as Record<string, unknown>,
     };
-    delete (model as { relation_signature?: unknown }).relation_signature;
 
     const result = validateAuthzModel(model);
     expect(result.valid).toBe(false);
-    expect(result.errors.some((error) => error.keyword === 'required')).toBe(true);
+    expect(
+      result.errors.some(
+        (error) => error.instancePath === '' && error.keyword === 'additionalProperties',
+      ),
+    ).toBe(true);
   });
 
   it('accepts relation_signature with endpoint tuples', () => {
@@ -283,23 +272,6 @@ describe('authz model schema', () => {
             relation_type: 'derives_to',
             from_types: ['kb'],
             to_types: ['kb'],
-          },
-        ],
-        subject_object_relations: [],
-      },
-      relations: {
-        subject_relations: [
-          {
-            from: 'user:alice',
-            to: 'group:ops',
-            relation_type: 'member_of',
-          },
-        ],
-        object_relations: [
-          {
-            from: 'kb:source',
-            to: 'kb:derived',
-            relation_type: 'derives_to',
           },
         ],
         subject_object_relations: [],

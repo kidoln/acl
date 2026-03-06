@@ -1,4 +1,4 @@
-import type { RelationEdge, ValidityWindow } from './domain';
+import type { ValidityWindow } from './domain';
 
 export type ModelStatus = 'draft' | 'published' | 'archived';
 
@@ -166,11 +166,6 @@ export interface AuthzModelConfig {
   action_signature?: ActionSignatureConfig;
   relation_signature?: RelationSignatureConfig;
   object_onboarding: ObjectOnboardingConfig;
-  relations?: {
-    subject_relations: RelationEdge[];
-    object_relations: RelationEdge[];
-    subject_object_relations: RelationEdge[];
-  };
   policies: {
     rules: PolicyRule[];
   };

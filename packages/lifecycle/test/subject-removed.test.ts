@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { AuthzModelConfig } from '@acl/shared-types';
 
 import { executeSubjectRemovedLifecycle } from '../src/subject-removed';
+import type { LifecycleRelationSnapshot } from '../src/types';
 
 function makeModel(handlers: string[]): AuthzModelConfig {
   return {
@@ -17,7 +18,9 @@ function makeModel(handlers: string[]): AuthzModelConfig {
       action_catalog: ['read', 'update', 'grant'],
       subject_type_catalog: ['user', 'group'],
       object_type_catalog: ['kb', 'agent'],
-      relation_type_catalog: ['member_of', 'manages', 'delegates_to', 'contains'],
+      subject_relation_type_catalog: ['member_of'],
+      object_relation_type_catalog: ['contains'],
+      subject_object_relation_type_catalog: ['manages', 'delegates_to'],
     },
     object_onboarding: {
       compatibility_mode: 'compat_balanced',
@@ -32,17 +35,6 @@ function makeModel(handlers: string[]): AuthzModelConfig {
         },
       },
       conditional_required: [],
-    },
-    relations: {
-      subject_relations: [
-        { from: 'user:alice', to: 'group:finance', relation_type: 'member_of' },
-        { from: 'user:bob', to: 'group:finance', relation_type: 'member_of' },
-      ],
-      object_relations: [{ from: 'obj:1', to: 'obj:2', relation_type: 'contains' }],
-      subject_object_relations: [
-        { from: 'user:alice', to: 'obj:high-1', relation_type: 'manages' },
-        { from: 'user:alice', to: 'user:bob', relation_type: 'delegates_to' },
-      ],
     },
     policies: {
       rules: [
@@ -83,6 +75,20 @@ function makeModel(handlers: string[]): AuthzModelConfig {
   };
 }
 
+function makeRelations(): LifecycleRelationSnapshot {
+  return {
+    subject_relations: [
+      { from: 'user:alice', to: 'group:finance', relation_type: 'member_of' },
+      { from: 'user:bob', to: 'group:finance', relation_type: 'member_of' },
+    ],
+    object_relations: [{ from: 'obj:1', to: 'obj:2', relation_type: 'contains' }],
+    subject_object_relations: [
+      { from: 'user:alice', to: 'obj:high-1', relation_type: 'manages' },
+      { from: 'user:alice', to: 'user:bob', relation_type: 'delegates_to' },
+    ],
+  };
+}
+
 describe('executeSubjectRemovedLifecycle', () => {
   it('revokes direct relations and terminates delegations', () => {
     const model = makeModel([
@@ -99,6 +105,7 @@ describe('executeSubjectRemovedLifecycle', () => {
         occurred_at: '2026-03-04T00:00:00.000Z',
         operator: 'system',
       },
+      relations: makeRelations(),
       object_snapshots: [{ object_id: 'obj:high-1', owner_ref: 'user:alice', sensitivity: 'high' }],
     });
 
@@ -122,6 +129,7 @@ describe('executeSubjectRemovedLifecycle', () => {
         occurred_at: '2026-03-04T00:00:00.000Z',
         operator: 'system',
       },
+      relations: makeRelations(),
       object_snapshots: [{ object_id: 'obj:high-1', owner_ref: 'user:alice', sensitivity: 'high' }],
       options: {
         fallback_owner: 'user:security-officer',

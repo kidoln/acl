@@ -14,15 +14,29 @@ describe('model validator', () => {
     expect(result.summary.blocking_issues).toBe(0);
   });
 
-  it('accepts model without top-level relations block', () => {
-    const model = { ...minimalDraftModel };
-    delete model.relations;
+  it('rejects deprecated top-level relations block in model', () => {
+    const model = {
+      ...minimalDraftModel,
+      relations: {
+        subject_relations: [],
+        object_relations: [],
+        subject_object_relations: [],
+      } as Record<string, unknown>,
+    };
 
     const result = validateModelConfig(model, {
       available_obligation_executors: ['audit_write'],
     });
 
-    expect(result.valid).toBe(true);
+    expect(result.valid).toBe(false);
+    expect(
+      result.issues.some(
+        (issue) =>
+          issue.code === 'SCHEMA_VALIDATION_FAILED'
+          && issue.path === '/'
+          && issue.message.includes('additional properties'),
+      ),
+    ).toBe(true);
   });
 
   it('detects unknown action in policy rule', () => {
@@ -339,7 +353,7 @@ describe('model validator', () => {
     expect(result.issues.some((issue) => issue.code === 'RELATION_TYPE_UNKNOWN')).toBe(true);
   });
 
-  it('detects relation type configured for wrong relation domain when catalogs are split', () => {
+  it('detects relation signature relation_type configured for wrong relation domain', () => {
     const model = {
       ...minimalDraftModel,
       catalogs: {
@@ -348,25 +362,27 @@ describe('model validator', () => {
         object_relation_type_catalog: ['derives_to'],
         subject_object_relation_type_catalog: ['owns'],
       },
-      relations: {
-        ...minimalDraftModel.relations,
+      relation_signature: {
+        ...minimalDraftModel.relation_signature,
         subject_relations: [
           {
-            from: 'user:alice',
-            to: 'group:ops',
             relation_type: 'derives_to',
+            from_types: ['user'],
+            to_types: ['group'],
           },
         ],
       },
     };
 
     const result = validateModelConfig(model);
-    expect(result.issues.some((issue) => issue.path === '/relations/subject_relations/0/relation_type')).toBe(
-      true,
-    );
+    expect(
+      result.issues.some(
+        (issue) => issue.path === '/relation_signature/subject_relations/0/relation_type',
+      ),
+    ).toBe(true);
   });
 
-  it('detects relation signature endpoint mismatch', () => {
+  it('detects relation signature endpoint type mismatch', () => {
     const model = {
       ...minimalDraftModel,
       relation_signature: {
@@ -374,24 +390,14 @@ describe('model validator', () => {
         subject_relations: [
           {
             relation_type: 'belongs_to',
-            from_types: ['department'],
+            from_types: ['external_user'],
             to_types: ['group'],
           },
         ],
       },
       catalogs: {
         ...minimalDraftModel.catalogs,
-        subject_type_catalog: ['user', 'group', 'department'],
-      },
-      relations: {
-        ...minimalDraftModel.relations,
-        subject_relations: [
-          {
-            from: 'user:alice',
-            to: 'group:ops',
-            relation_type: 'belongs_to',
-          },
-        ],
+        subject_type_catalog: ['user', 'group'],
       },
     };
 
@@ -399,7 +405,7 @@ describe('model validator', () => {
     expect(result.issues.some((issue) => issue.code === 'RELATION_SIGNATURE_MISMATCH')).toBe(true);
   });
 
-  it('accepts relation edges when relation signature matches endpoint types', () => {
+  it('accepts relation signature tuples when catalogs and endpoint types match', () => {
     const model = {
       ...minimalDraftModel,
       relation_signature: {
@@ -409,16 +415,6 @@ describe('model validator', () => {
             relation_type: 'member_of',
             from_types: ['user'],
             to_types: ['group'],
-          },
-        ],
-      },
-      relations: {
-        ...minimalDraftModel.relations,
-        subject_relations: [
-          {
-            from: 'user:alice',
-            to: 'group:ops',
-            relation_type: 'member_of',
           },
         ],
       },

@@ -1,7 +1,7 @@
 # 权限配置 JSON Schema 草案
 
 > 文档编号：55  
-> 更新日期：2026-03-05  
+> 更新日期：2026-03-06  
 > 对应主文档：[`10_企业可配置权限模型设计.md`](./10_企业可配置权限模型设计.md) 第 13 章
 
 ## 1. 目标与范围
@@ -36,7 +36,6 @@
     "catalogs",
     "action_signature",
     "object_onboarding",
-    "relations",
     "policies",
     "constraints",
     "lifecycle",
@@ -157,25 +156,6 @@
         "conditional_required": {
           "type": "array",
           "items": { "$ref": "#/$defs/conditional_required_rule" }
-        }
-      }
-    },
-    "relations": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["subject_relations", "object_relations", "subject_object_relations"],
-      "properties": {
-        "subject_relations": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/relation_edge" }
-        },
-        "object_relations": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/relation_edge" }
-        },
-        "subject_object_relations": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/relation_edge" }
         }
       }
     },
@@ -538,19 +518,6 @@
         "end": { "type": "string", "format": "date-time" }
       }
     },
-    "relation_edge": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["from", "to", "relation_type"],
-      "properties": {
-        "from": { "type": "string", "minLength": 1 },
-        "to": { "type": "string", "minLength": 1 },
-        "relation_type": { "type": "string", "minLength": 1 },
-        "scope": { "type": "string" },
-        "source": { "type": "string" },
-        "validity": { "$ref": "#/$defs/validity" }
-      }
-    },
     "policy_rule": {
       "type": "object",
       "additionalProperties": false,
@@ -691,7 +658,6 @@
 15. `compat_strict` 模式下，条件必填字段缺失应拒绝入管。  
 16. `subject_removed` 等关键事件必须存在且 `required=true`。  
 17. `RULE_CONFLICT_UNRESOLVED`、`ACTION_SIGNATURE_MISMATCH`、`SEARCH_PUSHDOWN_UNSAFE` 与 `OBLIGATION_NOT_EXECUTABLE` 归属 `P0` 阻断。
-18. `relations.*` 中的每条边，其 `from/to` 端点类型必须命中 `relation_signature` 对应关系域的签名元组。
 
 ### 4.2 `relation_signature`（新增）
 
@@ -727,7 +693,7 @@
 
 约束说明：
 
-1. 当 `relations.subject_relations/object_relations/subject_object_relations` 任一非空时，`relation_signature` 必须声明。  
+1. `relation_signature` 为模型级关系端点签名声明，不承载实例关系数据。  
 2. 每个签名元组必须包含 `relation_type/from_types/to_types`，且 `from_types/to_types` 不可为空。  
 3. 端点类型集合由 `catalogs.subject_type_catalog/object_type_catalog` 约束，越界类型由语义校验器拦截为 `RELATION_SIGNATURE_MISMATCH`。
 
@@ -852,11 +818,6 @@
         "add_fields": ["data_domain", "retention_class"]
       }
     ]
-  },
-  "relations": {
-    "subject_relations": [],
-    "object_relations": [],
-    "subject_object_relations": []
   },
   "context_inference": {
     "enabled": true,

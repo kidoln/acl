@@ -145,25 +145,6 @@ export const authzModelSchema = {
         },
       },
     },
-    relations: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['subject_relations', 'object_relations', 'subject_object_relations'],
-      properties: {
-        subject_relations: {
-          type: 'array',
-          items: { $ref: '#/$defs/relation_edge' },
-        },
-        object_relations: {
-          type: 'array',
-          items: { $ref: '#/$defs/relation_edge' },
-        },
-        subject_object_relations: {
-          type: 'array',
-          items: { $ref: '#/$defs/relation_edge' },
-        },
-      },
-    },
     policies: {
       type: 'object',
       additionalProperties: false,
@@ -321,44 +302,6 @@ export const authzModelSchema = {
     {
       if: {
         properties: {
-          relations: {
-            anyOf: [
-              {
-                required: ['subject_relations'],
-                properties: {
-                  subject_relations: {
-                    minItems: 1,
-                  },
-                },
-              },
-              {
-                required: ['object_relations'],
-                properties: {
-                  object_relations: {
-                    minItems: 1,
-                  },
-                },
-              },
-              {
-                required: ['subject_object_relations'],
-                properties: {
-                  subject_object_relations: {
-                    minItems: 1,
-                  },
-                },
-              },
-            ],
-          },
-        },
-        required: ['relations'],
-      },
-      then: {
-        required: ['relation_signature'],
-      },
-    },
-    {
-      if: {
-        properties: {
           decision_search: {
             properties: {
               enabled: { const: true },
@@ -477,19 +420,6 @@ export const authzModelSchema = {
       properties: {
         start: { type: 'string', format: 'date-time' },
         end: { type: 'string', format: 'date-time' },
-      },
-    },
-    relation_edge: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['from', 'to', 'relation_type'],
-      properties: {
-        from: { type: 'string', minLength: 1 },
-        to: { type: 'string', minLength: 1 },
-        relation_type: { type: 'string', minLength: 1 },
-        scope: { type: 'string' },
-        source: { type: 'string' },
-        validity: { $ref: '#/$defs/validity' },
       },
     },
     policy_rule: {

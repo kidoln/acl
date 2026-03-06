@@ -1,0 +1,143 @@
+{
+  "model_meta": {
+    "model_id": "tenant_techcorp_department_kb_permissions",
+    "tenant_id": "tenant_techcorp",
+    "version": "2026.03.06",
+    "status": "draft",
+    "combining_algorithm": "deny-overrides"
+  },
+  "catalogs": {
+    "action_catalog": ["read", "write"],
+    "subject_type_catalog": ["user", "department", "company"],
+    "object_type_catalog": ["kb"],
+    "subject_relation_type_catalog": [
+      "belongs_to_department",
+      "belongs_to_company",
+      "is_department_admin"
+    ],
+    "object_relation_type_catalog": ["owned_by"],
+    "subject_object_relation_type_catalog": [
+      "belongs_to_department"
+    ]
+  },
+  "object_onboarding": {
+    "compatibility_mode": "compat_balanced",
+    "default_profile": "minimal",
+    "profiles": {
+      "minimal": {
+        "required_fields": [
+          "tenant_id",
+          "object_id",
+          "object_type",
+          "created_by"
+        ],
+        "autofill": {
+          "owner_ref": "created_by",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    "conditional_required": []
+  },
+  "policies": {
+    "rules": [
+      {
+        "id": "department_admin_can_read_write_department_kb",
+        "subject_selector": "subject.type == user and context.is_department_admin_of_owner == true",
+        "object_selector": "object.type == kb",
+        "action_set": ["read", "write"],
+        "effect": "allow",
+        "priority": 150
+      },
+      {
+        "id": "same_department_member_can_read",
+        "subject_selector": "subject.type == user and context.same_department_with_owner == true",
+        "object_selector": "object.type == kb",
+        "action_set": ["read"],
+        "effect": "allow",
+        "priority": 100
+      }
+    ]
+  },
+  "constraints": {
+    "sod_rules": [],
+    "cardinality_rules": []
+  },
+  "lifecycle": {
+    "event_rules": [
+      {
+        "event_type": "subject_removed",
+        "handler": "revoke_direct_edges",
+        "required": true
+      }
+    ]
+  },
+  "consistency": {
+    "default_level": "bounded_staleness",
+    "high_risk_level": "strong",
+    "bounded_staleness_ms": 3000
+  },
+  "quality_guardrails": {
+    "attribute_quality": {
+      "authority_whitelist": ["hr_system", "org_system"],
+      "freshness_ttl_sec": {
+        "org_membership": 900
+      },
+      "reject_unknown_source": true
+    },
+    "mandatory_obligations": []
+  },
+  "context_inference": {
+    "enabled": true,
+    "rules": [
+      {
+        "id": "infer_same_department_with_owner",
+        "output_field": "same_department_with_owner",
+        "subject_edges": [
+          {
+            "relation_type": "belongs_to_department",
+            "entity_side": "from"
+          }
+        ],
+        "object_edges": [
+          {
+            "relation_type": "owned_by",
+            "entity_side": "from"
+          },
+          {
+            "relation_type": "belongs_to_department",
+            "entity_side": "from"
+          }
+        ],
+        "object_owner_fallback": true,
+        "owner_fallback_include_input": true
+      },
+      {
+        "id": "infer_is_department_admin_of_owner",
+        "output_field": "is_department_admin_of_owner",
+        "subject_edges": [
+          {
+            "relation_type": "is_department_admin",
+            "entity_side": "from"
+          }
+        ],
+        "object_edges": [
+          {
+            "relation_type": "owned_by",
+            "entity_side": "from"
+          },
+          {
+            "relation_type": "belongs_to_department",
+            "entity_side": "from"
+          }
+        ],
+        "object_owner_fallback": true,
+        "owner_fallback_include_input": true
+      }
+    ],
+    "constraints": {
+      "monotonic_only": true,
+      "stratified_negation": false
+    }
+  }
+}

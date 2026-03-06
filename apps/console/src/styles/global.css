@@ -483,10 +483,271 @@ body {
 
 .raw-json-toolbar {
   margin: 2px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .model-editor-note {
   margin: 8px 0 0;
+}
+
+.instance-json-rich-editor {
+  --jse-font-family:
+    "Plus Jakarta Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --jse-font-family-mono:
+    "SF Mono", "JetBrains Mono", "Cascadia Code", "Fira Code", monospace;
+  --jse-font-size: 14px;
+  --jse-font-size-main-menu: 12px;
+  --jse-font-size-mono: 13px;
+  --jse-line-height: 1.55;
+  --jse-padding: 10px;
+  --jse-theme-color: var(--primary);
+  --jse-theme-color-highlight: #3b72e7;
+  --jse-background-color: #ffffff;
+  --jse-text-color: #1e293b;
+  --jse-main-border: 1px solid #d7e2f0;
+  --jse-menu-color: #f8fbff;
+  --jse-panel-background: #f6f9ff;
+  --jse-panel-color: #334155;
+  --jse-panel-border: 1px solid #d9e3f2;
+  --jse-panel-button-background: transparent;
+  --jse-panel-button-color: #334155;
+  --jse-panel-button-background-highlight: #e4ecff;
+  --jse-panel-button-color-highlight: #1d4ed8;
+  --jse-navigation-bar-background: #edf3ff;
+  --jse-navigation-bar-background-highlight: #e0eaff;
+  --jse-navigation-bar-dropdown-color: #33527d;
+  --jse-context-menu-background: #ffffff;
+  --jse-context-menu-background-highlight: #f3f7ff;
+  --jse-context-menu-color: #1f2937;
+  --jse-context-menu-color-disabled: #94a3b8;
+  --jse-context-menu-separator-color: #e2e8f0;
+  --jse-context-menu-pointer-hover-background: #d7e5ff;
+  --jse-context-menu-pointer-background: #f8fbff;
+  --jse-context-menu-pointer-background-highlight: #e8efff;
+  --jse-context-menu-pointer-color: #1f2937;
+  --jse-context-menu-tip-background: rgba(59, 130, 246, 0.16);
+  --jse-key-color: #0f172a;
+  --jse-value-color: #1f2937;
+  --jse-value-color-number: #b45309;
+  --jse-value-color-boolean: #1d4ed8;
+  --jse-value-color-null: #7c3aed;
+  --jse-value-color-string: #0f766e;
+  --jse-value-color-url: #0f766e;
+  --jse-delimiter-color: #94a3b8;
+  --jse-edit-outline: 2px solid rgba(44, 99, 213, 0.34);
+  --jse-selection-background-color: rgba(44, 99, 213, 0.14);
+  --jse-selection-background-inactive-color: rgba(148, 163, 184, 0.2);
+  --jse-hover-background-color: rgba(59, 130, 246, 0.08);
+  --jse-active-line-background-color: rgba(59, 130, 246, 0.1);
+  --jse-search-match-color: #fff3bf;
+  --jse-search-match-outline: 1px solid #f5cd47;
+  --jse-search-match-active-color: #ffe18b;
+  --jse-search-match-active-outline: 1px solid #dcab2b;
+  --jse-collapsed-items-background-color: #f8fafc;
+  --jse-collapsed-items-selected-background-color: #e6eeff;
+  --jse-collapsed-items-link-color: #64748b;
+  --jse-collapsed-items-link-color-highlight: #c2410c;
+  --jse-table-header-background: #f5f8ff;
+  --jse-table-header-background-highlight: #e9efff;
+  --jse-table-row-odd-background: rgba(15, 23, 42, 0.03);
+  --jse-input-background: #ffffff;
+  --jse-input-border: 1px solid #cbd5e1;
+  --jse-input-border-focus: 1px solid var(--primary);
+  --jse-input-radius: 8px;
+  --jse-button-background: #e6eeff;
+  --jse-button-background-highlight: #d8e4ff;
+  --jse-button-color: #1e3a8a;
+  --jse-button-primary-background: var(--primary);
+  --jse-button-primary-background-highlight: #1d4ed8;
+  --jse-button-primary-color: #ffffff;
+  --jse-button-secondary-background: #e2e8f0;
+  --jse-button-secondary-background-highlight: #d7dfe9;
+  --jse-button-secondary-color: #334155;
+  --jse-a-color: #1d4ed8;
+  --jse-a-color-highlight: #1e40af;
+  --jse-modal-background: #ffffff;
+  --jse-modal-overlay-background: rgba(15, 23, 42, 0.45);
+  --jse-modal-code-background: #f8fafc;
+  --jse-tooltip-color: #0f172a;
+  --jse-tooltip-background: #ffffff;
+  --jse-tooltip-border: 1px solid #d8e2f0;
+  --jse-tooltip-action-button-background: #1e3a8a;
+  --jse-tooltip-action-button-color: #ffffff;
+  --jse-color-picker-background: #f8fbff;
+  --jse-color-picker-border-box-shadow: #d2ddec 0 0 0 1px;
+  --jse-controls-box-shadow: 0 10px 26px -16px rgba(15, 23, 42, 0.48);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 10px;
+  background: linear-gradient(180deg, #fbfdff 0%, #f5f9ff 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  margin-bottom: 10px;
+}
+
+.instance-json-rich-editor-target {
+  min-height: 460px;
+}
+
+.instance-json-rich-editor-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.instance-json-rich-editor-hint[data-instance-jsoneditor-status-type="error"] {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.instance-json-rich-editor-hint[data-instance-jsoneditor-status-type="info"] {
+  color: var(--text-muted);
+}
+
+.instance-json-rich-editor .jse-main {
+  border-radius: 10px;
+  border: 1px solid #d7e2f0;
+  overflow: hidden;
+  box-shadow: 0 10px 24px -18px rgba(15, 23, 42, 0.45);
+}
+
+.instance-json-rich-editor .jse-menu {
+  background: linear-gradient(180deg, #2f67da 0%, #2857bf 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.instance-json-rich-editor .jse-menu button,
+.instance-json-rich-editor .jse-navigation-bar button,
+.instance-json-rich-editor .jse-contextmenu button,
+.instance-json-rich-editor .jse-dropdown-items button {
+  border-radius: 8px;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.instance-json-rich-editor .jse-menu button:hover,
+.instance-json-rich-editor .jse-navigation-bar button:hover {
+  transform: translateY(-1px);
+}
+
+.instance-json-rich-editor .jse-menu button svg,
+.instance-json-rich-editor .jse-navigation-bar button svg,
+.instance-json-rich-editor .jse-contextmenu button svg,
+.instance-json-rich-editor .jse-dropdown-items button svg {
+  width: 15px;
+  height: 15px;
+  opacity: 0.94;
+}
+
+.instance-json-rich-editor .jse-navigation-bar {
+  border-top: 1px solid #dbe5f5;
+  border-bottom: 1px solid #dbe5f5;
+}
+
+.instance-json-rich-editor .jse-navigation-bar .jse-navigation-bar-text,
+.instance-json-rich-editor .jse-navigation-bar .jse-navigation-bar-path-editor {
+  font-family: var(--jse-font-family-mono);
+  font-size: 12px;
+  letter-spacing: 0.08px;
+}
+
+.instance-json-rich-editor .jse-search-box,
+.instance-json-rich-editor .jse-search-box-container {
+  border-radius: 9px;
+}
+
+.instance-json-rich-editor .jse-contextmenu,
+.instance-json-rich-editor .jse-dropdown-items {
+  border: 1px solid #d9e2ef;
+  border-radius: 10px;
+  box-shadow: 0 18px 34px -24px rgba(15, 23, 42, 0.6);
+  overflow: hidden;
+}
+
+.instance-json-rich-editor .jse-row {
+  min-height: 24px;
+}
+
+.instance-json-rich-editor .jse-key {
+  font-weight: 600;
+}
+
+.instance-json-rich-editor .jse-key,
+.instance-json-rich-editor .jse-value,
+.instance-json-rich-editor .jse-index {
+  letter-spacing: 0.08px;
+}
+
+.instance-json-rich-editor .jse-value,
+.instance-json-rich-editor .jse-key,
+.instance-json-rich-editor .jse-delimiter,
+.instance-json-rich-editor .jse-bracket {
+  font-family: var(--jse-font-family-mono);
+}
+
+.instance-json-rich-editor .jse-value.jse-string {
+  font-weight: 500;
+}
+
+.instance-json-rich-editor .jse-message {
+  border-radius: 8px;
+}
+
+.instance-json-rich-editor .jse-main button {
+  min-height: 0;
+  box-shadow: none;
+  transform: none;
+}
+
+.instance-json-rich-editor .jse-main button:hover,
+.instance-json-rich-editor .jse-main button:focus {
+  transform: none;
+  box-shadow: none;
+}
+
+.instance-json-rich-editor .jse-main .jse-collapsed-items {
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 999px;
+  background-image: none;
+  background-color: #e2e8f3;
+  background: linear-gradient(180deg, #e9eef7 0%, #dfe6f2 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  min-height: 0;
+  align-items: center;
+}
+
+.instance-json-rich-editor .jse-main .jse-collapsed-items.jse-selected {
+  background: linear-gradient(180deg, #dfe9ff 0%, #d3e1ff 100%);
+}
+
+.instance-json-rich-editor .jse-main .jse-collapsed-items .jse-text,
+.instance-json-rich-editor .jse-main .jse-collapsed-items .jse-expand-items {
+  margin: 0 3px;
+  font-size: 11px;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: 0.05px;
+  font-variant-numeric: tabular-nums;
+  color: #586a84;
+}
+
+.instance-json-rich-editor .jse-main .jse-collapsed-items .jse-expand-items {
+  text-decoration: none;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+}
+
+.instance-json-rich-editor .jse-main .jse-collapsed-items .jse-expand-items:hover,
+.instance-json-rich-editor .jse-main .jse-collapsed-items .jse-expand-items:focus {
+  color: #334155;
+}
+
+[data-instance-json-textarea-field][data-jsoneditor-fallback-hidden="true"] {
+  display: none;
 }
 
 .policy-rules-section {

@@ -5,7 +5,6 @@ import type {
   AuthzModelConfig,
   ContextInferenceRule,
   PolicyRule,
-  RelationEdge,
   RelationSignatureTuple,
 } from '@acl/shared-types';
 
@@ -481,70 +480,6 @@ function buildRelationTypeCatalogSets(model: AuthzModelConfig): RelationTypeCata
   };
 }
 
-function validateRelationTypes(model: AuthzModelConfig, issues: ValidationIssue[]): void {
-  const relationCatalogs = buildRelationTypeCatalogSets(model);
-  const subjectRelations = model.relations?.subject_relations ?? [];
-  const objectRelations = model.relations?.object_relations ?? [];
-  const subjectObjectRelations = model.relations?.subject_object_relations ?? [];
-
-  const checkEdges = (
-    edges: RelationEdge[],
-    basePath: string,
-    allowedRelationTypes: Set<string>,
-    catalogHint: string,
-  ): void => {
-    edges.forEach((edge, index) => {
-      if (!allowedRelationTypes.has(edge.relation_type)) {
-        addIssue(
-          issues,
-          'RELATION_TYPE_UNKNOWN',
-          'semantic',
-          `relation type ${edge.relation_type} is not registered in ${catalogHint}`,
-          `${basePath}/${index}/relation_type`,
-        );
-      }
-    });
-  };
-
-  checkEdges(
-    subjectRelations,
-    '/relations/subject_relations',
-    relationCatalogs.subject,
-    'catalogs.subject_relation_type_catalog',
-  );
-  checkEdges(
-    objectRelations,
-    '/relations/object_relations',
-    relationCatalogs.object,
-    'catalogs.object_relation_type_catalog',
-  );
-  checkEdges(
-    subjectObjectRelations,
-    '/relations/subject_object_relations',
-    relationCatalogs.subjectObject,
-    'catalogs.subject_object_relation_type_catalog',
-  );
-}
-
-function parseEntityType(ref: string): string {
-  const normalized = ref.trim().toLowerCase();
-  if (normalized.length === 0) {
-    return '';
-  }
-  const [head] = normalized.split(':');
-  return head?.trim() ?? '';
-}
-
-function buildRelationPairSet(fromTypes: string[], toTypes: string[]): Set<string> {
-  const pairs = new Set<string>();
-  fromTypes.forEach((fromType) => {
-    toTypes.forEach((toType) => {
-      pairs.add(`${fromType}::${toType}`);
-    });
-  });
-  return pairs;
-}
-
 function validateRelationSignature(model: AuthzModelConfig, issues: ValidationIssue[]): void {
   const relationSignature = model.relation_signature;
   if (!relationSignature) {
@@ -632,77 +567,6 @@ function validateRelationSignature(model: AuthzModelConfig, issues: ValidationIs
     objectTypeCatalog,
     relationCatalogs.subjectObject,
     'catalogs.subject_object_relation_type_catalog',
-  );
-
-  const buildTupleMap = (tuples: RelationSignatureTuple[]): Map<string, Set<string>> => {
-    const map = new Map<string, Set<string>>();
-    tuples.forEach((tuple) => {
-      if (tuple.enabled === false) {
-        return;
-      }
-      const existing = map.get(tuple.relation_type) ?? new Set<string>();
-      buildRelationPairSet(tuple.from_types, tuple.to_types).forEach((pair) => existing.add(pair));
-      map.set(tuple.relation_type, existing);
-    });
-    return map;
-  };
-
-  const subjectTupleMap = buildTupleMap(subjectSignatureTuples);
-  const objectTupleMap = buildTupleMap(objectSignatureTuples);
-  const subjectObjectTupleMap = buildTupleMap(subjectObjectSignatureTuples);
-
-  const checkEdgeAgainstSignature = (
-    edges: RelationEdge[],
-    tupleMap: Map<string, Set<string>>,
-    edgePathPrefix: string,
-  ): void => {
-    edges.forEach((edge, index) => {
-      const fromType = parseEntityType(edge.from);
-      const toType = parseEntityType(edge.to);
-      const tuplePairs = tupleMap.get(edge.relation_type);
-      if (!tuplePairs) {
-        addIssue(
-          issues,
-          'RELATION_SIGNATURE_MISMATCH',
-          'semantic',
-          `relation edge ${edge.relation_type} has no enabled signature tuple`,
-          `${edgePathPrefix}/${index}/relation_type`,
-        );
-        return;
-      }
-      const pair = `${fromType}::${toType}`;
-      if (tuplePairs.has(pair)) {
-        return;
-      }
-
-      addIssue(
-        issues,
-        'RELATION_SIGNATURE_MISMATCH',
-        'semantic',
-        `relation edge ${edge.relation_type} endpoint mismatch: ${fromType} -> ${toType} is not allowed`,
-        `${edgePathPrefix}/${index}`,
-      );
-    });
-  };
-
-  const subjectRelations = model.relations?.subject_relations ?? [];
-  const objectRelations = model.relations?.object_relations ?? [];
-  const subjectObjectRelations = model.relations?.subject_object_relations ?? [];
-
-  checkEdgeAgainstSignature(
-    subjectRelations,
-    subjectTupleMap,
-    '/relations/subject_relations',
-  );
-  checkEdgeAgainstSignature(
-    objectRelations,
-    objectTupleMap,
-    '/relations/object_relations',
-  );
-  checkEdgeAgainstSignature(
-    subjectObjectRelations,
-    subjectObjectTupleMap,
-    '/relations/subject_object_relations',
   );
 }
 
@@ -1238,12 +1102,8 @@ export function validateModelConfig(
       validateActionSignature(model, issues);
     }
 
-    if (model.relations && model.catalogs) {
-      validateRelationTypes(model, issues);
-      validateRelationSignature(model, issues);
-    }
-
     if (model.catalogs) {
+      validateRelationSignature(model, issues);
       validateContextInferenceRules(model, issues);
     }
 

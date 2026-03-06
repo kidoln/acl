@@ -466,6 +466,7 @@ describe("console html renderer", () => {
     const html = renderConsolePage(model);
     expect(html).toContain("控制面总览");
     expect(html).toContain("/actions/publish/submit");
+    expect(html).toContain('data-model-jsoneditor-form="true"');
     expect(html).not.toContain("/actions/control/catalog/register");
     expect(html).toContain("/actions/control/object/upsert");
     expect(html).toContain("/actions/control/relation/event");

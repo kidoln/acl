@@ -1,0 +1,256 @@
+{
+  "route": {
+    "tenant_id": "tenant_techcorp",
+    "environment": "prod"
+  },
+  "namespace_prefix": "tenant_techcorp.kb.department_permissions",
+  "objects": [
+    {
+      "object_id": "kb:eng_doc_1",
+      "object_type": "kb",
+      "owner_ref": "user:eng_member_1",
+      "sensitivity": "normal"
+    },
+    {
+      "object_id": "kb:eng_doc_2",
+      "object_type": "kb",
+      "owner_ref": "user:eng_member_2",
+      "sensitivity": "normal"
+    },
+    {
+      "object_id": "kb:sales_doc_1",
+      "object_type": "kb",
+      "owner_ref": "user:sales_member_1",
+      "sensitivity": "normal"
+    },
+    {
+      "object_id": "kb:sales_doc_2",
+      "object_type": "kb",
+      "owner_ref": "user:sales_member_2",
+      "sensitivity": "normal"
+    }
+  ],
+  "relation_events": [
+    {
+      "from": "department:engineering",
+      "to": "company:techcorp",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:sales",
+      "to": "company:techcorp",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:eng_admin",
+      "to": "department:engineering",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:eng_admin",
+      "to": "department:engineering",
+      "relation_type": "is_department_admin",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:eng_member_1",
+      "to": "department:engineering",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:eng_member_2",
+      "to": "department:engineering",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:sales_admin",
+      "to": "department:sales",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:sales_admin",
+      "to": "department:sales",
+      "relation_type": "is_department_admin",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:sales_member_1",
+      "to": "department:sales",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:sales_member_2",
+      "to": "department:sales",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "kb:eng_doc_1",
+      "to": "user:eng_member_1",
+      "relation_type": "owned_by",
+      "operation": "upsert"
+    },
+    {
+      "from": "kb:eng_doc_2",
+      "to": "user:eng_member_2",
+      "relation_type": "owned_by",
+      "operation": "upsert"
+    },
+    {
+      "from": "kb:sales_doc_1",
+      "to": "user:sales_member_1",
+      "relation_type": "owned_by",
+      "operation": "upsert"
+    },
+    {
+      "from": "kb:sales_doc_2",
+      "to": "user:sales_member_2",
+      "relation_type": "owned_by",
+      "operation": "upsert"
+    }
+  ],
+  "decision_inputs": [
+    {
+      "name": "owner_can_read_own_kb_via_same_department",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:eng_member_1",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:eng_doc_1",
+          "type": "kb",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "owner_cannot_write_own_kb_without_admin",
+      "input": {
+        "action": "write",
+        "subject": {
+          "id": "user:eng_member_1",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:eng_doc_1",
+          "type": "kb",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "same_department_member_can_read",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:eng_member_2",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:eng_doc_1",
+          "type": "kb",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "same_department_member_cannot_write",
+      "input": {
+        "action": "write",
+        "subject": {
+          "id": "user:eng_member_2",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:eng_doc_1",
+          "type": "kb",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "department_admin_can_read_same_department_kb",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:eng_admin",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:eng_doc_1",
+          "type": "kb",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "department_admin_can_write_same_department_kb",
+      "input": {
+        "action": "write",
+        "subject": {
+          "id": "user:eng_admin",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:eng_doc_1",
+          "type": "kb",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "cross_department_member_cannot_read",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:sales_member_1",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:eng_doc_1",
+          "type": "kb",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "cross_department_admin_cannot_read",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:sales_admin",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:eng_doc_1",
+          "type": "kb",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "cross_department_admin_cannot_write",
+      "input": {
+        "action": "write",
+        "subject": {
+          "id": "user:sales_admin",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:eng_doc_1",
+          "type": "kb",
+          "sensitivity": "normal"
+        }
+      }
+    }
+  ]
+}

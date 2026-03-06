@@ -62,11 +62,6 @@ export const minimalDraftModel: AuthzModelConfig = {
       },
     ],
   },
-  relations: {
-    subject_relations: [],
-    object_relations: [],
-    subject_object_relations: [],
-  },
   policies: {
     rules: [
       {

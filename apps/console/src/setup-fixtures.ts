@@ -58,6 +58,10 @@ const SETUP_FIXTURE_DISPLAY_OVERRIDES: Record<
     order: 3,
     label: "样例3：Model/Instance 混合 setup",
   },
+  "department-kb-permissions.setup.json": {
+    order: 4,
+    label: "样例4：部门知识库权限 setup",
+  },
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -246,10 +250,7 @@ export function loadSetupFixtureById(
   fixtureId: string,
 ): LoadedSetupFixture | null {
   const trimmedId = fixtureId.trim();
-  if (
-    trimmedId.length === 0 ||
-    !/^[a-zA-Z0-9._-]+$/u.test(trimmedId)
-  ) {
+  if (trimmedId.length === 0 || !/^[a-zA-Z0-9._-]+$/u.test(trimmedId)) {
     return null;
   }
 

@@ -1717,7 +1717,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `</section>` +
     `<p class="muted metric-caption">说明：下方维护操作只写入控制面运行态数据，不会回写“策略模型提交”卡片中的 JSON。</p>` +
     `<section class="management-grid model-submit-grid">` +
-    `<form class="action-form model-submit-form" method="POST" action="/actions/publish/submit">` +
+    `<form class="action-form model-submit-form" method="POST" action="/actions/publish/submit" data-model-jsoneditor-form="true">` +
     `<h4>策略模型提交</h4>` +
     hiddenContext +
     `<label>发布ID Publish ID (可选)<input type="text" name="publish_id" placeholder="pub_20260304_001" /></label>` +
@@ -1768,7 +1768,12 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `</div>` +
     `<div class="json-view" data-json-view="raw" hidden>` +
     `<div class="raw-json-toolbar"><button type="button" class="btn btn-secondary" data-apply-model-json>从 JSON 刷新字段</button></div>` +
-    `<label>模型JSON Model JSON<textarea name="model_json" rows="12" required data-model-json>${defaultModelJson}</textarea></label>` +
+    `<section class="instance-json-rich-editor" data-instance-json-rich-editor hidden>` +
+    `<div class="raw-json-toolbar"><button type="button" class="btn btn-secondary" data-instance-jsoneditor-reset>从文本重新加载</button></div>` +
+    `<div class="instance-json-rich-editor-target" data-instance-jsoneditor-target></div>` +
+    `<p class="muted instance-json-rich-editor-hint" data-instance-jsoneditor-status>结构化编辑器已启用：支持层级折叠、节点级值编辑与搜索。</p>` +
+    `</section>` +
+    `<label data-instance-json-textarea-field>模型JSON Model JSON<textarea name="model_json" rows="12" required data-model-json data-instance-json-textarea>${defaultModelJson}</textarea></label>` +
     `<p class="muted model-editor-note">修改 JSON 后可点“从 JSON 刷新字段”，再回到图形化继续编辑。</p>` +
     `</div>` +
     `<div class="json-view" data-json-view="graph" hidden>` +
@@ -1816,7 +1821,12 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<form class="action-form" method="POST" action="/actions/control/instance/json/apply" data-control-incremental="true" data-control-instance-json-form="true">` +
     hiddenWithoutNamespace +
     `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
-    `<label>Instance JSON<textarea name="instance_json" rows="16" required>${instanceSnapshotJson}</textarea></label>` +
+    `<section class="instance-json-rich-editor" data-instance-json-rich-editor hidden>` +
+    `<div class="raw-json-toolbar"><button type="button" class="btn btn-secondary" data-instance-jsoneditor-reset>从文本重新加载</button></div>` +
+    `<div class="instance-json-rich-editor-target" data-instance-jsoneditor-target></div>` +
+    `<p class="muted instance-json-rich-editor-hint" data-instance-jsoneditor-status>结构化编辑器已启用：支持层级折叠、节点级值编辑与搜索。</p>` +
+    `</section>` +
+    `<label data-instance-json-textarea-field>Instance JSON<textarea name="instance_json" rows="16" required data-instance-json-textarea>${instanceSnapshotJson}</textarea></label>` +
     `<p class="muted model-editor-note">支持字段：namespace、objects、relation_events（可选 model_routes）。提交后按 JSON 批量 upsert/sync。</p>` +
     `<button type="submit" class="btn btn-primary">更新 Instance JSON</button>` +
     `</form>` +
