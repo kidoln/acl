@@ -139,17 +139,6 @@ describe("console html renderer", () => {
           ],
         },
       },
-      control_catalogs: {
-        ok: true,
-        status: 200,
-        data: {
-          items: [],
-          total_count: 0,
-          has_more: false,
-          limit: 20,
-          offset: 0,
-        },
-      },
       control_objects: {
         ok: true,
         status: 200,
@@ -437,17 +426,6 @@ describe("console html renderer", () => {
           offset: 0,
         },
       },
-      control_catalogs: {
-        ok: true,
-        status: 200,
-        data: {
-          items: [],
-          total_count: 0,
-          has_more: false,
-          limit: 20,
-          offset: 0,
-        },
-      },
       control_objects: {
         ok: true,
         status: 200,
@@ -488,9 +466,17 @@ describe("console html renderer", () => {
     const html = renderConsolePage(model);
     expect(html).toContain("控制面总览");
     expect(html).toContain("/actions/publish/submit");
-    expect(html).toContain("/actions/control/catalog/register");
+    expect(html).not.toContain("/actions/control/catalog/register");
     expect(html).toContain("/actions/control/object/upsert");
     expect(html).toContain("/actions/control/relation/event");
+    expect(html).toContain("/actions/control/setup/apply");
+    expect(html).toContain('name="fixture_id"');
+    expect(html).toContain("样例1：同公司派生关系 setup");
+    const fixtureIndex = html.indexOf("预置场景批量导入");
+    const advancedOpsIndex = html.indexOf("高级运维（可选）");
+    expect(fixtureIndex).toBeGreaterThanOrEqual(0);
+    expect(advancedOpsIndex).toBeGreaterThanOrEqual(0);
+    expect(fixtureIndex).toBeLessThan(advancedOpsIndex);
     expect(html).toContain("data-model-editor");
     expect(html).toContain("data-model-template-select");
     expect(html).toContain("样例2：虚拟团队 + 部门可见");

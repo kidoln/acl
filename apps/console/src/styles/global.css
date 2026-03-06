@@ -294,6 +294,7 @@ body {
 
 .muted {
   color: var(--text-muted);
+  font-size: 12px;
 }
 
 .error {
@@ -552,6 +553,63 @@ body {
 
 .rule-editor-grid {
   padding: 0 12px 12px;
+}
+
+/* 列宽拖拽调整 */
+.policy-rules-table th {
+  position: relative;
+}
+
+.column-resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.column-resizer:hover {
+  background: var(--color-primary, #2563eb);
+}
+
+/* 选中行高亮 */
+.policy-rules-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.policy-rules-table tbody tr:hover {
+  background-color: #f0f7ff;
+}
+
+.policy-rules-table tbody tr.selected {
+  background-color: #e0efff;
+  outline: 2px solid var(--color-primary, #2563eb);
+  outline-offset: -2px;
+}
+
+/* 单元格 tooltip */
+.policy-rules-table td[data-tooltip] {
+  position: relative;
+}
+
+.policy-rules-table td[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 1000;
+  padding: 6px 10px;
+  background: #1f2937;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  max-width: 300px;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  word-break: break-all;
 }
 
 .model-graph {
@@ -1054,6 +1112,16 @@ pre {
 
 .management-table {
   margin-bottom: 12px;
+}
+
+.runtime-table-card {
+  margin-bottom: 14px;
+}
+
+.runtime-table-card h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--text-body);
 }
 
 .embed-shell {

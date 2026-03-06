@@ -2208,7 +2208,7 @@
     const ths = table.querySelectorAll("thead th");
     if (ths.length === 0) return;
 
-    ths.forEach((th, index) => {
+    ths.forEach((th) => {
       // 创建拖拽手柄
       const resizer = document.createElement("div");
       resizer.className = "column-resizer";

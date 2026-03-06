@@ -64,17 +64,6 @@ async function setupNamespace(input: {
     relation_type: string;
   }>;
 }) {
-  const registerCatalog = await app.inject({
-    method: 'POST',
-    url: '/control/catalogs:register',
-    payload: {
-      system_id: 'test_system',
-      namespace: input.namespace,
-      catalogs: input.catalogs,
-    },
-  });
-  expect(registerCatalog.statusCode).toBe(200);
-
   if (input.objects.length > 0) {
     const upsertObjects = await app.inject({
       method: 'POST',

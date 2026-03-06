@@ -4,18 +4,6 @@
     "environment": "prod"
   },
   "namespace_prefix": "tenant_acme.kb.mixed_model_instance",
-  "catalog_registration": {
-    "system_id": "knowledge_service",
-    "catalogs": {
-      "action_catalog": ["read"],
-      "object_type_catalog": ["kb"],
-      "relation_type_catalog": [
-        "belongs_to_department",
-        "belongs_to_company",
-        "derives_to"
-      ]
-    }
-  },
   "objects": [
     {
       "object_id": "kb:knowledge_1",

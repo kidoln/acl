@@ -4,20 +4,6 @@
     "environment": "prod"
   },
   "namespace_prefix": "tenant_acme.kb.virtual_team_department",
-  "catalog_registration": {
-    "system_id": "knowledge_service",
-    "catalogs": {
-      "action_catalog": ["read"],
-      "object_type_catalog": ["kb"],
-      "relation_type_catalog": [
-        "belongs_to_department",
-        "belongs_to_company",
-        "member_of_virtual_team",
-        "virtual_team_created_by",
-        "derives_to"
-      ]
-    }
-  },
   "objects": [
     {
       "object_id": "kb:wiki_core",

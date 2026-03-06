@@ -2,7 +2,6 @@ import type {
   ApiResult,
   ConsoleQuery,
   ControlAuditListResponse,
-  ControlCatalogListResponse,
   ControlObjectListResponse,
   ControlRelationListResponse,
   DecisionRecordResponse,
@@ -164,20 +163,6 @@ export class AclApiClient {
     return this.get<SimulationReportResponse>(`/publish/simulations/${encodeURIComponent(id)}`);
   }
 
-  async listControlCatalogs(query: {
-    namespace?: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<ApiResult<ControlCatalogListResponse>> {
-    const params = new URLSearchParams();
-    params.set('limit', String(query.limit ?? 20));
-    params.set('offset', String(query.offset ?? 0));
-    if (query.namespace) {
-      params.set('namespace', query.namespace);
-    }
-    return this.get<ControlCatalogListResponse>(`/control/catalogs?${params.toString()}`);
-  }
-
   async listControlObjects(query: {
     namespace: string;
     limit?: number;
@@ -236,18 +221,6 @@ export class AclApiClient {
       params.set('environment', query.environment);
     }
     return this.get<ModelRouteListResponse>(`/control/model-routes?${params.toString()}`);
-  }
-
-  async registerControlCatalog(payload: {
-    system_id: string;
-    namespace: string;
-    catalogs: {
-      action_catalog: string[];
-      object_type_catalog: string[];
-      relation_type_catalog: string[];
-    };
-  }): Promise<ApiResult<Record<string, unknown>>> {
-    return this.post<Record<string, unknown>>('/control/catalogs:register', payload);
   }
 
   async upsertControlObjects(payload: {

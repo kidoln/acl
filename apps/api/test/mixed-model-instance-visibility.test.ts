@@ -49,14 +49,6 @@ interface SetupFixture {
     environment: string;
   };
   namespace_prefix: string;
-  catalog_registration: {
-    system_id: string;
-    catalogs: {
-      action_catalog: string[];
-      object_type_catalog: string[];
-      relation_type_catalog: string[];
-    };
-  };
   objects: Array<{
     object_id: string;
     object_type: string;
@@ -259,17 +251,6 @@ describe('mixed model-instance visibility e2e', () => {
         );
       }
     }
-
-    const registerCatalog = await app.inject({
-      method: 'POST',
-      url: '/control/catalogs:register',
-      payload: {
-        system_id: setupFixture.catalog_registration.system_id,
-        namespace,
-        catalogs: setupFixture.catalog_registration.catalogs,
-      },
-    });
-    expect(registerCatalog.statusCode).toBe(200);
 
     const upsertObjects = await app.inject({
       method: 'POST',

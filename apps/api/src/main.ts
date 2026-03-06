@@ -161,16 +161,6 @@ interface LifecycleSubjectRemovedBody {
   };
 }
 
-interface ControlCatalogRegisterBody {
-  system_id: string;
-  namespace: string;
-  catalogs: {
-    action_catalog: string[];
-    object_type_catalog: string[];
-    relation_type_catalog: string[];
-  };
-}
-
 interface ControlObjectUpsertBody {
   namespace: string;
   objects: Array<{
@@ -181,13 +171,6 @@ interface ControlObjectUpsertBody {
     labels?: string[];
     updated_at?: string;
   }>;
-}
-
-interface ControlCatalogListQuery {
-  system_id?: string;
-  namespace?: string;
-  limit?: string;
-  offset?: string;
 }
 
 interface ControlObjectListQuery {
@@ -352,10 +335,6 @@ function parseListNumber(value: string | undefined, fallback: number): number {
     return Number.NaN;
   }
   return parsed;
-}
-
-function buildControlCatalogKey(systemId: string, namespace: string): string {
-  return `${systemId}::${namespace}`;
 }
 
 function buildRelationKey(from: string, to: string, relationType: string, scope?: string): string {
@@ -1679,95 +1658,6 @@ app.get<{ Params: IdParams }>('/gate-reports/:id', async (request, reply) => {
   }
 
   return reply.code(200).send(record);
-});
-
-app.post<{ Body: ControlCatalogRegisterBody }>('/control/catalogs:register', async (request, reply) => {
-  const { system_id, namespace, catalogs } = request.body ?? {};
-
-  if (
-    !isNonEmptyString(system_id) ||
-    !isNonEmptyString(namespace) ||
-    !catalogs ||
-    !isNonEmptyStringArray(catalogs.action_catalog) ||
-    !isNonEmptyStringArray(catalogs.object_type_catalog) ||
-    !isNonEmptyStringArray(catalogs.relation_type_catalog)
-  ) {
-    return reply.code(400).send({
-      code: 'INVALID_REQUEST',
-      message:
-        'system_id, namespace and non-empty catalogs.action_catalog/object_type_catalog/relation_type_catalog are required',
-    });
-  }
-
-  const key = buildControlCatalogKey(system_id, namespace);
-  const now = new Date().toISOString();
-  const existed = await persistence.getControlCatalog(key);
-  const record = {
-    key,
-    system_id,
-    namespace,
-    catalogs: {
-      action_catalog: uniqueStrings(catalogs.action_catalog),
-      object_type_catalog: uniqueStrings(catalogs.object_type_catalog),
-      relation_type_catalog: uniqueStrings(catalogs.relation_type_catalog),
-    },
-    created_at: existed?.created_at ?? now,
-    updated_at: now,
-  };
-
-  try {
-    await persistence.upsertControlCatalog(record);
-    await saveControlAudit({
-      event_type: 'control.catalog.registered',
-      target: key,
-      namespace,
-      operator: 'system',
-      payload: {
-        operation: existed ? 'updated' : 'created',
-        catalogs: record.catalogs,
-      },
-    });
-  } catch (error) {
-    app.log.error({ err: error, key }, 'persist control catalog failed');
-    return reply.code(500).send({
-      code: 'PERSISTENCE_FAILED',
-      message: 'persist control catalog failed',
-    });
-  }
-
-  return reply.code(200).send({
-    operation: existed ? 'updated' : 'created',
-    record,
-    persistence_driver: persistenceDriver,
-  });
-});
-
-app.get<{ Querystring: ControlCatalogListQuery }>('/control/catalogs', async (request, reply) => {
-  const systemId = request.query?.system_id?.trim();
-  const namespace = request.query?.namespace?.trim();
-  const limit = parseListNumber(request.query?.limit, 20);
-  const offset = parseListNumber(request.query?.offset, 0);
-
-  if (Number.isNaN(limit) || Number.isNaN(offset) || limit < 1 || limit > 100) {
-    return reply.code(400).send({
-      code: 'INVALID_REQUEST',
-      message: 'limit must be integer in [1, 100], offset must be integer >= 0',
-    });
-  }
-
-  const records = await persistence.listControlCatalogs({
-    system_id: systemId && systemId.length > 0 ? systemId : undefined,
-    namespace: namespace && namespace.length > 0 ? namespace : undefined,
-    limit,
-    offset,
-  });
-
-  return reply.code(200).send({
-    ...records,
-    limit,
-    offset,
-    persistence_driver: persistenceDriver,
-  });
 });
 
 app.post<{ Body: ControlObjectUpsertBody }>('/control/objects:upsert', async (request, reply) => {

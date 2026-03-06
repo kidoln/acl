@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { listSetupFixtureOptions } from "./setup-fixtures";
 import type {
   ApiResult,
   ConsoleTab,
@@ -1048,21 +1049,10 @@ function collectPublishedModelOverviewMetrics(
 }
 
 function collectControlOverviewMetrics(viewModel: ConsolePageViewModel): {
-  categories: number;
   subjects: number;
   objects: number;
   relations: number;
 } {
-  const categories = viewModel.control_catalogs?.ok
-    ? new Set(
-        viewModel.control_catalogs.data.items.flatMap((item) =>
-          item.catalogs.action_catalog
-            .map((action) => action.trim())
-            .filter((action) => action.length > 0),
-        ),
-      ).size
-    : 0;
-
   const objects = viewModel.control_objects?.ok
     ? viewModel.control_objects.data.total_count
     : 0;
@@ -1115,7 +1105,6 @@ function collectControlOverviewMetrics(viewModel: ConsolePageViewModel): {
   }
 
   return {
-    categories,
     subjects: subjectIdSet.size,
     objects,
     relations,
@@ -1133,6 +1122,18 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
   const hiddenWithoutNamespace = renderHiddenContextFields(viewModel, [
     "namespace",
   ]);
+  const setupFixtureOptions = listSetupFixtureOptions();
+  const hasSetupFixtureOptions = setupFixtureOptions.length > 0;
+  const setupFixtureSelectOptions = hasSetupFixtureOptions
+    ? setupFixtureOptions
+        .map(
+          (option, index) =>
+            `<option value="${escapeHtml(option.id)}" ${index === 0 ? "selected" : ""} title="${escapeHtml(option.description)}">${escapeHtml(option.label)}</option>`,
+        )
+        .join("")
+    : '<option value="">暂无可用 setup fixture</option>';
+  const setupFixtureSelectAttr = hasSetupFixtureOptions ? "required" : "disabled";
+  const setupFixtureSubmitAttr = hasSetupFixtureOptions ? "" : "disabled";
   const modelTemplateOptions = buildModelTemplateOptions(namespace);
   const [defaultTemplateOption] = modelTemplateOptions;
   if (!defaultTemplateOption) {
@@ -1245,16 +1246,6 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
         .join("")
     : '<tr><td colspan="4" class="muted">审计数据加载失败</td></tr>';
 
-  const catalogRows = viewModel.control_catalogs?.ok
-    ? viewModel.control_catalogs.data.items
-        .slice(0, 6)
-        .map(
-          (item) =>
-            `<tr><td>${escapeHtml(item.system_id)}</td><td>${escapeHtml(item.namespace)}</td><td>${escapeHtml(item.catalogs.action_catalog.join(", "))}</td><td>${escapeHtml(item.catalogs.object_type_catalog.join(", "))}</td><td>${escapeHtml(item.catalogs.relation_type_catalog.join(", "))}</td></tr>`,
-        )
-        .join("")
-    : '<tr><td colspan="5" class="muted">catalog 加载失败</td></tr>';
-
   const objectRows = viewModel.control_objects?.ok
     ? viewModel.control_objects.data.items
         .slice(0, 6)
@@ -1264,6 +1255,16 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
         )
         .join("")
     : '<tr><td colspan="6" class="muted">object 加载失败</td></tr>';
+
+  const relationRows = viewModel.control_relations?.ok
+    ? viewModel.control_relations.data.items
+        .slice(0, 6)
+        .map(
+          (item) =>
+            `<tr><td>${escapeHtml(item.from)}</td><td>${escapeHtml(item.relation_type)}</td><td>${escapeHtml(item.to)}</td><td>${escapeHtml(item.scope ?? "")}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`,
+        )
+        .join("")
+    : '<tr><td colspan="5" class="muted">relation 加载失败</td></tr>';
 
   const modelRouteRows = viewModel.model_routes?.ok
     ? viewModel.model_routes.data.items
@@ -1293,8 +1294,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
       `</section>`;
 
   const controlRuntimeHint =
-    overviewMetrics.categories +
-      overviewMetrics.subjects +
+    overviewMetrics.subjects +
       overviewMetrics.objects +
       overviewMetrics.relations +
       modelRouteCount ===
@@ -1302,13 +1302,13 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
       ? '<p class="muted">当前运行态控制面为空（这不影响上方发布快照统计）。</p>'
       : "";
 
-  const hasCatalogItems = Boolean(
-    viewModel.control_catalogs?.ok &&
-    viewModel.control_catalogs.data.items.length > 0,
-  );
   const hasObjectItems = Boolean(
     viewModel.control_objects?.ok &&
     viewModel.control_objects.data.items.length > 0,
+  );
+  const hasRelationItems = Boolean(
+    viewModel.control_relations?.ok &&
+    viewModel.control_relations.data.items.length > 0,
   );
   const hasModelRouteItems = Boolean(
     viewModel.model_routes?.ok && viewModel.model_routes.data.items.length > 0,
@@ -1318,29 +1318,29 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     viewModel.control_audits.data.items.length > 0,
   );
   const runtimeTablesEmpty =
-    !hasCatalogItems &&
     !hasObjectItems &&
+    !hasRelationItems &&
     !hasModelRouteItems &&
     !hasAuditItems;
 
   const runtimeTablesSection = runtimeTablesEmpty
     ? `<section class="runtime-empty-hint">` +
-      `<p class="muted">当前命名空间暂无运行态数据（catalog / model route / object / audit）。</p>` +
+      `<p class="muted">当前命名空间暂无运行态数据（model route / object / relation / audit）。</p>` +
       `<p class="muted">你可先只看上方发布快照统计；如需运行态回放，再在“高级运维（可选）”里按需维护。</p>` +
       `</section>`
     : "" +
-      (viewModel.control_catalogs?.ok && !hasCatalogItems
-        ? ""
-        : `<div class="table-container management-table"><table class="data-table"><thead><tr><th>System</th><th>Namespace</th><th>Actions</th><th>Object Types</th><th>Relation Types</th></tr></thead><tbody>${catalogRows}</tbody></table></div>`) +
       (viewModel.model_routes?.ok && !hasModelRouteItems
         ? ""
-        : `<div class="table-container management-table"><table class="data-table"><thead><tr><th>Tenant</th><th>Env</th><th>Model ID</th><th>Version</th><th>Publish ID</th><th>Namespace</th><th>Operator</th><th>Updated</th></tr></thead><tbody>${modelRouteRows}</tbody></table></div>`) +
+        : `<section class="runtime-table-card"><h4>模型路由 Model Routes</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>Tenant</th><th>Env</th><th>Model ID</th><th>Version</th><th>Publish ID</th><th>Namespace</th><th>Operator</th><th>Updated</th></tr></thead><tbody>${modelRouteRows}</tbody></table></div></section>`) +
       (viewModel.control_objects?.ok && !hasObjectItems
         ? ""
-        : `<div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div>`) +
+        : `<section class="runtime-table-card"><h4>客体台账 Objects</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div></section>`) +
+      (viewModel.control_relations?.ok && !hasRelationItems
+        ? ""
+        : `<section class="runtime-table-card"><h4>关系边 Relations</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Scope</th><th>Updated</th></tr></thead><tbody>${relationRows}</tbody></table></div></section>`) +
       (viewModel.control_audits?.ok && !hasAuditItems
         ? ""
-        : `<div class="table-container"><table class="data-table"><thead><tr><th>Event</th><th>Target</th><th>Operator</th><th>Created At</th></tr></thead><tbody>${auditRows}</tbody></table></div>`);
+        : `<section class="runtime-table-card"><h4>审计事件 Audits</h4><div class="table-container"><table class="data-table"><thead><tr><th>Event</th><th>Target</th><th>Operator</th><th>Created At</th></tr></thead><tbody>${auditRows}</tbody></table></div></section>`);
 
   return (
     `<article class="card card-hover">` +
@@ -1362,7 +1362,6 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     controlRuntimeHint +
     `<section class="decision-grid">` +
     `<div class="metric"><span>subjects</span><strong>${overviewMetrics.subjects}</strong></div>` +
-    `<div class="metric"><span>categories(action)</span><strong>${overviewMetrics.categories}</strong></div>` +
     `<div class="metric"><span>objects</span><strong>${overviewMetrics.objects}</strong></div>` +
     `<div class="metric"><span>relations</span><strong>${overviewMetrics.relations}</strong></div>` +
     `<div class="metric"><span>model routes</span><strong>${modelRouteCount}</strong></div>` +
@@ -1433,20 +1432,20 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<button type="submit" class="btn btn-primary">提交发布请求</button>` +
     `</form>` +
     `</section>` +
+    `<section class="card card-hover advanced-ops-card">` +
+    `<form class="action-form setup-fixture-form" method="POST" action="/actions/control/setup/apply">` +
+    `<h4>预置场景批量导入</h4>` +
+    hiddenWithoutNamespace +
+    `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
+    `<label>预置 Setup 脚本<select name="fixture_id" ${setupFixtureSelectAttr}>${setupFixtureSelectOptions}</select></label>` +
+    `<p class="muted">一键写入 Object / Relation，适合快速回放 fixture 中预制的主体、客体与关系数据。</p>` +
+    `<button type="submit" class="btn btn-primary" ${setupFixtureSubmitAttr}>执行批量 Setup</button>` +
+    `</form>` +
+    `</section>` +
     `<details class="card card-hover advanced-ops-card">` +
-    `<summary><strong>高级运维（可选）</strong>：Catalog / Object / Relation / Model Route 维护</summary>` +
+    `<summary><strong>高级运维（可选）</strong>：Object / Relation / Model Route 维护</summary>` +
     `<p class="muted">这些维护项用于构建运行态控制面（对象台账、关系边、路由），不会反向修改上方策略模型 JSON。</p>` +
     `<section class="management-grid">` +
-    `<form class="action-form" method="POST" action="/actions/control/catalog/register">` +
-    `<h4>Catalog 维护</h4>` +
-    hiddenWithoutNamespace +
-    `<label>系统ID System ID<input type="text" name="system_id" value="crm" required /></label>` +
-    `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
-    `<label>动作目录 Action Catalog(逗号/换行)<textarea name="action_catalog" rows="3" required>read,update,grant,publish</textarea></label>` +
-    `<label>客体类型目录 Object Type Catalog<textarea name="object_type_catalog" rows="3" required>kb,agent</textarea></label>` +
-    `<label>关系类型目录 Relation Type Catalog<textarea name="relation_type_catalog" rows="3" required>belongs_to,member_of,manages,derives_to</textarea></label>` +
-    `<button type="submit" class="btn btn-primary">新增或更新 Catalog</button>` +
-    `</form>` +
     `<form class="action-form" method="POST" action="/actions/control/object/upsert">` +
     `<h4>Object 维护</h4>` +
     hiddenWithoutNamespace +

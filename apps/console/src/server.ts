@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 
 import { AclApiClient } from "./acl-api-client";
 import { renderConsolePage } from "./html";
+import { loadSetupFixtureById } from "./setup-fixtures";
 import type {
   ConsoleQuery,
   ConsoleTab,
@@ -406,11 +407,6 @@ async function handleIndex(
     limit: 20,
     offset: 0,
   });
-  const controlCatalogsPromise = client.listControlCatalogs({
-    namespace,
-    limit: 20,
-    offset: 0,
-  });
   const controlObjectsPromise = client.listControlObjects({
     namespace,
     limit: 20,
@@ -437,7 +433,6 @@ async function handleIndex(
     publishDetail,
     decisionDetail,
     simulationList,
-    controlCatalogs,
     controlObjects,
     controlRelations,
     controlAudits,
@@ -447,7 +442,6 @@ async function handleIndex(
     publishDetailPromise,
     decisionDetailPromise,
     simulationListPromise,
-    controlCatalogsPromise,
     controlObjectsPromise,
     controlRelationsPromise,
     controlAuditsPromise,
@@ -470,7 +464,6 @@ async function handleIndex(
     decision_detail: decisionDetail,
     simulation_list: simulationList,
     simulation_detail: simulationDetail,
-    control_catalogs: controlCatalogs,
     control_objects: controlObjects,
     control_relations: controlRelations,
     control_audits: controlAudits,
@@ -713,73 +706,6 @@ async function handlePublishSubmitAction(
   );
 }
 
-async function handleControlCatalogRegisterAction(
-  req: IncomingMessage,
-  res: ServerResponse,
-  client: AclApiClient,
-): Promise<void> {
-  const form = await readFormBody(req);
-  const context = parseContextFromForm(form);
-
-  const systemId = form.get("system_id")?.trim();
-  const namespace = form.get("namespace")?.trim();
-  const actionCatalog = splitCsvValues(form.get("action_catalog"));
-  const objectTypeCatalog = splitCsvValues(form.get("object_type_catalog"));
-  const relationTypeCatalog = splitCsvValues(form.get("relation_type_catalog"));
-
-  if (
-    !systemId ||
-    !namespace ||
-    actionCatalog.length === 0 ||
-    objectTypeCatalog.length === 0 ||
-    relationTypeCatalog.length === 0
-  ) {
-    redirectTo(
-      res,
-      buildRedirectUrl({
-        query: context,
-        flashType: "error",
-        flashMessage:
-          "catalog 参数缺失：system_id/namespace/action_catalog/object_type_catalog/relation_type_catalog 必填",
-      }),
-    );
-    return;
-  }
-
-  const result = await client.registerControlCatalog({
-    system_id: systemId,
-    namespace,
-    catalogs: {
-      action_catalog: actionCatalog,
-      object_type_catalog: objectTypeCatalog,
-      relation_type_catalog: relationTypeCatalog,
-    },
-  });
-
-  context.namespace = namespace;
-
-  if (!result.ok) {
-    redirectTo(
-      res,
-      buildRedirectUrl({
-        query: context,
-        flashType: "error",
-        flashMessage: `catalog 写入失败: ${result.error}`,
-      }),
-    );
-    return;
-  }
-
-  redirectTo(
-    res,
-    buildRedirectUrl({
-      query: context,
-      flashType: "success",
-      flashMessage: `catalog 写入成功: ${systemId} / ${namespace}`,
-    }),
-  );
-}
-
 async function handleControlObjectUpsertAction(
   req: IncomingMessage,
   res: ServerResponse,
@@ -981,6 +907,114 @@ async function handleModelRouteUpsertAction(
   );
 }
 
+async function handleControlSetupFixtureApplyAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  client: AclApiClient,
+): Promise<void> {
+  const form = await readFormBody(req);
+  const context = parseContextFromForm(form);
+
+  const namespace = form.get("namespace")?.trim();
+  const fixtureId = form.get("fixture_id")?.trim();
+
+  if (!namespace || !fixtureId) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: "error",
+        flashMessage: "fixture setup 参数缺失：namespace/fixture_id 必填",
+      }),
+    );
+    return;
+  }
+
+  const loadedFixture = loadSetupFixtureById(fixtureId);
+  if (!loadedFixture) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: "error",
+        flashMessage: `fixture setup 不存在或格式非法: ${fixtureId}`,
+      }),
+    );
+    return;
+  }
+
+  const {
+    id,
+    fixture: {
+      objects,
+      relation_events: relationEvents,
+    },
+  } = loadedFixture;
+
+  if (objects.length > 0) {
+    const objectResult = await client.upsertControlObjects({
+      namespace,
+      objects: objects.map((item) => ({
+        object_id: item.object_id,
+        object_type: item.object_type,
+        sensitivity: item.sensitivity,
+        owner_ref: item.owner_ref,
+        labels: item.labels,
+      })),
+    });
+
+    if (!objectResult.ok) {
+      redirectTo(
+        res,
+        buildRedirectUrl({
+          query: context,
+          flashType: "error",
+          flashMessage: `fixture setup 失败（objects）: ${objectResult.error}`,
+        }),
+      );
+      return;
+    }
+  }
+
+  if (relationEvents.length > 0) {
+    const relationResult = await client.syncControlRelations({
+      namespace,
+      events: relationEvents.map((item) => ({
+        from: item.from,
+        to: item.to,
+        relation_type: item.relation_type,
+        operation: item.operation,
+        scope: item.scope,
+        source: item.source,
+      })),
+    });
+
+    if (!relationResult.ok) {
+      redirectTo(
+        res,
+        buildRedirectUrl({
+          query: context,
+          flashType: "error",
+          flashMessage: `fixture setup 失败（relations）: ${relationResult.error}`,
+        }),
+      );
+      return;
+    }
+  }
+
+  context.namespace = namespace;
+  redirectTo(
+    res,
+    buildRedirectUrl({
+      query: context,
+      flashType: "success",
+      flashMessage:
+        `fixture setup 执行成功: ${id}` +
+        `（objects=${objects.length}, relations=${relationEvents.length}）`,
+    }),
+  );
+}
+
 export interface StartConsoleServerOptions {
   port?: number;
   apiBaseUrl?: string;
@@ -1081,11 +1115,6 @@ export async function startConsoleServer(
           return;
         }
 
-        if (inputUrl.pathname === "/actions/control/catalog/register") {
-          await handleControlCatalogRegisterAction(req, res, client);
-          return;
-        }
-
         if (inputUrl.pathname === "/actions/control/object/upsert") {
           await handleControlObjectUpsertAction(req, res, client);
           return;
@@ -1098,6 +1127,11 @@ export async function startConsoleServer(
 
         if (inputUrl.pathname === "/actions/control/model-route/upsert") {
           await handleModelRouteUpsertAction(req, res, client);
+          return;
+        }
+
+        if (inputUrl.pathname === "/actions/control/setup/apply") {
+          await handleControlSetupFixtureApplyAction(req, res, client);
           return;
         }
 

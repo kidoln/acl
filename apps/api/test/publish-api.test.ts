@@ -247,7 +247,7 @@ describe('publish api integration', () => {
     expect(activateBody.payload.activation?.operator).toBe('release_bot');
   });
 
-  it('registers control catalogs and syncs objects/relations', async () => {
+  it('does not allow catalog registration and still syncs objects/relations', async () => {
     const catalogs = await app.inject({
       method: 'POST',
       url: '/control/catalogs:register',
@@ -261,25 +261,13 @@ describe('publish api integration', () => {
         },
       },
     });
-    expect(catalogs.statusCode).toBe(200);
+    expect(catalogs.statusCode).toBe(404);
 
     const listCatalogs = await app.inject({
       method: 'GET',
       url: '/control/catalogs',
     });
-    expect(listCatalogs.statusCode).toBe(200);
-    const listCatalogsBody = listCatalogs.json() as {
-      total_count: number;
-      items: Array<{ system_id: string; namespace: string }>;
-      has_more: boolean;
-    };
-    expect(listCatalogsBody.total_count).toBeGreaterThan(0);
-    expect(typeof listCatalogsBody.has_more).toBe('boolean');
-    expect(
-      listCatalogsBody.items.some(
-        (item) => item.system_id === 'crm' && item.namespace === 'tenant_a.crm',
-      ),
-    ).toBe(true);
+    expect(listCatalogs.statusCode).toBe(404);
 
     const upsertObjects = await app.inject({
       method: 'POST',
@@ -634,21 +622,6 @@ describe('publish api integration', () => {
     const version = `2026.03.04.${Math.floor(Math.random() * 10000)}`;
     const publishId = nextPublishId('pub_infer_same_dept');
     const objectId = `kb:auto_${Date.now()}`;
-
-    const registerCatalog = await app.inject({
-      method: 'POST',
-      url: '/control/catalogs:register',
-      payload: {
-        system_id: 'knowledge_service',
-        namespace,
-        catalogs: {
-          action_catalog: ['read'],
-          object_type_catalog: ['kb'],
-          relation_type_catalog: ['belongs_to', 'owns'],
-        },
-      },
-    });
-    expect(registerCatalog.statusCode).toBe(200);
 
     const upsertObject = await app.inject({
       method: 'POST',

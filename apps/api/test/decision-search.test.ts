@@ -279,21 +279,6 @@ describe('decision search integration', () => {
     const objectRnd = `kb:rnd_${Date.now()}`;
     const objectSales = `kb:sales_${Date.now()}`;
 
-    const registerCatalog = await app.inject({
-      method: 'POST',
-      url: '/control/catalogs:register',
-      payload: {
-        system_id: 'knowledge_search_service',
-        namespace,
-        catalogs: {
-          action_catalog: ['read'],
-          object_type_catalog: ['kb'],
-          relation_type_catalog: ['belongs_to', 'owns'],
-        },
-      },
-    });
-    expect(registerCatalog.statusCode).toBe(200);
-
     const upsertObjects = await app.inject({
       method: 'POST',
       url: '/control/objects:upsert',

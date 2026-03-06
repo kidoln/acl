@@ -85,26 +85,6 @@ export interface SimulationReportListResponse {
   offset: number;
 }
 
-export interface ControlCatalogListResponse {
-  items: Array<{
-    key: string;
-    system_id: string;
-    namespace: string;
-    catalogs: {
-      action_catalog: string[];
-      object_type_catalog: string[];
-      relation_type_catalog: string[];
-    };
-    created_at: string;
-    updated_at: string;
-  }>;
-  total_count: number;
-  has_more: boolean;
-  next_offset?: number;
-  limit: number;
-  offset: number;
-}
-
 export interface ControlObjectListResponse {
   namespace: string;
   items: Array<{
@@ -217,7 +197,6 @@ export interface ConsolePageViewModel {
   decision_detail?: ApiResult<DecisionRecordResponse>;
   simulation_list?: ApiResult<SimulationReportListResponse>;
   simulation_detail?: ApiResult<SimulationReportResponse>;
-  control_catalogs?: ApiResult<ControlCatalogListResponse>;
   control_objects?: ApiResult<ControlObjectListResponse>;
   control_relations?: ApiResult<ControlRelationListResponse>;
   control_audits?: ApiResult<ControlAuditListResponse>;
