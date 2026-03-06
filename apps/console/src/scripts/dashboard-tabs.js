@@ -3090,6 +3090,7 @@
     const hiddenNodeIdsByEditor = new WeakMap();
     const selectedNodeIdByEditor = new WeakMap();
     const manualNodePositionsByEditor = new WeakMap();
+    const skipChartSnapshotEditors = new WeakSet();
 
     const readHiddenNodeIds = (editor) => {
       const current = hiddenNodeIdsByEditor.get(editor);
@@ -3131,6 +3132,23 @@
 
     const clearManualNodePositions = (editor) => {
       manualNodePositionsByEditor.delete(editor);
+    };
+
+    const skipNextChartSnapshot = (editor) => {
+      if (editor instanceof HTMLElement) {
+        skipChartSnapshotEditors.add(editor);
+      }
+    };
+
+    const shouldSkipChartSnapshot = (editor) => {
+      if (!(editor instanceof HTMLElement)) {
+        return false;
+      }
+      if (!skipChartSnapshotEditors.has(editor)) {
+        return false;
+      }
+      skipChartSnapshotEditors.delete(editor);
+      return true;
     };
 
     const snapshotManualNodePositionsFromChart = (editor, chart) => {
@@ -3484,7 +3502,8 @@
           renderer: "canvas",
         });
         chartInstances.set(container, chart);
-      } else {
+        skipChartSnapshotEditors.delete(editor);
+      } else if (!shouldSkipChartSnapshot(editor)) {
         snapshotManualNodePositionsFromChart(editor, chart);
       }
 
@@ -4131,6 +4150,7 @@
         resetBtn.addEventListener("click", () => {
           clearGraphVisibilityState(editor);
           clearManualNodePositions(editor);
+          skipNextChartSnapshot(editor);
           const currentChart = chartInstances.get(container);
           if (currentChart && typeof currentChart.dispatchAction === "function") {
             currentChart.dispatchAction({
@@ -4179,6 +4199,7 @@
           );
           writeSubjectTreeDirection(editor, nextDirection);
           clearManualNodePositions(editor);
+          skipNextChartSnapshot(editor);
           if (graphPanel instanceof HTMLElement) {
             graphPanel.setAttribute("data-subject-tree-direction", nextDirection);
           }
