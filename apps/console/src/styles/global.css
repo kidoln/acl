@@ -422,6 +422,30 @@ body {
   margin: 0;
 }
 
+.model-editor-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.model-template-picker {
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.model-template-picker > select {
+  min-height: 36px;
+}
+
+.model-template-note {
+  margin: 0 0 10px;
+}
+
 .model-editor-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1029,6 +1053,17 @@ pre {
 
   .model-editor-head {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .model-editor-head-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .model-template-picker {
+    min-width: 0;
+    flex: 1;
   }
 
   .management-grid {

@@ -10,10 +10,46 @@ function nextPublishId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
 }
 
+function normalizeLegacyRelationCatalog(model: Record<string, unknown>): Record<string, unknown> {
+  const nextModel = structuredClone(model) as Record<string, unknown>;
+  const catalogs =
+    nextModel.catalogs && typeof nextModel.catalogs === 'object' && !Array.isArray(nextModel.catalogs)
+      ? (nextModel.catalogs as Record<string, unknown>)
+      : null;
+  if (!catalogs) {
+    return nextModel;
+  }
+
+  const legacyRelationCatalog = Array.isArray(catalogs.relation_type_catalog)
+    ? catalogs.relation_type_catalog
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+    : [];
+
+  if (legacyRelationCatalog.length > 0) {
+    if (!Array.isArray(catalogs.subject_relation_type_catalog)) {
+      catalogs.subject_relation_type_catalog = legacyRelationCatalog;
+    }
+    if (!Array.isArray(catalogs.object_relation_type_catalog)) {
+      catalogs.object_relation_type_catalog = legacyRelationCatalog;
+    }
+    delete catalogs.relation_type_catalog;
+    delete nextModel.relation_signature;
+  }
+
+  if (!Array.isArray(catalogs.subject_object_relation_type_catalog)) {
+    catalogs.subject_object_relation_type_catalog = [];
+  }
+
+  return nextModel;
+}
+
 async function publishModelViaWorkflow(input: {
   publishId: string;
   model: Record<string, unknown>;
 }) {
+  const normalizedModel = normalizeLegacyRelationCatalog(input.model);
   const submit = await app.inject({
     method: 'POST',
     url: '/publish/submit',
@@ -21,7 +57,7 @@ async function publishModelViaWorkflow(input: {
       publish_id: input.publishId,
       profile: 'baseline',
       submitted_by: 'test_operator',
-      model: input.model,
+      model: normalizedModel,
       options: {
         available_obligation_executors: ['audit_write'],
       },

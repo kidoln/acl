@@ -788,7 +788,7 @@ function renderSimulationView(viewModel: ConsolePageViewModel): string {
   );
 }
 
-function buildDefaultModelTemplate(namespace: string): {
+interface ModelTemplate {
   model_meta: {
     model_id: string;
     tenant_id: string;
@@ -816,50 +816,112 @@ function buildDefaultModelTemplate(namespace: string): {
     attribute_quality: Record<string, unknown>;
     mandatory_obligations: string[];
   };
-} {
-  void namespace;
-  const fixturePath = path.resolve(
-    __dirname,
-    "../../api/test/fixtures/same-company-derived.model.json",
-  );
-  const raw = fs.readFileSync(fixturePath, "utf-8");
-  const parsed = JSON.parse(raw) as unknown;
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`invalid default model fixture: ${fixturePath}`);
-  }
-  return parsed as {
-    model_meta: {
-      model_id: string;
-      tenant_id: string;
-      version: string;
-      status: string;
-      combining_algorithm: string;
-    };
-    catalogs: {
-      action_catalog: string[];
-      subject_type_catalog: string[];
-      object_type_catalog: string[];
-      subject_relation_type_catalog: string[];
-      object_relation_type_catalog: string[];
-      subject_object_relation_type_catalog?: string[];
-    };
-    object_onboarding: Record<string, unknown>;
-    relations: Record<string, unknown>;
-    policies: {
-      rules: Array<Record<string, unknown>>;
-    };
-    constraints: Record<string, unknown>;
-    lifecycle: Record<string, unknown>;
-    consistency: Record<string, unknown>;
-    quality_guardrails: {
-      attribute_quality: Record<string, unknown>;
-      mandatory_obligations: string[];
-    };
-  };
+  relation_signature?: Record<string, unknown>;
+  action_signature?: Record<string, unknown>;
+  context_inference?: Record<string, unknown>;
+  decision_search?: Record<string, unknown>;
 }
 
-function buildDefaultModelJson(namespace: string): string {
-  return JSON.stringify(buildDefaultModelTemplate(namespace), null, 2);
+interface ModelTemplateOption {
+  id: string;
+  label: string;
+  description: string;
+  model: ModelTemplate;
+}
+
+const MODEL_TEMPLATE_DISPLAY_OVERRIDES: Record<
+  string,
+  {
+    label: string;
+    description: string;
+  }
+> = {
+  "same-company-derived.model.json": {
+    label: "样例1：同公司派生可见（当前）",
+    description: "当前默认样例：同公司主体可访问 owner 资源及派生资源。",
+  },
+  "virtual-team-department-scope.model.json": {
+    label: "样例2：虚拟团队 + 部门可见",
+    description: "新增虚拟团队关系建模，并将可见性收敛到同部门范围。",
+  },
+};
+
+function readModelTemplateFixture(
+  fixtureFileName: string,
+): ModelTemplate | null {
+  const fixturePath = path.resolve(
+    __dirname,
+    `../../api/test/fixtures/${fixtureFileName}`,
+  );
+  try {
+    const raw = fs.readFileSync(fixturePath, "utf-8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as ModelTemplate;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "unknown parse error";
+    console.warn(
+      `[console] skip invalid model template fixture: ${fixturePath} (${message})`,
+    );
+    return null;
+  }
+}
+
+function buildModelTemplateOptions(namespace: string): ModelTemplateOption[] {
+  void namespace;
+  const fixtureDir = path.resolve(__dirname, "../../api/test/fixtures");
+  const fixtureFiles = fs
+    .readdirSync(fixtureDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".model.json"))
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+
+  const templateOptions: ModelTemplateOption[] = [];
+  fixtureFiles.forEach((fixtureFileName) => {
+    const model = readModelTemplateFixture(fixtureFileName);
+    if (!model) {
+      return;
+    }
+
+    const templateId = fixtureFileName.replace(/\.model\.json$/u, "");
+    const override = MODEL_TEMPLATE_DISPLAY_OVERRIDES[fixtureFileName];
+    const fallbackIndex = templateOptions.length + 1;
+    const modelMeta = asRecord(model.model_meta);
+    const fallbackModelId =
+      typeof modelMeta?.model_id === "string" && modelMeta.model_id.length > 0
+        ? modelMeta.model_id
+        : templateId;
+    const fallbackTenant =
+      typeof modelMeta?.tenant_id === "string" && modelMeta.tenant_id.length > 0
+        ? modelMeta.tenant_id
+        : "-";
+    const fallbackVersion =
+      typeof modelMeta?.version === "string" && modelMeta.version.length > 0
+        ? modelMeta.version
+        : "-";
+
+    templateOptions.push({
+      id: templateId,
+      label: override?.label ?? `样例${fallbackIndex}：${fallbackModelId}`,
+      description:
+        override?.description ??
+        `来源 fixtures/${fixtureFileName}；tenant=${fallbackTenant}；version=${fallbackVersion}`,
+      model,
+    });
+  });
+
+  return templateOptions;
+}
+
+function buildDefaultModelTemplate(namespace: string): ModelTemplate {
+  const [firstTemplate] = buildModelTemplateOptions(namespace);
+  if (!firstTemplate) {
+    throw new Error("model template list is empty");
+  }
+  return firstTemplate.model;
 }
 
 interface PublishedModelOverviewMetrics {
@@ -1051,9 +1113,27 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
   const hiddenWithoutNamespace = renderHiddenContextFields(viewModel, [
     "namespace",
   ]);
-  const defaultModel = buildDefaultModelTemplate(namespace);
+  const modelTemplateOptions = buildModelTemplateOptions(namespace);
+  const [defaultTemplateOption] = modelTemplateOptions;
+  if (!defaultTemplateOption) {
+    throw new Error("model template options are empty");
+  }
+  const defaultModel = defaultTemplateOption.model;
   const defaultRule = defaultModel.policies.rules[0] ?? {};
-  const defaultModelJson = escapeHtml(buildDefaultModelJson(namespace));
+  const defaultModelJson = escapeHtml(JSON.stringify(defaultModel, null, 2));
+  const modelTemplateMap = Object.fromEntries(
+    modelTemplateOptions.map((option) => [option.id, option.model]),
+  );
+  const modelTemplateMapJson = escapeHtml(JSON.stringify(modelTemplateMap));
+  const modelTemplateSelectOptions = modelTemplateOptions
+    .map(
+      (option, index) =>
+        `<option value="${escapeHtml(option.id)}" ${index === 0 ? "selected" : ""}>${escapeHtml(option.label)}</option>`,
+    )
+    .join("");
+  const defaultTemplateDescription = escapeHtml(
+    defaultTemplateOption.description,
+  );
   const actionCatalog = escapeHtml(
     defaultModel.catalogs.action_catalog.join("\n"),
   );
@@ -1070,7 +1150,9 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     (defaultModel.catalogs.object_relation_type_catalog ?? []).join("\n"),
   );
   const subjectObjectRelationTypeCatalog = escapeHtml(
-    (defaultModel.catalogs.subject_object_relation_type_catalog ?? []).join("\n"),
+    (defaultModel.catalogs.subject_object_relation_type_catalog ?? []).join(
+      "\n",
+    ),
   );
   const mandatoryObligations = escapeHtml(
     defaultModel.quality_guardrails.mandatory_obligations.join("\n"),
@@ -1244,7 +1326,16 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<label>档位 Profile<select name="profile"><option value="">auto</option><option value="baseline">baseline</option><option value="strict_compliance">strict_compliance</option></select></label>` +
     `<label>提交人 Submitted By<input type="text" name="submitted_by" value="console_operator" /></label>` +
     `<section class="model-editor" data-model-editor data-json-scope>` +
-    `<div class="model-editor-head"><p class="muted">模型编辑模式</p>${renderModelEditorToggleSwitch()}</div>` +
+    `<div class="model-editor-head">` +
+    `<p class="muted">模型编辑模式</p>` +
+    `<div class="model-editor-head-actions">` +
+    `<label class="model-template-picker">策略样例 Template` +
+    `<select data-model-template-select>${modelTemplateSelectOptions}</select>` +
+    `</label>` +
+    `${renderModelEditorToggleSwitch()}` +
+    `</div>` +
+    `</div>` +
+    `<textarea hidden data-model-template-map>${modelTemplateMapJson}</textarea>` +
     `<section class="json-switchable" data-json-switchable>` +
     `<div class="json-view" data-json-view="visual">` +
     `<div class="model-editor-grid">` +

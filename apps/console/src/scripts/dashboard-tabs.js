@@ -1855,14 +1855,6 @@
 
       disposeChartsInPanel(graphPanel);
       graphPanel.innerHTML =
-        `<div class="model-graph-summary">` +
-        `<span>subject_relation_type_catalog: <strong>${subjectDomain.relationTypeCount}</strong></span>` +
-        `<span>object_relation_type_catalog: <strong>${objectDomain.relationTypeCount}</strong></span>` +
-        `<span>subject_object_relation_type_catalog: <strong>${subjectObjectDomain.relationTypeCount}</strong></span>` +
-        `<span>relation_signature.tuples: <strong>${signatureTupleTotal}</strong></span>` +
-        `<span>context_inference.rules: <strong>${inferenceRuleCount}</strong></span>` +
-        `<span>relation_signature_issues: <strong>${relationSignatureMismatchCount}</strong></span>` +
-        `</div>` +
         `<section class="model-graph-grid">` +
         relationIssueHtml +
         renderGraphCard({
@@ -1890,9 +1882,36 @@
       const textarea = editor.querySelector("[data-model-json]");
       const graphPanel = editor.querySelector("[data-model-graph]");
       const switchable = editor.querySelector("[data-json-switchable]");
+      const templateSelect = editor.querySelector(
+        "[data-model-template-select]",
+      );
+      const templateMapField = editor.querySelector(
+        "[data-model-template-map]",
+      );
       if (!textarea) {
         return;
       }
+      const modelTemplateMap = (() => {
+        if (!templateMapField) {
+          return {};
+        }
+        const raw =
+          templateMapField instanceof HTMLTextAreaElement
+            ? templateMapField.value
+            : templateMapField.textContent || "";
+        if (raw.trim().length === 0) {
+          return {};
+        }
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            return parsed;
+          }
+        } catch {
+          return {};
+        }
+        return {};
+      })();
 
       const syncGraph = () => {
         if (!graphPanel) {
@@ -2106,11 +2125,35 @@
         syncGraph();
       };
 
+      const applyTemplate = (templateId) => {
+        const normalizedTemplateId =
+          typeof templateId === "string" ? templateId.trim() : "";
+        if (normalizedTemplateId.length === 0) {
+          return;
+        }
+        const nextTemplate = modelTemplateMap[normalizedTemplateId];
+        if (
+          !nextTemplate ||
+          typeof nextTemplate !== "object" ||
+          Array.isArray(nextTemplate)
+        ) {
+          return;
+        }
+        textarea.value = JSON.stringify(nextTemplate, null, 2);
+        syncFromJson();
+      };
+
       const fields = Array.from(editor.querySelectorAll("[data-model-field]"));
       fields.forEach((field) => {
         const eventType = field.tagName === "SELECT" ? "change" : "input";
         field.addEventListener(eventType, syncToJson);
       });
+
+      if (templateSelect) {
+        templateSelect.addEventListener("change", () => {
+          applyTemplate(templateSelect.value);
+        });
+      }
 
       const applyJsonButton = editor.querySelector("[data-apply-model-json]");
       if (applyJsonButton) {

@@ -10,6 +10,41 @@ function nextId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
 }
 
+function normalizeLegacyRelationCatalog(model: Record<string, unknown>): Record<string, unknown> {
+  const nextModel = structuredClone(model) as Record<string, unknown>;
+  const catalogs =
+    nextModel.catalogs && typeof nextModel.catalogs === 'object' && !Array.isArray(nextModel.catalogs)
+      ? (nextModel.catalogs as Record<string, unknown>)
+      : null;
+  if (!catalogs) {
+    return nextModel;
+  }
+
+  const legacyRelationCatalog = Array.isArray(catalogs.relation_type_catalog)
+    ? catalogs.relation_type_catalog
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+    : [];
+
+  if (legacyRelationCatalog.length > 0) {
+    if (!Array.isArray(catalogs.subject_relation_type_catalog)) {
+      catalogs.subject_relation_type_catalog = legacyRelationCatalog;
+    }
+    if (!Array.isArray(catalogs.object_relation_type_catalog)) {
+      catalogs.object_relation_type_catalog = legacyRelationCatalog;
+    }
+    delete catalogs.relation_type_catalog;
+    delete nextModel.relation_signature;
+  }
+
+  if (!Array.isArray(catalogs.subject_object_relation_type_catalog)) {
+    catalogs.subject_object_relation_type_catalog = [];
+  }
+
+  return nextModel;
+}
+
 async function setupNamespace(input: {
   namespace: string;
   catalogs: {
@@ -69,6 +104,7 @@ async function publishAndActivate(input: {
   publishId: string;
   model: Record<string, unknown>;
 }) {
+  const normalizedModel = normalizeLegacyRelationCatalog(input.model);
   const submit = await app.inject({
     method: 'POST',
     url: '/publish/submit',
@@ -76,7 +112,7 @@ async function publishAndActivate(input: {
       publish_id: input.publishId,
       profile: 'baseline',
       submitted_by: 'test_operator',
-      model: input.model,
+      model: normalizedModel,
       options: {
         available_obligation_executors: ['audit_write'],
       },
@@ -84,7 +120,13 @@ async function publishAndActivate(input: {
   });
   expect(submit.statusCode).toBe(200);
 
-  const submitBody = submit.json() as { status: string };
+  const submitBody = submit.json() as {
+    status: string;
+    gate_result?: {
+      final_result?: string;
+      gates?: Array<Record<string, unknown>>;
+    };
+  };
   if (submitBody.status === 'review_required') {
     const review = await app.inject({
       method: 'POST',
@@ -108,7 +150,10 @@ async function publishAndActivate(input: {
       operator: 'release_bot',
     },
   });
-  expect(activate.statusCode).toBe(200);
+  expect(
+    activate.statusCode,
+    `publish activate failed, submit status=${submitBody.status}, final=${submitBody.gate_result?.final_result ?? '-'}, gates=${JSON.stringify(submitBody.gate_result?.gates ?? [])}, body=${activate.body}`,
+  ).toBe(200);
 }
 
 async function setupRoute(input: {
@@ -421,7 +466,7 @@ describe('config options comprehensive tests', () => {
               subject_edges: [
                 { relation_type: 'belongs_to', entity_side: 'from' },
               ],
-              object_edges: [],
+              object_edges: [{ relation_type: 'belongs_to', entity_side: 'from' }],
               object_owner_fallback: true,
               owner_fallback_include_input: true,
             },
@@ -511,7 +556,7 @@ describe('config options comprehensive tests', () => {
               subject_edges: [
                 { relation_type: 'belongs_to', entity_side: 'from' },
               ],
-              object_edges: [],
+              object_edges: [{ relation_type: 'belongs_to', entity_side: 'from' }],
               object_owner_fallback: false,
             },
           ],
@@ -978,7 +1023,7 @@ describe('config options comprehensive tests', () => {
               id: 'infer_same_team',
               output_field: 'same_team',
               subject_edges: [{ relation_type: 'belongs_to', entity_side: 'from' }],
-              object_edges: [],
+              object_edges: [{ relation_type: 'belongs_to', entity_side: 'from' }],
               object_owner_fallback: true,
               owner_fallback_include_input: true,
             },
@@ -1105,7 +1150,7 @@ describe('config options comprehensive tests', () => {
               id: 'infer_same_dept',
               output_field: 'same_department',
               subject_edges: [{ relation_type: 'belongs_to_dept', entity_side: 'from' }],
-              object_edges: [],
+              object_edges: [{ relation_type: 'belongs_to_dept', entity_side: 'from' }],
               object_owner_fallback: true,
               owner_fallback_include_input: true,
             },
@@ -1116,7 +1161,7 @@ describe('config options comprehensive tests', () => {
                 { relation_type: 'belongs_to_dept', entity_side: 'from' },
                 { relation_type: 'belongs_to_org', entity_side: 'from' },
               ],
-              object_edges: [],
+              object_edges: [{ relation_type: 'belongs_to_dept', entity_side: 'from' }],
               object_owner_fallback: true,
               owner_fallback_include_input: true,
             },

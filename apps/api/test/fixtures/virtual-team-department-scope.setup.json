@@ -1,0 +1,261 @@
+{
+  "route": {
+    "tenant_id": "tenant_acme",
+    "environment": "prod"
+  },
+  "namespace_prefix": "tenant_acme.kb.virtual_team_department",
+  "catalog_registration": {
+    "system_id": "knowledge_service",
+    "catalogs": {
+      "action_catalog": ["read"],
+      "object_type_catalog": ["kb"],
+      "relation_type_catalog": [
+        "belongs_to_department",
+        "belongs_to_company",
+        "member_of_virtual_team",
+        "virtual_team_created_by",
+        "derives_to"
+      ]
+    }
+  },
+  "objects": [
+    {
+      "object_id": "kb:wiki_core",
+      "object_type": "kb",
+      "owner_ref": "user:alice",
+      "sensitivity": "normal"
+    },
+    {
+      "object_id": "kb:wiki_bridge",
+      "object_type": "kb",
+      "owner_ref": "user:harry",
+      "sensitivity": "normal"
+    },
+    {
+      "object_id": "kb:wiki_core_redacted",
+      "object_type": "kb",
+      "owner_ref": "user:eve",
+      "sensitivity": "normal"
+    }
+  ],
+  "relation_events": [
+    {
+      "from": "user:alice",
+      "to": "department:rnd",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:grace",
+      "to": "department:rnd",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:bob",
+      "to": "department:legal",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:dave",
+      "to": "department:legal",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:eve",
+      "to": "department:ops",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:frank",
+      "to": "department:ext",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:harry",
+      "to": "department:rnd",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:rnd",
+      "to": "company:acme",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:legal",
+      "to": "company:acme",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:ops",
+      "to": "company:otherco",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:ext",
+      "to": "company:thirdco",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:alice",
+      "to": "virtual_team:project_neo",
+      "relation_type": "member_of_virtual_team",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:bob",
+      "to": "virtual_team:project_neo",
+      "relation_type": "member_of_virtual_team",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:dave",
+      "to": "virtual_team:project_zen",
+      "relation_type": "member_of_virtual_team",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:harry",
+      "to": "virtual_team:project_neo",
+      "relation_type": "member_of_virtual_team",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:harry",
+      "to": "virtual_team:project_zen",
+      "relation_type": "member_of_virtual_team",
+      "operation": "upsert"
+    },
+    {
+      "from": "virtual_team:project_neo",
+      "to": "user:alice",
+      "relation_type": "virtual_team_created_by",
+      "operation": "upsert"
+    },
+    {
+      "from": "kb:wiki_core",
+      "to": "kb:wiki_core_redacted",
+      "relation_type": "derives_to",
+      "operation": "upsert"
+    }
+  ],
+  "decision_inputs": [
+    {
+      "name": "same_department_direct_can_read_source_object",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:grace",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:wiki_core",
+          "type": "kb",
+          "sensitivity": "normal",
+          "attributes": {
+            "is_derived": false
+          }
+        }
+      }
+    },
+    {
+      "name": "virtual_team_member_cross_department_can_read_source_object",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:bob",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:wiki_core",
+          "type": "kb",
+          "sensitivity": "normal",
+          "attributes": {
+            "is_derived": false
+          }
+        }
+      }
+    },
+    {
+      "name": "same_department_can_read_derived_object",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:alice",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:wiki_core_redacted",
+          "type": "kb",
+          "sensitivity": "normal",
+          "attributes": {
+            "is_derived": true
+          }
+        }
+      }
+    },
+    {
+      "name": "virtual_team_member_different_virtual_team_cannot_read_source_object",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:dave",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:wiki_core",
+          "type": "kb",
+          "sensitivity": "normal",
+          "attributes": {
+            "is_derived": false
+          }
+        }
+      }
+    },
+    {
+      "name": "owner_in_two_virtual_teams_enables_bridge_visibility",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:dave",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:wiki_bridge",
+          "type": "kb",
+          "sensitivity": "normal",
+          "attributes": {
+            "is_derived": false
+          }
+        }
+      }
+    },
+    {
+      "name": "cross_department_cannot_read_derived_object",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:frank",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:wiki_core_redacted",
+          "type": "kb",
+          "sensitivity": "normal",
+          "attributes": {
+            "is_derived": true
+          }
+        }
+      }
+    }
+  ]
+}

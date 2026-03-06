@@ -488,6 +488,8 @@ describe('console html renderer', () => {
     expect(html).toContain('/actions/control/object/upsert');
     expect(html).toContain('/actions/control/relation/event');
     expect(html).toContain('data-model-editor');
+    expect(html).toContain('data-model-template-select');
+    expect(html).toContain('样例2：虚拟团队 + 部门可见');
     expect(html).toContain('data-json-toggle');
     expect(html).toContain('data-mode="graph"');
     expect(html).toContain('data-model-graph');
