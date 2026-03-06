@@ -1111,6 +1111,210 @@ function collectControlOverviewMetrics(viewModel: ConsolePageViewModel): {
   };
 }
 
+interface InstanceGraphPayload {
+  nodes: Array<{
+    id: string;
+    label: string;
+    category: "subject" | "object" | "mixed";
+  }>;
+  edges: Array<{
+    from: string;
+    to: string;
+    label: string;
+    dashed: boolean;
+    color: string;
+  }>;
+}
+
+function buildInstanceGraphPayload(
+  viewModel: ConsolePageViewModel,
+): InstanceGraphPayload {
+  const objectItems = viewModel.control_objects?.ok
+    ? viewModel.control_objects.data.items
+    : [];
+  const relationItems = viewModel.control_relations?.ok
+    ? viewModel.control_relations.data.items
+    : [];
+
+  const nodeMeta = new Map<
+    string,
+    {
+      id: string;
+      label: string;
+      isObject: boolean;
+      isSubject: boolean;
+    }
+  >();
+  const edgeMap = new Map<string, InstanceGraphPayload["edges"][number]>();
+
+  const ensureNode = (
+    id: string,
+    label: string,
+    options?: { asObject?: boolean; asSubject?: boolean },
+  ): void => {
+    const trimmedId = id.trim();
+    if (trimmedId.length === 0) {
+      return;
+    }
+    const existing = nodeMeta.get(trimmedId);
+    if (existing) {
+      existing.isObject = existing.isObject || options?.asObject === true;
+      existing.isSubject = existing.isSubject || options?.asSubject === true;
+      if (
+        label.trim().length > 0 &&
+        existing.label === trimmedId &&
+        label.trim() !== trimmedId
+      ) {
+        existing.label = label.trim();
+      }
+      return;
+    }
+    nodeMeta.set(trimmedId, {
+      id: trimmedId,
+      label: label.trim().length > 0 ? label.trim() : trimmedId,
+      isObject: options?.asObject === true,
+      isSubject: options?.asSubject === true,
+    });
+  };
+
+  const appendEdge = (edge: InstanceGraphPayload["edges"][number]): void => {
+    const from = edge.from.trim();
+    const to = edge.to.trim();
+    if (from.length === 0 || to.length === 0) {
+      return;
+    }
+    const key = `${from}::${to}::${edge.label}::${edge.dashed ? "d" : "s"}`;
+    if (edgeMap.has(key)) {
+      return;
+    }
+    edgeMap.set(key, {
+      ...edge,
+      from,
+      to,
+    });
+  };
+
+  objectItems.forEach((item) => {
+    const objectId = item.object_id.trim();
+    if (objectId.length === 0) {
+      return;
+    }
+    const objectLabel =
+      item.object_type.trim().length > 0
+        ? `${objectId} (${item.object_type})`
+        : objectId;
+    ensureNode(objectId, objectLabel, { asObject: true });
+
+    const ownerRef = item.owner_ref.trim();
+    if (ownerRef.length === 0) {
+      return;
+    }
+    ensureNode(ownerRef, ownerRef, { asSubject: true });
+    appendEdge({
+      from: ownerRef,
+      to: objectId,
+      label: "owner_ref",
+      dashed: true,
+      color: "#8b5cf6",
+    });
+  });
+
+  relationItems.forEach((item) => {
+    const from = item.from.trim();
+    const to = item.to.trim();
+    if (from.length === 0 || to.length === 0) {
+      return;
+    }
+    ensureNode(from, from, { asSubject: true });
+    ensureNode(to, to, { asSubject: true });
+
+    const relationType = item.relation_type.trim();
+    const scope = (item.scope ?? "").trim();
+    const label =
+      relationType.length > 0
+        ? scope.length > 0
+          ? `${relationType} [${scope}]`
+          : relationType
+        : "related_to";
+
+    appendEdge({
+      from,
+      to,
+      label,
+      dashed: false,
+      color: "#2563eb",
+    });
+  });
+
+  const nodes = [...nodeMeta.values()]
+    .map((item) => {
+      const category: InstanceGraphPayload["nodes"][number]["category"] =
+        item.isObject && item.isSubject
+          ? "mixed"
+          : item.isObject
+            ? "object"
+            : "subject";
+      return {
+        id: item.id,
+        label: item.label,
+        category,
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+
+  return {
+    nodes,
+    edges: [...edgeMap.values()],
+  };
+}
+
+function buildInstanceSnapshotJson(
+  viewModel: ConsolePageViewModel,
+  namespace: string,
+): string {
+  const modelRoutes = viewModel.model_routes?.ok
+    ? viewModel.model_routes.data.items.map((item) => ({
+        namespace: item.namespace,
+        tenant_id: item.tenant_id,
+        environment: item.environment,
+        model_id: item.model_id,
+        model_version: item.model_version,
+        publish_id: item.publish_id,
+        operator: item.operator,
+      }))
+    : [];
+  const objects = viewModel.control_objects?.ok
+    ? viewModel.control_objects.data.items.map((item) => ({
+        object_id: item.object_id,
+        object_type: item.object_type,
+        sensitivity: item.sensitivity,
+        owner_ref: item.owner_ref,
+        labels: item.labels,
+      }))
+    : [];
+  const relationEvents = viewModel.control_relations?.ok
+    ? viewModel.control_relations.data.items.map((item) => ({
+        from: item.from,
+        to: item.to,
+        relation_type: item.relation_type,
+        operation: "upsert",
+        scope: item.scope,
+        source: item.source,
+      }))
+    : [];
+
+  return JSON.stringify(
+    {
+      namespace,
+      model_routes: modelRoutes,
+      objects,
+      relation_events: relationEvents,
+    },
+    null,
+    2,
+  );
+}
+
 function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
   const namespace = viewModel.query.namespace ?? "tenant_a.crm";
   const overviewMetrics = collectControlOverviewMetrics(viewModel);
@@ -1132,7 +1336,9 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
         )
         .join("")
     : '<option value="">暂无可用 setup fixture</option>';
-  const setupFixtureSelectAttr = hasSetupFixtureOptions ? "required" : "disabled";
+  const setupFixtureSelectAttr = hasSetupFixtureOptions
+    ? "required"
+    : "disabled";
   const setupFixtureSubmitAttr = hasSetupFixtureOptions ? "" : "disabled";
   const modelTemplateOptions = buildModelTemplateOptions(namespace);
   const [defaultTemplateOption] = modelTemplateOptions;
@@ -1275,6 +1481,13 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
         )
         .join("")
     : '<tr><td colspan="8" class="muted">model route 加载失败</td></tr>';
+  const instanceGraphPayload = buildInstanceGraphPayload(viewModel);
+  const instanceGraphPayloadJson = escapeHtml(
+    JSON.stringify(instanceGraphPayload),
+  );
+  const instanceSnapshotJson = escapeHtml(
+    buildInstanceSnapshotJson(viewModel, namespace),
+  );
 
   const publishedMetricsSection = publishedModelMetrics
     ? `<section>` +
@@ -1317,30 +1530,38 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     viewModel.control_audits?.ok &&
     viewModel.control_audits.data.items.length > 0,
   );
-  const runtimeTablesEmpty =
-    !hasObjectItems &&
-    !hasRelationItems &&
-    !hasModelRouteItems &&
-    !hasAuditItems;
+  const modelRouteTableSection =
+    viewModel.model_routes?.ok && !hasModelRouteItems
+      ? ""
+      : `<section class="runtime-table-card"><h4>模型路由 Model Routes</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>Tenant</th><th>Env</th><th>Model ID</th><th>Version</th><th>Publish ID</th><th>Namespace</th><th>Operator</th><th>Updated</th></tr></thead><tbody>${modelRouteRows}</tbody></table></div></section>`;
+  const auditTableSection =
+    viewModel.control_audits?.ok && !hasAuditItems
+      ? ""
+      : `<section class="runtime-table-card"><h4>审计事件 Audits</h4><div class="table-container"><table class="data-table"><thead><tr><th>Event</th><th>Target</th><th>Operator</th><th>Created At</th></tr></thead><tbody>${auditRows}</tbody></table></div></section>`;
+  const objectTableSection =
+    viewModel.control_objects?.ok && !hasObjectItems
+      ? ""
+      : `<section class="runtime-table-card"><h4>客体台账 Objects</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div></section>`;
+  const relationTableSection =
+    viewModel.control_relations?.ok && !hasRelationItems
+      ? ""
+      : `<section class="runtime-table-card"><h4>关系边 Relations</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Scope</th><th>Updated</th></tr></thead><tbody>${relationRows}</tbody></table></div></section>`;
 
-  const runtimeTablesSection = runtimeTablesEmpty
-    ? `<section class="runtime-empty-hint">` +
-      `<p class="muted">当前命名空间暂无运行态数据（model route / object / relation / audit）。</p>` +
-      `<p class="muted">你可先只看上方发布快照统计；如需运行态回放，再在“高级运维（可选）”里按需维护。</p>` +
-      `</section>`
-    : "" +
-      (viewModel.model_routes?.ok && !hasModelRouteItems
-        ? ""
-        : `<section class="runtime-table-card"><h4>模型路由 Model Routes</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>Tenant</th><th>Env</th><th>Model ID</th><th>Version</th><th>Publish ID</th><th>Namespace</th><th>Operator</th><th>Updated</th></tr></thead><tbody>${modelRouteRows}</tbody></table></div></section>`) +
-      (viewModel.control_objects?.ok && !hasObjectItems
-        ? ""
-        : `<section class="runtime-table-card"><h4>客体台账 Objects</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div></section>`) +
-      (viewModel.control_relations?.ok && !hasRelationItems
-        ? ""
-        : `<section class="runtime-table-card"><h4>关系边 Relations</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Scope</th><th>Updated</th></tr></thead><tbody>${relationRows}</tbody></table></div></section>`) +
-      (viewModel.control_audits?.ok && !hasAuditItems
-        ? ""
-        : `<section class="runtime-table-card"><h4>审计事件 Audits</h4><div class="table-container"><table class="data-table"><thead><tr><th>Event</th><th>Target</th><th>Operator</th><th>Created At</th></tr></thead><tbody>${auditRows}</tbody></table></div></section>`);
+  const fixedRuntimeSection = modelRouteTableSection + auditTableSection;
+  const objectRelationTableSection = objectTableSection + relationTableSection;
+  const fixedRuntimeSectionWithFallback =
+    fixedRuntimeSection.length > 0
+      ? fixedRuntimeSection
+      : `<section class="runtime-empty-hint">` +
+        `<p class="muted">当前命名空间暂无模型路由与审计事件数据。</p>` +
+        `</section>`;
+  const objectRelationSectionWithFallback =
+    objectRelationTableSection.length > 0
+      ? objectRelationTableSection
+      : `<section class="runtime-empty-hint">` +
+        `<p class="muted">当前命名空间暂无客体台账与关系边数据。</p>` +
+        `<p class="muted">可先执行 setup 导入，或切换到 JSON 视图直接维护 instance 数据。</p>` +
+        `</section>`;
 
   return (
     `<article class="card card-hover">` +
@@ -1432,7 +1653,10 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<button type="submit" class="btn btn-primary">提交发布请求</button>` +
     `</form>` +
     `</section>` +
-    `<section class="card card-hover advanced-ops-card">` +
+    `<section class="card card-hover instance-editor-card">` +
+    `<h4>Instance 导入 / 维护 / 展示</h4>` +
+    `<p class="muted">此卡片只维护运行态 instance 数据（model_route / object / relation），不会修改上方“策略模型提交”的 JSON。</p>` +
+    `<section class="model-editor" data-instance-editor>` +
     `<form class="action-form setup-fixture-form" method="POST" action="/actions/control/setup/apply">` +
     `<h4>预置场景批量导入</h4>` +
     hiddenWithoutNamespace +
@@ -1441,49 +1665,37 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<p class="muted">一键写入 Object / Relation，适合快速回放 fixture 中预制的主体、客体与关系数据。</p>` +
     `<button type="submit" class="btn btn-primary" ${setupFixtureSubmitAttr}>执行批量 Setup</button>` +
     `</form>` +
+    fixedRuntimeSectionWithFallback +
+    `<section class="instance-object-relation-block" data-json-scope>` +
+    `<div class="model-editor-head">` +
+    `<p class="muted">客体台账 / 关系边视图</p>` +
+    `<div class="model-editor-head-actions">${renderModelEditorToggleSwitch()}</div>` +
+    `</div>` +
+    `<section class="json-switchable" data-json-switchable>` +
+    `<div class="json-view" data-json-view="visual">` +
+    objectRelationSectionWithFallback +
+    `</div>` +
+    `<div class="json-view" data-json-view="graph" hidden>` +
+    `<section class="model-graph" data-instance-graph>` +
+    `<textarea hidden data-instance-graph-payload>${instanceGraphPayloadJson}</textarea>` +
+    `<p class="muted model-graph-placeholder">Graph 视图展示当前命名空间全部 instance 关系（relation_events + object.owner_ref）。</p>` +
+    `<div class="model-graph-chart-wrap"><button type="button" class="model-graph-zoom-reset" title="重置缩放">重置</button><div class="model-graph-echart" data-instance-echart role="img" aria-label="Instance 关系图"></div></div>` +
+    `<p class="muted model-graph-legend">说明：节点为运行态主体/客体实例；边标签为 relation_type（含 scope）；虚线代表 owner_ref 关系。</p>` +
     `</section>` +
-    `<details class="card card-hover advanced-ops-card">` +
-    `<summary><strong>高级运维（可选）</strong>：Object / Relation / Model Route 维护</summary>` +
-    `<p class="muted">这些维护项用于构建运行态控制面（对象台账、关系边、路由），不会反向修改上方策略模型 JSON。</p>` +
-    `<section class="management-grid">` +
-    `<form class="action-form" method="POST" action="/actions/control/object/upsert">` +
-    `<h4>Object 维护</h4>` +
+    `</div>` +
+    `<div class="json-view" data-json-view="raw" hidden>` +
+    `<form class="action-form" method="POST" action="/actions/control/instance/json/apply">` +
     hiddenWithoutNamespace +
     `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
-    `<label>客体ID Object ID<input type="text" name="object_id" placeholder="obj_001" required /></label>` +
-    `<label>客体类型 Object Type<input type="text" name="object_type" placeholder="kb" required /></label>` +
-    `<label>敏感级别 Sensitivity<input type="text" name="sensitivity" value="normal" /></label>` +
-    `<label>所有者引用 Owner Ref<input type="text" name="owner_ref" placeholder="user:alice" /></label>` +
-    `<label>标签 Labels(逗号/换行)<textarea name="labels" rows="2" placeholder="internal,important"></textarea></label>` +
-    `<button type="submit" class="btn btn-primary">新增或更新 Object</button>` +
+    `<label>Instance JSON<textarea name="instance_json" rows="16" required>${instanceSnapshotJson}</textarea></label>` +
+    `<p class="muted model-editor-note">支持字段：namespace、objects、relation_events（可选 model_routes）。提交后按 JSON 批量 upsert/sync。</p>` +
+    `<button type="submit" class="btn btn-primary">更新 Instance JSON</button>` +
     `</form>` +
-    `<form class="action-form" method="POST" action="/actions/control/relation/event">` +
-    `<h4>Relation 维护</h4>` +
-    hiddenWithoutNamespace +
-    `<label>操作 Operation<select name="operation"><option value="upsert">upsert</option><option value="delete">delete</option></select></label>` +
-    `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
-    `<label>起点 From<input type="text" name="from" placeholder="user:alice" required /></label>` +
-    `<label>终点 To<input type="text" name="to" placeholder="obj_001" required /></label>` +
-    `<label>关系类型 Relation Type<input type="text" name="relation_type" placeholder="member_of" required /></label>` +
-    `<label>范围 Scope(可选)<input type="text" name="scope" placeholder="project:a" /></label>` +
-    `<label>来源 Source(可选)<input type="text" name="source" placeholder="hr_sync" /></label>` +
-    `<button type="submit" class="btn btn-primary">提交 Relation 事件</button>` +
-    `</form>` +
-    `<form class="action-form" method="POST" action="/actions/control/model-route/upsert">` +
-    `<h4>模型路由维护</h4>` +
-    hiddenWithoutNamespace +
-    `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
-    `<label>租户 Tenant ID<input type="text" name="tenant_id" value="${escapeHtml(namespace.split(".")[0] ?? "tenant_a")}" required /></label>` +
-    `<label>环境 Environment<input type="text" name="environment" value="prod" required /></label>` +
-    `<label>模型ID Model ID<input type="text" name="model_id" placeholder="tenant_a_authz_v1" required /></label>` +
-    `<label>模型版本 Model Version(可选)<input type="text" name="model_version" placeholder="2026.03.04" /></label>` +
-    `<label>发布ID Publish ID(可选)<input type="text" name="publish_id" placeholder="pub_xxx" /></label>` +
-    `<label>操作人 Operator<input type="text" name="operator" value="console_operator" /></label>` +
-    `<button type="submit" class="btn btn-primary">新增或更新 Model Route</button>` +
-    `</form>` +
+    `</div>` +
     `</section>` +
-    `</details>` +
-    runtimeTablesSection +
+    `</section>` +
+    `</section>` +
+    `</section>` +
     `</article>`
   );
 }

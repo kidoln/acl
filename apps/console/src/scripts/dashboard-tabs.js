@@ -1747,6 +1747,16 @@
         chart.resize();
       }, 36);
       activeChartContainers.add(container);
+
+      // 绑定 zoom reset 按钮点击事件
+      const resetBtn = chartWrap?.querySelector(".model-graph-zoom-reset");
+      if (resetBtn) {
+        resetBtn.addEventListener("click", () => {
+          chart.dispatchAction({
+            type: "restore",
+          });
+        });
+      }
     };
 
     const hydrateGraphCharts = (graphPanel) => {
@@ -1781,6 +1791,7 @@
         `<h5>${title}</h5>` +
         `<p class="muted">${description}</p>` +
         `<div class="model-graph-chart-wrap">` +
+        `<button type="button" class="model-graph-zoom-reset" title="重置缩放">重置</button>` +
         `<div class="model-graph-echart" data-model-echart data-graph-payload="${escapeHtml(JSON.stringify(payload))}" role="img" aria-label="${escapeHtml(title)}"></div>` +
         `</div>` +
         `</section>`
@@ -2181,11 +2192,381 @@
     });
   }
 
+  function initInstanceEditors() {
+    const editors = Array.from(
+      document.querySelectorAll("[data-instance-editor]"),
+    );
+    if (editors.length === 0) {
+      return;
+    }
+
+    const chartInstances = new WeakMap();
+    const activeChartContainers = new Set();
+    let resizeBound = false;
+    let chartResizeObserver = null;
+
+    const disposeChart = (container) => {
+      const chart = chartInstances.get(container);
+      if (chart && typeof chart.dispose === "function") {
+        chart.dispose();
+      }
+      chartInstances.delete(container);
+      activeChartContainers.delete(container);
+      if (chartResizeObserver) {
+        chartResizeObserver.unobserve(container);
+        const chartWrap = container.closest(".model-graph-chart-wrap");
+        if (chartWrap instanceof HTMLElement) {
+          chartResizeObserver.unobserve(chartWrap);
+        }
+      }
+    };
+
+    const bindResize = () => {
+      if (resizeBound) {
+        return;
+      }
+      resizeBound = true;
+
+      // 使用 ResizeObserver 监听容器大小变化
+      if (typeof window.ResizeObserver === "function") {
+        chartResizeObserver = new window.ResizeObserver((entries) => {
+          for (const entry of entries) {
+            const target = entry.target;
+            const container =
+              target.hasAttribute("data-instance-echart") ||
+              target.hasAttribute("data-model-echart")
+                ? target
+                : target.querySelector("[data-instance-echart]") ||
+                  target.querySelector("[data-model-echart]");
+            if (container) {
+              const chart = chartInstances.get(container);
+              if (chart && typeof chart.resize === "function") {
+                chart.resize();
+              }
+            }
+          }
+        });
+      }
+
+      window.addEventListener("resize", () => {
+        activeChartContainers.forEach((container) => {
+          if (!document.body.contains(container)) {
+            disposeChart(container);
+            return;
+          }
+          const chart = chartInstances.get(container);
+          if (chart && typeof chart.resize === "function") {
+            chart.resize();
+          }
+        });
+      });
+    };
+
+    const readPayload = (editor) => {
+      const payloadField = editor.querySelector(
+        "[data-instance-graph-payload]",
+      );
+      if (!payloadField) {
+        return null;
+      }
+      const raw =
+        payloadField instanceof HTMLTextAreaElement
+          ? payloadField.value
+          : payloadField.textContent || "";
+      if (!raw || raw.trim().length === 0) {
+        return null;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") {
+          return null;
+        }
+        const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
+        const edges = Array.isArray(parsed.edges) ? parsed.edges : [];
+        return {
+          nodes,
+          edges,
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    const renderGraph = (editor) => {
+      const graphPanel = editor.querySelector("[data-instance-graph]");
+      const container = graphPanel?.querySelector("[data-instance-echart]");
+      if (!container) {
+        return;
+      }
+
+      const payload = readPayload(editor);
+      if (!payload || payload.nodes.length === 0) {
+        disposeChart(container);
+        container.innerHTML =
+          '<p class="muted model-graph-empty">暂无 instance 关系可绘制。</p>';
+        return;
+      }
+
+      const echartsGlobal = window.echarts;
+      if (!echartsGlobal || typeof echartsGlobal.init !== "function") {
+        disposeChart(container);
+        container.innerHTML =
+          '<p class="muted model-graph-empty">ECharts 未加载，暂无法渲染 Instance Graph。</p>';
+        return;
+      }
+
+      bindResize();
+      container.innerHTML = "";
+
+      // 计算节点位置：subject在左边，object在右边，mixed在中间
+      // 使用固定坐标系，让echarts自动缩放适应容器，避免变形
+      const subjectNodes = payload.nodes.filter(
+        (n) => n.category === "subject",
+      );
+      const objectNodes = payload.nodes.filter((n) => n.category === "object");
+      const mixedNodes = payload.nodes.filter((n) => n.category === "mixed");
+
+      const chartWrap = container.closest(".model-graph-chart-wrap");
+
+      // 设置容器初始高度（宽度自动充满父容器）
+      if (chartWrap instanceof HTMLElement) {
+        // 只设置高度，宽度由CSS自动处理
+        const maxColNodes = Math.max(
+          subjectNodes.length,
+          objectNodes.length,
+          mixedNodes.length,
+          1,
+        );
+        // 根据节点数量计算高度
+        const idealHeight = Math.max(
+          400,
+          Math.min(maxColNodes * 80 + 100, 800),
+        );
+        chartWrap.style.height = `${idealHeight}px`;
+        // 移除宽度设置，让它自动充满
+        chartWrap.style.width = "";
+      }
+
+      // 使用固定的虚拟坐标系计算节点位置
+      // echarts会自动缩放这个坐标系以适应容器
+      const canvasWidth = 800;
+      const canvasHeight = 600;
+      const padding = 80;
+      const graphWidth = canvasWidth - padding * 2;
+
+      const positionNodes = (nodes, xCenter, startY, endY) => {
+        const count = nodes.length;
+        if (count === 0) return;
+        const step = count > 1 ? (endY - startY) / (count - 1) : 0;
+        nodes.forEach((node, i) => {
+          node._x = xCenter;
+          node._y = count === 1 ? (startY + endY) / 2 : startY + step * i;
+        });
+      };
+
+      // subject在左，object在右，mixed在中间
+      const leftX = padding + graphWidth * 0.2;
+      const centerX = padding + graphWidth * 0.5;
+      const rightX = padding + graphWidth * 0.8;
+
+      positionNodes(subjectNodes, leftX, padding, canvasHeight - padding);
+      positionNodes(mixedNodes, centerX, padding, canvasHeight - padding);
+      positionNodes(objectNodes, rightX, padding, canvasHeight - padding);
+
+      // 节点配色：参考统一关系签名图的浅色背景
+      const instanceNodeColor = (category) => {
+        if (category === "subject") {
+          return "#e8f1ff"; // 浅蓝色
+        }
+        if (category === "object") {
+          return "#eefaf1"; // 浅绿色
+        }
+        if (category === "mixed") {
+          return "#eaf0ff"; // 浅紫色
+        }
+        return "#f4f7fb";
+      };
+
+      // 边配色：subject边蓝色，object边橙色
+      const instanceEdgeColor = (edge) => {
+        if (edge.dashed === true) {
+          return "#ad4f8f"; // owner_fallback 紫色虚线
+        }
+        // 根据源节点类型决定颜色
+        const sourceNode = payload.nodes.find((n) => n.id === edge.from);
+        if (sourceNode?.category === "subject") {
+          return "#1f6bc6"; // 蓝色
+        }
+        if (sourceNode?.category === "object") {
+          return "#cd6d1b"; // 橙色
+        }
+        return "#5c6882";
+      };
+
+      const nodeData = payload.nodes.map((node) => {
+        const id = typeof node.id === "string" ? node.id : "";
+        const label = typeof node.label === "string" ? node.label : id;
+        const category =
+          typeof node.category === "string" ? node.category : "subject";
+        return {
+          id,
+          name: label,
+          node_id: id,
+          node_category: category,
+          x: node._x || centerX,
+          y: node._y || canvasHeight / 2,
+          symbolSize: category === "mixed" ? 66 : 56,
+          draggable: true,
+          itemStyle: {
+            color: instanceNodeColor(category),
+            borderColor: "#c5d3ec",
+            borderWidth: 1,
+          },
+          label: {
+            show: true,
+            color: "#1f2937",
+            fontSize: 11,
+            fontWeight: 700,
+            formatter: (params) => String(params.data.node_id || ""),
+            position: "inside",
+          },
+          tooltip: {
+            formatter: () =>
+              `${escapeHtml(category)}: ${escapeHtml(String(label || id))}`,
+          },
+        };
+      });
+
+      const linkData = payload.edges.map((edge) => {
+        const from = typeof edge.from === "string" ? edge.from : "";
+        const to = typeof edge.to === "string" ? edge.to : "";
+        const label =
+          typeof edge.label === "string" ? edge.label : "related_to";
+        const dashed = edge.dashed === true;
+        const isSelfLoop = from === to;
+        return {
+          source: from,
+          target: to,
+          value: label,
+          lineStyle: {
+            color: instanceEdgeColor(edge),
+            width: dashed ? 2 : 2.4,
+            type: dashed ? "dashed" : "solid",
+            curveness: isSelfLoop ? 0.5 : 0.15,
+            opacity: 0.92,
+          },
+        };
+      });
+
+      let chart = chartInstances.get(container);
+      if (!chart) {
+        chart = echartsGlobal.init(container, undefined, {
+          renderer: "canvas",
+        });
+        chartInstances.set(container, chart);
+      }
+
+      chart.setOption(
+        {
+          animationDurationUpdate: 260,
+          animationEasingUpdate: "cubicOut",
+          tooltip: {
+            trigger: "item",
+            confine: true,
+          },
+          series: [
+            {
+              type: "graph",
+              layout: "none",
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              roam: true,
+              zoom: 1,
+              draggable: true,
+              data: nodeData,
+              links: linkData,
+              edgeSymbol: ["none", "arrow"],
+              edgeSymbolSize: 8,
+              autoCurveness: [0.12, 0.2, 0.28, 0.36],
+              edgeLabel: {
+                show: true,
+                formatter: (params) => String(params.data.value || ""),
+                color: "#425978",
+                fontSize: 10,
+                backgroundColor: "transparent",
+                textBorderWidth: 0,
+                textBorderColor: "transparent",
+                textShadowBlur: 0,
+                textShadowColor: "transparent",
+                padding: 0,
+              },
+              lineStyle: {
+                opacity: 0.9,
+              },
+              emphasis: {
+                focus: "adjacency",
+              },
+            },
+          ],
+        },
+        true,
+      );
+      chart.resize();
+      activeChartContainers.add(container);
+
+      // 绑定 zoom reset 按钮点击事件
+      const resetBtn = chartWrap?.querySelector(".model-graph-zoom-reset");
+      if (resetBtn) {
+        resetBtn.addEventListener("click", () => {
+          chart.dispatchAction({
+            type: "restore",
+          });
+        });
+      }
+
+      // 使用 ResizeObserver 监听容器大小变化
+      if (chartResizeObserver) {
+        chartResizeObserver.observe(container);
+        if (chartWrap instanceof HTMLElement) {
+          chartResizeObserver.observe(chartWrap);
+        }
+      }
+    };
+
+    const renderVisibleGraphs = (targetSwitchableId) => {
+      editors.forEach((editor) => {
+        const switchable = editor.querySelector("[data-json-switchable]");
+        const graphView = switchable?.querySelector('[data-json-view="graph"]');
+        if (!switchable || !graphView || graphView.hidden) {
+          return;
+        }
+        const currentSwitchableId =
+          switchable.getAttribute("data-json-switchable-id") || "";
+        if (targetSwitchableId && currentSwitchableId !== targetSwitchableId) {
+          return;
+        }
+        renderGraph(editor);
+      });
+    };
+
+    renderVisibleGraphs("");
+    document.addEventListener("acl:model-graph-visible", (event) => {
+      const targetSwitchableId =
+        event && event.detail && typeof event.detail.switchableId === "string"
+          ? event.detail.switchableId
+          : "";
+      renderVisibleGraphs(targetSwitchableId);
+    });
+  }
+
   function init() {
     initTabNav();
     initMatrixDrawer();
     initJsonViewToggles();
     initModelEditors();
+    initInstanceEditors();
     initPolicyRulesTable();
   }
 

@@ -10,11 +10,15 @@ import { AclApiClient } from "./acl-api-client";
 import { renderConsolePage } from "./html";
 import { loadSetupFixtureById } from "./setup-fixtures";
 import type {
+  ApiResult,
   ConsoleQuery,
   ConsoleTab,
   ConsoleWidget,
+  ControlObjectListResponse,
+  ControlRelationListResponse,
   DetailMode,
   GateProfile,
+  ModelRouteListResponse,
   PublishWorkflowStatus,
 } from "./types";
 
@@ -46,6 +50,8 @@ const VALID_WIDGETS = new Set<ConsoleWidget>([
 ]);
 
 const MAX_FORM_BODY_BYTES = 64 * 1024;
+const CONTROL_PAGE_SIZE = 100;
+const CONTROL_MAX_PAGES = 200;
 
 function splitCsvValues(value: string | null): string[] {
   if (!value) {
@@ -385,6 +391,396 @@ function parseContextFromForm(form: URLSearchParams): Partial<ConsoleQuery> {
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  );
+}
+
+function resolveNextOffset(input: {
+  offset: number;
+  limit: number;
+  next_offset?: number;
+  current_length: number;
+}): number {
+  if (
+    typeof input.next_offset === "number" &&
+    Number.isInteger(input.next_offset) &&
+    input.next_offset >= 0
+  ) {
+    return input.next_offset;
+  }
+  const normalizedLimit =
+    input.limit > 0 ? input.limit : Math.max(input.current_length, 1);
+  return input.offset + normalizedLimit;
+}
+
+async function listAllControlObjects(
+  client: AclApiClient,
+  namespace: string,
+): Promise<ApiResult<ControlObjectListResponse>> {
+  const first = await client.listControlObjects({
+    namespace,
+    limit: CONTROL_PAGE_SIZE,
+    offset: 0,
+  });
+  if (!first.ok) {
+    return first;
+  }
+
+  const items = [...first.data.items];
+  let hasMore = first.data.has_more;
+  let nextOffset = resolveNextOffset({
+    offset: first.data.offset,
+    limit: first.data.limit,
+    next_offset: first.data.next_offset,
+    current_length: first.data.items.length,
+  });
+
+  for (
+    let page = 1;
+    hasMore && page < CONTROL_MAX_PAGES;
+    page += 1
+  ) {
+    const pageResult = await client.listControlObjects({
+      namespace,
+      limit: CONTROL_PAGE_SIZE,
+      offset: nextOffset,
+    });
+    if (!pageResult.ok) {
+      return pageResult;
+    }
+    items.push(...pageResult.data.items);
+    hasMore = pageResult.data.has_more;
+    nextOffset = resolveNextOffset({
+      offset: pageResult.data.offset,
+      limit: pageResult.data.limit,
+      next_offset: pageResult.data.next_offset,
+      current_length: pageResult.data.items.length,
+    });
+  }
+
+  return {
+    ok: true,
+    status: first.status,
+    data: {
+      ...first.data,
+      items,
+      total_count: hasMore
+        ? Math.max(first.data.total_count, items.length)
+        : items.length,
+      has_more: hasMore,
+      next_offset: hasMore ? nextOffset : undefined,
+      limit: CONTROL_PAGE_SIZE,
+      offset: 0,
+    },
+  };
+}
+
+async function listAllControlRelations(
+  client: AclApiClient,
+  namespace: string,
+): Promise<ApiResult<ControlRelationListResponse>> {
+  const first = await client.listControlRelations({
+    namespace,
+    limit: CONTROL_PAGE_SIZE,
+    offset: 0,
+  });
+  if (!first.ok) {
+    return first;
+  }
+
+  const items = [...first.data.items];
+  let hasMore = first.data.has_more;
+  let nextOffset = resolveNextOffset({
+    offset: first.data.offset,
+    limit: first.data.limit,
+    next_offset: first.data.next_offset,
+    current_length: first.data.items.length,
+  });
+
+  for (
+    let page = 1;
+    hasMore && page < CONTROL_MAX_PAGES;
+    page += 1
+  ) {
+    const pageResult = await client.listControlRelations({
+      namespace,
+      limit: CONTROL_PAGE_SIZE,
+      offset: nextOffset,
+    });
+    if (!pageResult.ok) {
+      return pageResult;
+    }
+    items.push(...pageResult.data.items);
+    hasMore = pageResult.data.has_more;
+    nextOffset = resolveNextOffset({
+      offset: pageResult.data.offset,
+      limit: pageResult.data.limit,
+      next_offset: pageResult.data.next_offset,
+      current_length: pageResult.data.items.length,
+    });
+  }
+
+  return {
+    ok: true,
+    status: first.status,
+    data: {
+      ...first.data,
+      items,
+      total_count: hasMore
+        ? Math.max(first.data.total_count, items.length)
+        : items.length,
+      has_more: hasMore,
+      next_offset: hasMore ? nextOffset : undefined,
+      limit: CONTROL_PAGE_SIZE,
+      offset: 0,
+    },
+  };
+}
+
+async function listAllModelRoutes(
+  client: AclApiClient,
+  namespace: string,
+): Promise<ApiResult<ModelRouteListResponse>> {
+  const first = await client.listModelRoutes({
+    namespace,
+    limit: CONTROL_PAGE_SIZE,
+    offset: 0,
+  });
+  if (!first.ok) {
+    return first;
+  }
+
+  const items = [...first.data.items];
+  let hasMore = first.data.has_more;
+  let nextOffset = resolveNextOffset({
+    offset: first.data.offset,
+    limit: first.data.limit,
+    next_offset: first.data.next_offset,
+    current_length: first.data.items.length,
+  });
+
+  for (
+    let page = 1;
+    hasMore && page < CONTROL_MAX_PAGES;
+    page += 1
+  ) {
+    const pageResult = await client.listModelRoutes({
+      namespace,
+      limit: CONTROL_PAGE_SIZE,
+      offset: nextOffset,
+    });
+    if (!pageResult.ok) {
+      return pageResult;
+    }
+    items.push(...pageResult.data.items);
+    hasMore = pageResult.data.has_more;
+    nextOffset = resolveNextOffset({
+      offset: pageResult.data.offset,
+      limit: pageResult.data.limit,
+      next_offset: pageResult.data.next_offset,
+      current_length: pageResult.data.items.length,
+    });
+  }
+
+  return {
+    ok: true,
+    status: first.status,
+    data: {
+      ...first.data,
+      items,
+      total_count: hasMore
+        ? Math.max(first.data.total_count, items.length)
+        : items.length,
+      has_more: hasMore,
+      next_offset: hasMore ? nextOffset : undefined,
+      limit: CONTROL_PAGE_SIZE,
+      offset: 0,
+    },
+  };
+}
+
+interface ParsedInstanceJsonPayload {
+  namespace?: string;
+  objects: Array<{
+    object_id: string;
+    object_type: string;
+    sensitivity?: string;
+    owner_ref?: string;
+    labels?: string[];
+  }>;
+  relation_events: Array<{
+    from: string;
+    to: string;
+    relation_type: string;
+    operation: "upsert" | "delete";
+    scope?: string;
+    source?: string;
+  }>;
+  model_routes: Array<{
+    namespace?: string;
+    tenant_id: string;
+    environment: string;
+    model_id: string;
+    model_version?: string;
+    publish_id?: string;
+    operator?: string;
+  }>;
+}
+
+function parseInstanceJsonPayload(
+  rawJson: string,
+):
+  | { ok: true; data: ParsedInstanceJsonPayload }
+  | { ok: false; error: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? `instance_json 不是合法 JSON：${error.message}`
+          : "instance_json 不是合法 JSON",
+    };
+  }
+
+  const record = asRecord(parsed);
+  if (!record) {
+    return {
+      ok: false,
+      error: "instance_json 必须是 JSON Object",
+    };
+  }
+
+  const namespace = normalizeString(record.namespace);
+  const rawObjects = Array.isArray(record.objects) ? record.objects : [];
+  const rawRelations = Array.isArray(record.relation_events)
+    ? record.relation_events
+    : [];
+  const rawModelRoutes = Array.isArray(record.model_routes)
+    ? record.model_routes
+    : [];
+
+  const objects: ParsedInstanceJsonPayload["objects"] = [];
+  for (let index = 0; index < rawObjects.length; index += 1) {
+    const item = asRecord(rawObjects[index]);
+    if (!item) {
+      return {
+        ok: false,
+        error: `objects[${index}] 必须是 Object`,
+      };
+    }
+    const objectId = normalizeString(item.object_id);
+    const objectType = normalizeString(item.object_type);
+    if (!objectId || !objectType) {
+      return {
+        ok: false,
+        error: `objects[${index}] 缺少 object_id/object_type`,
+      };
+    }
+    objects.push({
+      object_id: objectId,
+      object_type: objectType,
+      sensitivity: normalizeString(item.sensitivity),
+      owner_ref: normalizeString(item.owner_ref),
+      labels: normalizeStringArray(item.labels),
+    });
+  }
+
+  const relationEvents: ParsedInstanceJsonPayload["relation_events"] = [];
+  for (let index = 0; index < rawRelations.length; index += 1) {
+    const item = asRecord(rawRelations[index]);
+    if (!item) {
+      return {
+        ok: false,
+        error: `relation_events[${index}] 必须是 Object`,
+      };
+    }
+    const from = normalizeString(item.from);
+    const to = normalizeString(item.to);
+    const relationType = normalizeString(item.relation_type);
+    if (!from || !to || !relationType) {
+      return {
+        ok: false,
+        error: `relation_events[${index}] 缺少 from/to/relation_type`,
+      };
+    }
+    relationEvents.push({
+      from,
+      to,
+      relation_type: relationType,
+      operation: item.operation === "delete" ? "delete" : "upsert",
+      scope: normalizeString(item.scope),
+      source: normalizeString(item.source),
+    });
+  }
+
+  const modelRoutes: ParsedInstanceJsonPayload["model_routes"] = [];
+  for (let index = 0; index < rawModelRoutes.length; index += 1) {
+    const item = asRecord(rawModelRoutes[index]);
+    if (!item) {
+      return {
+        ok: false,
+        error: `model_routes[${index}] 必须是 Object`,
+      };
+    }
+    const tenantId = normalizeString(item.tenant_id);
+    const environment = normalizeString(item.environment);
+    const modelId = normalizeString(item.model_id);
+    if (!tenantId || !environment || !modelId) {
+      return {
+        ok: false,
+        error: `model_routes[${index}] 缺少 tenant_id/environment/model_id`,
+      };
+    }
+    modelRoutes.push({
+      namespace: normalizeString(item.namespace),
+      tenant_id: tenantId,
+      environment,
+      model_id: modelId,
+      model_version: normalizeString(item.model_version),
+      publish_id: normalizeString(item.publish_id),
+      operator: normalizeString(item.operator),
+    });
+  }
+
+  return {
+    ok: true,
+    data: {
+      namespace,
+      objects,
+      relation_events: relationEvents,
+      model_routes: modelRoutes,
+    },
+  };
+}
+
 async function handleIndex(
   req: IncomingMessage,
   res: ServerResponse,
@@ -407,26 +803,14 @@ async function handleIndex(
     limit: 20,
     offset: 0,
   });
-  const controlObjectsPromise = client.listControlObjects({
-    namespace,
-    limit: 20,
-    offset: 0,
-  });
-  const controlRelationsPromise = client.listControlRelations({
-    namespace,
-    limit: 20,
-    offset: 0,
-  });
+  const controlObjectsPromise = listAllControlObjects(client, namespace);
+  const controlRelationsPromise = listAllControlRelations(client, namespace);
   const controlAuditsPromise = client.listControlAudits({
     namespace,
     limit: 20,
     offset: 0,
   });
-  const modelRoutesPromise = client.listModelRoutes({
-    namespace,
-    limit: 20,
-    offset: 0,
-  });
+  const modelRoutesPromise = listAllModelRoutes(client, namespace);
 
   const [
     publishList,
@@ -1015,6 +1399,140 @@ async function handleControlSetupFixtureApplyAction(
   );
 }
 
+async function handleControlInstanceJsonApplyAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  client: AclApiClient,
+): Promise<void> {
+  const form = await readFormBody(req);
+  const context = parseContextFromForm(form);
+
+  const namespaceInput = form.get("namespace")?.trim();
+  const instanceJson = form.get("instance_json")?.trim();
+
+  if (!namespaceInput || !instanceJson) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: "error",
+        flashMessage:
+          "instance_json 参数缺失：namespace/instance_json 必填",
+      }),
+    );
+    return;
+  }
+
+  const parsed = parseInstanceJsonPayload(instanceJson);
+  if (!parsed.ok) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: "error",
+        flashMessage: parsed.error,
+      }),
+    );
+    return;
+  }
+
+  const targetNamespace = parsed.data.namespace ?? namespaceInput;
+  context.namespace = targetNamespace;
+
+  if (parsed.data.model_routes.length > 0) {
+    const groupedModelRoutes = new Map<
+      string,
+      Array<{
+        tenant_id: string;
+        environment: string;
+        model_id: string;
+        model_version?: string;
+        publish_id?: string;
+        operator?: string;
+      }>
+    >();
+
+    parsed.data.model_routes.forEach((item) => {
+      const namespace = item.namespace ?? targetNamespace;
+      const current = groupedModelRoutes.get(namespace) ?? [];
+      current.push({
+        tenant_id: item.tenant_id,
+        environment: item.environment,
+        model_id: item.model_id,
+        model_version: item.model_version,
+        publish_id: item.publish_id,
+        operator: item.operator,
+      });
+      groupedModelRoutes.set(namespace, current);
+    });
+
+    for (const [namespace, routes] of groupedModelRoutes.entries()) {
+      const routeResult = await client.upsertModelRoutes({
+        namespace,
+        routes,
+      });
+      if (!routeResult.ok) {
+        redirectTo(
+          res,
+          buildRedirectUrl({
+            query: context,
+            flashType: "error",
+            flashMessage: `instance_json 写入失败（model_routes）: ${routeResult.error}`,
+          }),
+        );
+        return;
+      }
+    }
+  }
+
+  if (parsed.data.objects.length > 0) {
+    const objectResult = await client.upsertControlObjects({
+      namespace: targetNamespace,
+      objects: parsed.data.objects,
+    });
+    if (!objectResult.ok) {
+      redirectTo(
+        res,
+        buildRedirectUrl({
+          query: context,
+          flashType: "error",
+          flashMessage: `instance_json 写入失败（objects）: ${objectResult.error}`,
+        }),
+      );
+      return;
+    }
+  }
+
+  if (parsed.data.relation_events.length > 0) {
+    const relationResult = await client.syncControlRelations({
+      namespace: targetNamespace,
+      events: parsed.data.relation_events,
+    });
+    if (!relationResult.ok) {
+      redirectTo(
+        res,
+        buildRedirectUrl({
+          query: context,
+          flashType: "error",
+          flashMessage: `instance_json 写入失败（relation_events）: ${relationResult.error}`,
+        }),
+      );
+      return;
+    }
+  }
+
+  redirectTo(
+    res,
+    buildRedirectUrl({
+      query: context,
+      flashType: "success",
+      flashMessage:
+        "instance_json 更新成功" +
+        `（routes=${parsed.data.model_routes.length}, objects=${parsed.data.objects.length}, relations=${parsed.data.relation_events.length}）`,
+    }),
+  );
+}
+
 export interface StartConsoleServerOptions {
   port?: number;
   apiBaseUrl?: string;
@@ -1132,6 +1650,11 @@ export async function startConsoleServer(
 
         if (inputUrl.pathname === "/actions/control/setup/apply") {
           await handleControlSetupFixtureApplyAction(req, res, client);
+          return;
+        }
+
+        if (inputUrl.pathname === "/actions/control/instance/json/apply") {
+          await handleControlInstanceJsonApplyAction(req, res, client);
           return;
         }
 

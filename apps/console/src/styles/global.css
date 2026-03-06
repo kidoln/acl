@@ -669,6 +669,33 @@ body {
   resize: both;
 }
 
+.model-graph-chart-wrap {
+  position: relative;
+}
+
+.model-graph-zoom-reset {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #475569;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0.8;
+  transition:
+    opacity 0.15s,
+    background 0.15s;
+}
+
+.model-graph-zoom-reset:hover {
+  opacity: 1;
+  background: #fff;
+}
+
 .model-graph-echart {
   display: block;
   width: 100%;
@@ -1092,6 +1119,14 @@ pre {
 
 .advanced-ops-card {
   margin-bottom: 20px;
+}
+
+.instance-editor-card {
+  margin-top: 16px;
+}
+
+.instance-editor-card .setup-fixture-form {
+  margin-bottom: 12px;
 }
 
 .runtime-empty-hint {
