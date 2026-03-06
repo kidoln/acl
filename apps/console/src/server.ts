@@ -301,6 +301,8 @@ async function loadDashboardTabsScript(): Promise<string> {
 
 async function loadEchartsScript(): Promise<string> {
   const fileCandidates = [
+    resolve(__dirname, "../node_modules/echarts/dist/echarts.min.js"),
+    resolve(process.cwd(), "node_modules/echarts/dist/echarts.min.js"),
     resolve(__dirname, "vendor/echarts.min.js"),
     resolve(__dirname, "../src/vendor/echarts.min.js"),
   ];

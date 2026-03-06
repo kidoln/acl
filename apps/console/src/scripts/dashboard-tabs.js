@@ -1708,12 +1708,13 @@
             {
               type: "graph",
               layout: "none",
+              preserveAspect: true,
               left: 0,
               right: 0,
               top: 0,
               bottom: 0,
               roam: true,
-              zoom: 1,
+              zoom: 0.9,
               edgeSymbol: ["none", "arrow"],
               edgeSymbolSize: 8,
               autoCurveness: [0.12, 0.2, 0.28, 0.36],
@@ -2204,6 +2205,49 @@
     const activeChartContainers = new Set();
     let resizeBound = false;
     let chartResizeObserver = null;
+    let resizeRenderFrame = 0;
+    const pendingRenderEditors = new Set();
+    const instanceCanvasWidth = 800;
+    const instanceCanvasHeight = 600;
+    const instanceSourceAspect = Math.max(
+      instanceCanvasWidth / instanceCanvasHeight,
+      0.1,
+    );
+
+    const queueEditorRender = (editor) => {
+      if (!(editor instanceof HTMLElement)) {
+        return;
+      }
+      pendingRenderEditors.add(editor);
+      if (resizeRenderFrame !== 0) {
+        return;
+      }
+      resizeRenderFrame = window.requestAnimationFrame(() => {
+        resizeRenderFrame = 0;
+        pendingRenderEditors.forEach((queuedEditor) => {
+          renderGraph(queuedEditor);
+        });
+        pendingRenderEditors.clear();
+      });
+    };
+    const fitInstanceChartWrapByAspect = (chartWrap, preferredHeight) => {
+      if (!(chartWrap instanceof HTMLElement)) {
+        return;
+      }
+      const minHeight = 220;
+      const maxHeight = Math.max(Math.floor(window.innerHeight * 0.8), 260);
+      const nextHeight = Math.max(
+        minHeight,
+        Math.min(preferredHeight, maxHeight),
+      );
+      if (Math.abs(nextHeight - chartWrap.clientHeight) > 1) {
+        chartWrap.style.height = `${nextHeight}px`;
+      }
+      chartWrap.style.width = "100%";
+      chartWrap.style.maxWidth = "100%";
+      chartWrap.style.marginLeft = "0";
+      chartWrap.style.marginRight = "0";
+    };
 
     const disposeChart = (container) => {
       const chart = chartInstances.get(container);
@@ -2230,6 +2274,7 @@
       // 使用 ResizeObserver 监听容器大小变化
       if (typeof window.ResizeObserver === "function") {
         chartResizeObserver = new window.ResizeObserver((entries) => {
+          const renderEditors = new Set();
           for (const entry of entries) {
             const target = entry.target;
             const container =
@@ -2239,12 +2284,20 @@
                 : target.querySelector("[data-instance-echart]") ||
                   target.querySelector("[data-model-echart]");
             if (container) {
+              const editor = container.closest("[data-instance-editor]");
+              if (editor instanceof HTMLElement) {
+                renderEditors.add(editor);
+                continue;
+              }
               const chart = chartInstances.get(container);
               if (chart && typeof chart.resize === "function") {
                 chart.resize();
               }
             }
           }
+          renderEditors.forEach((editor) => {
+            queueEditorRender(editor);
+          });
         });
       }
 
@@ -2252,6 +2305,11 @@
         activeChartContainers.forEach((container) => {
           if (!document.body.contains(container)) {
             disposeChart(container);
+            return;
+          }
+          const editor = container.closest("[data-instance-editor]");
+          if (editor instanceof HTMLElement) {
+            queueEditorRender(editor);
             return;
           }
           const chart = chartInstances.get(container);
@@ -2316,10 +2374,21 @@
       }
 
       bindResize();
-      container.innerHTML = "";
+      let chart = chartInstances.get(container);
+      if (chart && typeof chart.isDisposed === "function" && chart.isDisposed()) {
+        chartInstances.delete(container);
+        chart = null;
+      }
+      if (!chart) {
+        container.innerHTML = "";
+        chart = echartsGlobal.init(container, undefined, {
+          renderer: "canvas",
+        });
+        chartInstances.set(container, chart);
+      }
 
       // 计算节点位置：subject在左边，object在右边，mixed在中间
-      // 使用固定坐标系，让echarts自动缩放适应容器，避免变形
+      // 基于固定坐标系，再按容器等比映射，避免图形被拉伸
       const subjectNodes = payload.nodes.filter(
         (n) => n.category === "subject",
       );
@@ -2328,31 +2397,50 @@
 
       const chartWrap = container.closest(".model-graph-chart-wrap");
 
-      // 设置容器初始高度（宽度自动充满父容器）
+      // 根据原始坐标比例约束容器尺寸，避免横向拉伸
       if (chartWrap instanceof HTMLElement) {
-        // 只设置高度，宽度由CSS自动处理
         const maxColNodes = Math.max(
           subjectNodes.length,
           objectNodes.length,
           mixedNodes.length,
           1,
         );
-        // 根据节点数量计算高度
-        const idealHeight = Math.max(
+        const preferredHeight = Math.max(
           400,
           Math.min(maxColNodes * 80 + 100, 800),
         );
-        chartWrap.style.height = `${idealHeight}px`;
-        // 移除宽度设置，让它自动充满
-        chartWrap.style.width = "";
+        fitInstanceChartWrapByAspect(chartWrap, preferredHeight);
       }
 
       // 使用固定的虚拟坐标系计算节点位置
-      // echarts会自动缩放这个坐标系以适应容器
-      const canvasWidth = 800;
-      const canvasHeight = 600;
+      // 然后按容器等比映射，避免横向/纵向拉伸
       const padding = 80;
-      const graphWidth = canvasWidth - padding * 2;
+      const width = Math.max(
+        chartWrap instanceof HTMLElement
+          ? chartWrap.clientWidth
+          : container.clientWidth,
+        320,
+      );
+      const height = Math.max(
+        chartWrap instanceof HTMLElement
+          ? chartWrap.clientHeight
+          : container.clientHeight,
+        220,
+      );
+      const viewportWidth = Math.max(width - padding * 2, 1);
+      const viewportHeight = Math.max(height - padding * 2, 1);
+      const targetAspect = Math.max(viewportWidth / viewportHeight, 0.1);
+      let renderWidth = viewportWidth;
+      let renderHeight = viewportHeight;
+      if (instanceSourceAspect > targetAspect) {
+        renderHeight = renderWidth / instanceSourceAspect;
+      } else {
+        renderWidth = renderHeight * instanceSourceAspect;
+      }
+      const offsetX = (viewportWidth - renderWidth) / 2;
+      const offsetY = (viewportHeight - renderHeight) / 2;
+      const graphLeft = padding + offsetX;
+      const graphTop = padding + offsetY;
 
       const positionNodes = (nodes, xCenter, startY, endY) => {
         const count = nodes.length;
@@ -2365,13 +2453,14 @@
       };
 
       // subject在左，object在右，mixed在中间
-      const leftX = padding + graphWidth * 0.2;
-      const centerX = padding + graphWidth * 0.5;
-      const rightX = padding + graphWidth * 0.8;
+      const leftX = graphLeft + renderWidth * 0.2;
+      const centerX = graphLeft + renderWidth * 0.5;
+      const rightX = graphLeft + renderWidth * 0.8;
+      const graphBottom = graphTop + renderHeight;
 
-      positionNodes(subjectNodes, leftX, padding, canvasHeight - padding);
-      positionNodes(mixedNodes, centerX, padding, canvasHeight - padding);
-      positionNodes(objectNodes, rightX, padding, canvasHeight - padding);
+      positionNodes(subjectNodes, leftX, graphTop, graphBottom);
+      positionNodes(mixedNodes, centerX, graphTop, graphBottom);
+      positionNodes(objectNodes, rightX, graphTop, graphBottom);
 
       // 节点配色：参考统一关系签名图的浅色背景
       const instanceNodeColor = (category) => {
@@ -2414,7 +2503,7 @@
           node_id: id,
           node_category: category,
           x: node._x || centerX,
-          y: node._y || canvasHeight / 2,
+          y: node._y || graphTop + renderHeight / 2,
           symbolSize: category === "mixed" ? 66 : 56,
           draggable: true,
           itemStyle: {
@@ -2458,14 +2547,6 @@
         };
       });
 
-      let chart = chartInstances.get(container);
-      if (!chart) {
-        chart = echartsGlobal.init(container, undefined, {
-          renderer: "canvas",
-        });
-        chartInstances.set(container, chart);
-      }
-
       chart.setOption(
         {
           animationDurationUpdate: 260,
@@ -2478,12 +2559,13 @@
             {
               type: "graph",
               layout: "none",
+              preserveAspect: true,
               left: 0,
               right: 0,
               top: 0,
               bottom: 0,
               roam: true,
-              zoom: 1,
+              zoom: 0.9,
               draggable: true,
               data: nodeData,
               links: linkData,
@@ -2518,9 +2600,20 @@
 
       // 绑定 zoom reset 按钮点击事件
       const resetBtn = chartWrap?.querySelector(".model-graph-zoom-reset");
-      if (resetBtn) {
+      if (
+        resetBtn &&
+        !resetBtn.hasAttribute("data-instance-graph-reset-bound")
+      ) {
+        resetBtn.setAttribute("data-instance-graph-reset-bound", "1");
         resetBtn.addEventListener("click", () => {
-          chart.dispatchAction({
+          const currentChart = chartInstances.get(container);
+          if (
+            !currentChart ||
+            typeof currentChart.dispatchAction !== "function"
+          ) {
+            return;
+          }
+          currentChart.dispatchAction({
             type: "restore",
           });
         });

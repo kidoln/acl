@@ -11,6 +11,9 @@
     "dev": "tsx watch src/index.ts",
     "test": "vitest run --passWithNoTests"
   },
+  "dependencies": {
+    "echarts": "^6.0.0"
+  },
   "devDependencies": {
     "tsx": "^4.20.6"
   }
