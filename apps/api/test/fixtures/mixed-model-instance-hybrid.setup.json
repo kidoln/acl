@@ -1,0 +1,145 @@
+{
+  "route": {
+    "tenant_id": "tenant_acme",
+    "environment": "prod"
+  },
+  "namespace_prefix": "tenant_acme.kb.mixed_model_instance",
+  "catalog_registration": {
+    "system_id": "knowledge_service",
+    "catalogs": {
+      "action_catalog": ["read"],
+      "object_type_catalog": ["kb"],
+      "relation_type_catalog": [
+        "belongs_to_department",
+        "belongs_to_company",
+        "derives_to"
+      ]
+    }
+  },
+  "objects": [
+    {
+      "object_id": "kb:knowledge_1",
+      "object_type": "kb",
+      "owner_ref": "user:charlie",
+      "sensitivity": "normal"
+    },
+    {
+      "object_id": "kb:knowledge_2",
+      "object_type": "kb",
+      "owner_ref": "user:carol",
+      "sensitivity": "normal"
+    }
+  ],
+  "relation_events": [
+    {
+      "from": "user:bob",
+      "to": "department:rnd",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:carol",
+      "to": "department:rnd",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:charlie",
+      "to": "department:legal",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:rnd",
+      "to": "company:acme",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:legal",
+      "to": "company:otherco",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    }
+  ],
+  "decision_inputs": [
+    {
+      "name": "external_snapshot_dynamic_attributes",
+      "mode": "inline_model",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:erin",
+          "type": "user",
+          "attributes": {
+            "department": "rnd"
+          }
+        },
+        "object": {
+          "id": "kb:dynamic_alpha",
+          "type": "kb",
+          "sensitivity": "normal",
+          "attributes": {
+            "department": "rnd"
+          }
+        }
+      },
+      "options": {
+        "relation_inference": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "name": "control_plane_instance_without_attributes",
+      "mode": "model_route",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:bob",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:knowledge_2",
+          "type": "kb",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "model_instance_rule_has_highest_priority",
+      "mode": "model_route",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:alice",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:knowledge_1",
+          "type": "kb",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "inference_overrides_conflicting_request_context",
+      "mode": "model_route",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:bob",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:knowledge_2",
+          "type": "kb",
+          "sensitivity": "normal"
+        },
+        "context": {
+          "same_company": false
+        }
+      }
+    }
+  ]
+}

@@ -832,15 +832,24 @@ interface ModelTemplateOption {
 const MODEL_TEMPLATE_DISPLAY_OVERRIDES: Record<
   string,
   {
+    order: number;
     label: string;
     description: string;
   }
 > = {
+  "mixed-model-instance-hybrid.model.json": {
+    order: 3,
+    label: "样例3：Model/Instance 混合判权",
+    description:
+      "覆盖动态属性判权、控制面索引推导、model 内 instance 高优先级规则。",
+  },
   "same-company-derived.model.json": {
+    order: 1,
     label: "样例1：同公司派生可见（当前）",
     description: "当前默认样例：同公司主体可访问 owner 资源及派生资源。",
   },
   "virtual-team-department-scope.model.json": {
+    order: 2,
     label: "样例2：虚拟团队 + 部门可见",
     description: "新增虚拟团队关系建模，并将可见性收敛到同部门范围。",
   },
@@ -877,7 +886,18 @@ function buildModelTemplateOptions(namespace: string): ModelTemplateOption[] {
     .readdirSync(fixtureDir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".model.json"))
     .map((entry) => entry.name)
-    .sort((left, right) => left.localeCompare(right));
+    .sort((left, right) => {
+      const leftOrder =
+        MODEL_TEMPLATE_DISPLAY_OVERRIDES[left]?.order ??
+        Number.MAX_SAFE_INTEGER;
+      const rightOrder =
+        MODEL_TEMPLATE_DISPLAY_OVERRIDES[right]?.order ??
+        Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+      return left.localeCompare(right);
+    });
 
   const templateOptions: ModelTemplateOption[] = [];
   fixtureFiles.forEach((fixtureFileName) => {
@@ -1185,6 +1205,36 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
       ? String(defaultRule.priority)
       : "100";
 
+  // 生成 policy rules 列表
+  const policyRulesRows = defaultModel.policies.rules
+    .map((rule, index) => {
+      const ruleId = typeof rule.id === "string" ? rule.id : `rule_${index}`;
+      const ruleEffect =
+        typeof rule.effect === "string" ? rule.effect : "allow";
+      const rulePriority =
+        typeof rule.priority === "number" ? String(rule.priority) : "-";
+      const ruleActions = Array.isArray(rule.action_set)
+        ? rule.action_set
+            .filter((item): item is string => typeof item === "string")
+            .join(", ")
+        : "-";
+      const ruleSubjectSelector =
+        typeof rule.subject_selector === "string" ? rule.subject_selector : "-";
+      const ruleObjectSelector =
+        typeof rule.object_selector === "string" ? rule.object_selector : "-";
+      return (
+        `<tr>` +
+        `<td>${escapeHtml(ruleId)}</td>` +
+        `<td><span class="badge ${ruleEffect === "allow" ? "badge-success" : "badge-danger"}">${escapeHtml(ruleEffect)}</span></td>` +
+        `<td>${escapeHtml(rulePriority)}</td>` +
+        `<td>${escapeHtml(ruleActions)}</td>` +
+        `<td><code class="selector-code">${escapeHtml(ruleSubjectSelector)}</code></td>` +
+        `<td><code class="selector-code">${escapeHtml(ruleObjectSelector)}</code></td>` +
+        `</tr>`
+      );
+    })
+    .join("");
+
   const auditRows = viewModel.control_audits?.ok
     ? viewModel.control_audits.data.items
         .slice(0, 6)
@@ -1349,14 +1399,23 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<label>主体关系目录 Subject Relation Catalog<textarea rows="3" data-model-field="subject_relation_type_catalog">${subjectRelationTypeCatalog}</textarea></label>` +
     `<label>客体关系目录 Object Relation Catalog<textarea rows="3" data-model-field="object_relation_type_catalog">${objectRelationTypeCatalog}</textarea></label>` +
     `<label>主体-客体关系目录 Subject-Object Relation Catalog<textarea rows="3" data-model-field="subject_object_relation_type_catalog">${subjectObjectRelationTypeCatalog}</textarea></label>` +
+    `<label>强制义务 Mandatory Obligations<textarea rows="3" data-model-field="mandatory_obligations">${mandatoryObligations}</textarea></label>` +
+    `</div>` +
+    `<div class="policy-rules-section">` +
+    `<h5>Policy Rules 列表 <span class="muted">(${defaultModel.policies.rules.length} 条)</span></h5>` +
+    `<div class="table-container"><table class="data-table policy-rules-table"><thead><tr><th>Rule ID</th><th>效果</th><th>优先级</th><th>动作</th><th>主体选择器</th><th>客体选择器</th></tr></thead><tbody>${policyRulesRows}</tbody></table></div>` +
+    `</div>` +
+    `<details class="policy-rule-editor">` +
+    `<summary><strong>规则编辑器</strong>（编辑后同步到 JSON）</summary>` +
+    `<div class="model-editor-grid rule-editor-grid">` +
     `<label>规则ID Rule ID<input type="text" value="${ruleId}" data-model-field="rule_id" /></label>` +
     `<label>规则效果 Rule Effect<select data-model-field="rule_effect"><option value="allow" ${ruleEffect === "allow" ? "selected" : ""}>allow</option><option value="deny" ${ruleEffect === "deny" ? "selected" : ""}>deny</option></select></label>` +
     `<label>规则优先级 Rule Priority<input type="number" min="1" value="${escapeHtml(rulePriority)}" data-model-field="rule_priority" /></label>` +
     `<label>规则动作 Rule Actions<textarea rows="3" data-model-field="rule_action_set">${ruleActionSet}</textarea></label>` +
     `<label>主体选择器 Subject Selector<textarea rows="3" data-model-field="rule_subject_selector">${ruleSubjectSelector}</textarea></label>` +
     `<label>客体选择器 Object Selector<textarea rows="3" data-model-field="rule_object_selector">${ruleObjectSelector}</textarea></label>` +
-    `<label>强制义务 Mandatory Obligations<textarea rows="3" data-model-field="mandatory_obligations">${mandatoryObligations}</textarea></label>` +
     `</div>` +
+    `</details>` +
     `<p class="muted model-editor-note">字段变更会自动同步到 JSON，可直接提交。</p>` +
     `</div>` +
     `<div class="json-view" data-json-view="raw" hidden>` +

@@ -488,6 +488,72 @@ body {
   margin: 8px 0 0;
 }
 
+.policy-rules-section {
+  margin: 16px 0;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-md);
+}
+
+.policy-rules-section > h5 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.policy-rules-section > h5 .muted {
+  font-weight: normal;
+  font-size: 12px;
+}
+
+.policy-rules-table {
+  font-size: 12px;
+}
+
+.policy-rules-table th {
+  background: #e2e8f0;
+  font-weight: 600;
+}
+
+.policy-rules-table td {
+  vertical-align: middle;
+}
+
+.policy-rules-table .selector-code {
+  display: block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.policy-rule-editor {
+  margin: 12px 0;
+  border: 1px dashed #cbd5e1;
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.policy-rule-editor > summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.policy-rule-editor[open] > summary {
+  border-bottom: 1px dashed #cbd5e1;
+  margin-bottom: 8px;
+}
+
+.rule-editor-grid {
+  padding: 0 12px 12px;
+}
+
 .model-graph {
   display: grid;
   gap: 10px;

@@ -2186,6 +2186,148 @@
     initMatrixDrawer();
     initJsonViewToggles();
     initModelEditors();
+    initPolicyRulesTable();
+  }
+
+  // Policy Rules 表格交互：列宽拖拽、hover tooltip、点击填充编辑器
+  function initPolicyRulesTable() {
+    const tables = document.querySelectorAll(".policy-rules-table");
+    tables.forEach((table) => {
+      // 1. 列宽拖拽调整
+      initResizableColumns(table);
+
+      // 2. Hover tooltip
+      initCellTooltips(table);
+
+      // 3. 点击行填充编辑器
+      initRowClickToEditor(table);
+    });
+  }
+
+  function initResizableColumns(table) {
+    const ths = table.querySelectorAll("thead th");
+    if (ths.length === 0) return;
+
+    ths.forEach((th, index) => {
+      // 创建拖拽手柄
+      const resizer = document.createElement("div");
+      resizer.className = "column-resizer";
+      th.appendChild(resizer);
+
+      let startX = 0;
+      let startWidth = 0;
+
+      const onMouseDown = (e) => {
+        startX = e.pageX;
+        startWidth = th.offsetWidth;
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
+        e.preventDefault();
+      };
+
+      const onMouseMove = (e) => {
+        const diff = e.pageX - startX;
+        const newWidth = Math.max(50, startWidth + diff);
+        th.style.width = `${newWidth}px`;
+        th.style.minWidth = `${newWidth}px`;
+      };
+
+      const onMouseUp = () => {
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+      };
+
+      resizer.addEventListener("mousedown", onMouseDown);
+    });
+  }
+
+  function initCellTooltips(table) {
+    const cells = table.querySelectorAll("tbody td");
+    cells.forEach((cell) => {
+      cell.addEventListener("mouseenter", () => {
+        // 检查内容是否溢出
+        if (cell.scrollWidth > cell.clientWidth + 5) {
+          cell.setAttribute("data-tooltip", cell.textContent);
+          cell.setAttribute("title", cell.textContent);
+        }
+      });
+    });
+  }
+
+  function initRowClickToEditor(table) {
+    const rows = table.querySelectorAll("tbody tr");
+    rows.forEach((row) => {
+      row.style.cursor = "pointer";
+      row.addEventListener("click", () => {
+        const cells = row.querySelectorAll("td");
+        if (cells.length < 6) return;
+
+        const ruleId = cells[0]?.textContent || "";
+        const effect = cells[1]?.textContent || "allow";
+        const priority = cells[2]?.textContent || "100";
+        const actions = cells[3]?.textContent || "";
+        const subjectSelector = cells[4]?.textContent || "";
+        const objectSelector = cells[5]?.textContent || "";
+
+        // 填充到规则编辑器
+        const editor = document.querySelector(".policy-rule-editor");
+        if (!editor) return;
+
+        // 展开编辑器
+        editor.setAttribute("open", "");
+
+        // 填充字段
+        const ruleIdField = editor.querySelector(
+          '[data-model-field="rule_id"]',
+        );
+        const ruleEffectField = editor.querySelector(
+          '[data-model-field="rule_effect"]',
+        );
+        const rulePriorityField = editor.querySelector(
+          '[data-model-field="rule_priority"]',
+        );
+        const ruleActionsField = editor.querySelector(
+          '[data-model-field="rule_action_set"]',
+        );
+        const ruleSubjectSelectorField = editor.querySelector(
+          '[data-model-field="rule_subject_selector"]',
+        );
+        const ruleObjectSelectorField = editor.querySelector(
+          '[data-model-field="rule_object_selector"]',
+        );
+
+        if (ruleIdField) ruleIdField.value = ruleId;
+        if (ruleEffectField) ruleEffectField.value = effect;
+        if (rulePriorityField) rulePriorityField.value = priority;
+        if (ruleActionsField) ruleActionsField.value = actions;
+        if (ruleSubjectSelectorField)
+          ruleSubjectSelectorField.value = subjectSelector;
+        if (ruleObjectSelectorField)
+          ruleObjectSelectorField.value = objectSelector;
+
+        // 触发 input 事件以同步到 JSON
+        [
+          ruleIdField,
+          ruleEffectField,
+          rulePriorityField,
+          ruleActionsField,
+          ruleSubjectSelectorField,
+          ruleObjectSelectorField,
+        ].forEach((field) => {
+          if (field) {
+            const eventType = field.tagName === "SELECT" ? "change" : "input";
+            field.dispatchEvent(new Event(eventType, { bubbles: true }));
+          }
+        });
+
+        // 高亮选中的行
+        rows.forEach((r) => r.classList.remove("selected"));
+        row.classList.add("selected");
+
+        // 滚动到编辑器
+        editor.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    });
   }
 
   if (document.readyState === "loading") {
