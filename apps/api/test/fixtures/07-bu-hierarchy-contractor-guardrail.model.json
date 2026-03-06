@@ -1,0 +1,201 @@
+{
+  "model_meta": {
+    "model_id": "tenant_unicorn_dashboard_bu_hierarchy",
+    "tenant_id": "tenant_unicorn",
+    "version": "2026.03.07",
+    "status": "draft",
+    "combining_algorithm": "deny-overrides"
+  },
+  "catalogs": {
+    "action_catalog": ["read"],
+    "subject_type_catalog": ["user", "department"],
+    "object_type_catalog": ["dashboard"],
+    "subject_relation_type_catalog": [
+      "belongs_to_department",
+      "parent_department"
+    ],
+    "object_relation_type_catalog": [
+      "owned_by"
+    ],
+    "subject_object_relation_type_catalog": [
+      "belongs_to_department",
+      "parent_department"
+    ]
+  },
+  "relation_signature": {
+    "subject_relations": [
+      {
+        "relation_type": "belongs_to_department",
+        "from_types": ["user"],
+        "to_types": ["department"]
+      },
+      {
+        "relation_type": "parent_department",
+        "from_types": ["department"],
+        "to_types": ["department"]
+      }
+    ],
+    "object_relations": [
+      {
+        "relation_type": "owned_by",
+        "from_types": ["dashboard"],
+        "to_types": ["dashboard"]
+      }
+    ],
+    "subject_object_relations": [
+      {
+        "relation_type": "belongs_to_department",
+        "from_types": ["user"],
+        "to_types": ["dashboard"]
+      },
+      {
+        "relation_type": "parent_department",
+        "from_types": ["department"],
+        "to_types": ["dashboard"]
+      }
+    ]
+  },
+  "object_onboarding": {
+    "compatibility_mode": "compat_balanced",
+    "default_profile": "minimal",
+    "profiles": {
+      "minimal": {
+        "required_fields": ["tenant_id", "object_id", "object_type", "created_by"],
+        "autofill": {
+          "owner_ref": "created_by",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    "conditional_required": [
+      {
+        "when": "object.sensitivity == high",
+        "add_fields": ["incident_level"]
+      }
+    ]
+  },
+  "policies": {
+    "rules": [
+      {
+        "id": "deny_contractor_read_high_dashboard",
+        "subject_selector": "subject.type == user and subject.employment == contractor",
+        "object_selector": "object.type == dashboard and object.sensitivity == high",
+        "action_set": ["read"],
+        "effect": "deny",
+        "priority": 300
+      },
+      {
+        "id": "allow_same_direct_department_read_dashboard",
+        "subject_selector": "subject.type == user and context.same_direct_department == true",
+        "object_selector": "object.type == dashboard",
+        "action_set": ["read"],
+        "effect": "allow",
+        "priority": 200
+      },
+      {
+        "id": "allow_same_bu_parent_chain_read_normal_dashboard",
+        "subject_selector": "subject.type == user and context.same_bu_parent_chain == true",
+        "object_selector": "object.type == dashboard and object.sensitivity == normal",
+        "action_set": ["read"],
+        "effect": "allow",
+        "priority": 180
+      }
+    ]
+  },
+  "constraints": {
+    "sod_rules": [],
+    "cardinality_rules": []
+  },
+  "lifecycle": {
+    "event_rules": [
+      {
+        "event_type": "subject_removed",
+        "handler": "revoke_direct_edges",
+        "required": true
+      },
+      {
+        "event_type": "department_reorg",
+        "handler": "recompute_parent_chain",
+        "required": false
+      }
+    ]
+  },
+  "consistency": {
+    "default_level": "bounded_staleness",
+    "high_risk_level": "strong",
+    "bounded_staleness_ms": 3000
+  },
+  "quality_guardrails": {
+    "attribute_quality": {
+      "authority_whitelist": ["hr_system", "org_system"],
+      "freshness_ttl_sec": {
+        "org_membership": 900
+      },
+      "reject_unknown_source": true
+    },
+    "mandatory_obligations": []
+  },
+  "context_inference": {
+    "enabled": true,
+    "rules": [
+      {
+        "id": "infer_same_direct_department",
+        "output_field": "same_direct_department",
+        "subject_edges": [
+          {
+            "relation_type": "belongs_to_department",
+            "entity_side": "from"
+          }
+        ],
+        "object_edges": [
+          {
+            "relation_type": "owned_by",
+            "entity_side": "from"
+          },
+          {
+            "relation_type": "belongs_to_department",
+            "entity_side": "from"
+          }
+        ],
+        "object_owner_fallback": true,
+        "owner_fallback_include_input": true
+      },
+      {
+        "id": "infer_same_bu_parent_chain",
+        "output_field": "same_bu_parent_chain",
+        "subject_edges": [
+          {
+            "relation_type": "belongs_to_department",
+            "entity_side": "from"
+          },
+          {
+            "relation_type": "parent_department",
+            "entity_side": "from",
+            "max_depth": 2
+          }
+        ],
+        "object_edges": [
+          {
+            "relation_type": "owned_by",
+            "entity_side": "from"
+          },
+          {
+            "relation_type": "belongs_to_department",
+            "entity_side": "from"
+          },
+          {
+            "relation_type": "parent_department",
+            "entity_side": "from",
+            "max_depth": 2
+          }
+        ],
+        "object_owner_fallback": true,
+        "owner_fallback_include_input": true
+      }
+    ],
+    "constraints": {
+      "monotonic_only": true,
+      "stratified_negation": false
+    }
+  }
+}

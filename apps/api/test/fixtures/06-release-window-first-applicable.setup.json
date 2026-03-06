@@ -1,0 +1,204 @@
+{
+  "route": {
+    "tenant_id": "tenant_devops",
+    "environment": "prod"
+  },
+  "namespace_prefix": "tenant_devops.repo.release_window",
+  "objects": [
+    {
+      "object_id": "repo:payments_api",
+      "object_type": "repo",
+      "owner_ref": "user:alice",
+      "sensitivity": "normal"
+    },
+    {
+      "object_id": "repo:search_api",
+      "object_type": "repo",
+      "owner_ref": "user:carol",
+      "sensitivity": "normal"
+    }
+  ],
+  "relation_events": [
+    {
+      "from": "user:bob",
+      "to": "role:release_manager_payments",
+      "relation_type": "holds_role",
+      "operation": "upsert"
+    },
+    {
+      "from": "role:release_manager_payments",
+      "to": "team:payments",
+      "relation_type": "role_scope_team",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:alice",
+      "to": "team:payments",
+      "relation_type": "leads_team",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:carol",
+      "to": "role:release_manager_search",
+      "relation_type": "holds_role",
+      "operation": "upsert"
+    },
+    {
+      "from": "role:release_manager_search",
+      "to": "team:search",
+      "relation_type": "role_scope_team",
+      "operation": "upsert"
+    },
+    {
+      "from": "repo:payments_api",
+      "to": "team:payments",
+      "relation_type": "repo_owned_by_team",
+      "operation": "upsert"
+    },
+    {
+      "from": "repo:search_api",
+      "to": "team:search",
+      "relation_type": "repo_owned_by_team",
+      "operation": "upsert"
+    }
+  ],
+  "decision_inputs": [
+    {
+      "name": "freeze_window_blocks_release_manager",
+      "input": {
+        "action": "deploy",
+        "subject": {
+          "id": "user:bob",
+          "type": "user"
+        },
+        "object": {
+          "id": "repo:payments_api",
+          "type": "repo",
+          "sensitivity": "normal",
+          "attributes": {
+            "tier": "critical"
+          }
+        },
+        "context": {
+          "change_window": "freeze",
+          "shift": "day",
+          "request_time": "2026-03-15T10:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "release_manager_allowed_open_window",
+      "input": {
+        "action": "deploy",
+        "subject": {
+          "id": "user:bob",
+          "type": "user"
+        },
+        "object": {
+          "id": "repo:payments_api",
+          "type": "repo",
+          "sensitivity": "normal",
+          "attributes": {
+            "tier": "critical"
+          }
+        },
+        "context": {
+          "change_window": "open",
+          "shift": "night",
+          "request_time": "2026-03-15T10:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "release_manager_outside_validity_denied_by_fallback",
+      "input": {
+        "action": "deploy",
+        "subject": {
+          "id": "user:bob",
+          "type": "user"
+        },
+        "object": {
+          "id": "repo:payments_api",
+          "type": "repo",
+          "sensitivity": "normal",
+          "attributes": {
+            "tier": "critical"
+          }
+        },
+        "context": {
+          "change_window": "open",
+          "shift": "night",
+          "request_time": "2026-04-10T10:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "team_lead_day_shift_allowed_when_not_release_manager",
+      "input": {
+        "action": "deploy",
+        "subject": {
+          "id": "user:alice",
+          "type": "user"
+        },
+        "object": {
+          "id": "repo:payments_api",
+          "type": "repo",
+          "sensitivity": "normal",
+          "attributes": {
+            "tier": "critical"
+          }
+        },
+        "context": {
+          "change_window": "open",
+          "shift": "day",
+          "request_time": "2026-04-10T10:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "missing_change_window_results_indeterminate",
+      "input": {
+        "action": "deploy",
+        "subject": {
+          "id": "user:bob",
+          "type": "user"
+        },
+        "object": {
+          "id": "repo:payments_api",
+          "type": "repo",
+          "sensitivity": "normal",
+          "attributes": {
+            "tier": "critical"
+          }
+        },
+        "context": {
+          "shift": "day",
+          "request_time": "2026-03-15T10:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "other_team_release_manager_denied_by_fallback",
+      "input": {
+        "action": "deploy",
+        "subject": {
+          "id": "user:carol",
+          "type": "user"
+        },
+        "object": {
+          "id": "repo:payments_api",
+          "type": "repo",
+          "sensitivity": "normal",
+          "attributes": {
+            "tier": "critical"
+          }
+        },
+        "context": {
+          "change_window": "open",
+          "shift": "day",
+          "request_time": "2026-03-15T10:00:00.000Z"
+        }
+      }
+    }
+  ]
+}

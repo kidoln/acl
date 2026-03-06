@@ -1,0 +1,211 @@
+{
+  "route": {
+    "tenant_id": "tenant_unicorn",
+    "environment": "prod"
+  },
+  "namespace_prefix": "tenant_unicorn.dashboard.bu_hierarchy",
+  "objects": [
+    {
+      "object_id": "dashboard:platform_metrics",
+      "object_type": "dashboard",
+      "owner_ref": "user:alice",
+      "sensitivity": "normal"
+    },
+    {
+      "object_id": "dashboard:platform_incident",
+      "object_type": "dashboard",
+      "owner_ref": "user:alice",
+      "sensitivity": "high"
+    },
+    {
+      "object_id": "dashboard:finance_report",
+      "object_type": "dashboard",
+      "owner_ref": "user:carol",
+      "sensitivity": "normal"
+    }
+  ],
+  "relation_events": [
+    {
+      "from": "user:alice",
+      "to": "department:rnd_platform",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:bob",
+      "to": "department:rnd_ai",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:vendor_x",
+      "to": "department:rnd_ai",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:carol",
+      "to": "department:finance_ops",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:rnd_platform",
+      "to": "department:rnd_center",
+      "relation_type": "parent_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:rnd_ai",
+      "to": "department:rnd_center",
+      "relation_type": "parent_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:rnd_center",
+      "to": "department:tech_group",
+      "relation_type": "parent_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:finance_ops",
+      "to": "department:finance_center",
+      "relation_type": "parent_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:finance_center",
+      "to": "department:corp_group",
+      "relation_type": "parent_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "dashboard:platform_metrics",
+      "to": "user:alice",
+      "relation_type": "owned_by",
+      "operation": "upsert"
+    },
+    {
+      "from": "dashboard:platform_incident",
+      "to": "user:alice",
+      "relation_type": "owned_by",
+      "operation": "upsert"
+    },
+    {
+      "from": "dashboard:finance_report",
+      "to": "user:carol",
+      "relation_type": "owned_by",
+      "operation": "upsert"
+    }
+  ],
+  "decision_inputs": [
+    {
+      "name": "sibling_department_same_bu_can_read_normal",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:bob",
+          "type": "user",
+          "attributes": {
+            "employment": "employee"
+          }
+        },
+        "object": {
+          "id": "dashboard:platform_metrics",
+          "type": "dashboard",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "same_department_can_read_normal",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:alice",
+          "type": "user",
+          "attributes": {
+            "employment": "employee"
+          }
+        },
+        "object": {
+          "id": "dashboard:platform_metrics",
+          "type": "dashboard",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "cross_bu_cannot_read_normal",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:carol",
+          "type": "user",
+          "attributes": {
+            "employment": "employee"
+          }
+        },
+        "object": {
+          "id": "dashboard:platform_metrics",
+          "type": "dashboard",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "contractor_same_bu_high_denied",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:vendor_x",
+          "type": "user",
+          "attributes": {
+            "employment": "contractor"
+          }
+        },
+        "object": {
+          "id": "dashboard:platform_incident",
+          "type": "dashboard",
+          "sensitivity": "high"
+        }
+      }
+    },
+    {
+      "name": "same_bu_cannot_read_high_without_direct",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:bob",
+          "type": "user",
+          "attributes": {
+            "employment": "employee"
+          }
+        },
+        "object": {
+          "id": "dashboard:platform_incident",
+          "type": "dashboard",
+          "sensitivity": "high"
+        }
+      }
+    },
+    {
+      "name": "same_department_can_read_high",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:alice",
+          "type": "user",
+          "attributes": {
+            "employment": "employee"
+          }
+        },
+        "object": {
+          "id": "dashboard:platform_incident",
+          "type": "dashboard",
+          "sensitivity": "high"
+        }
+      }
+    }
+  ]
+}

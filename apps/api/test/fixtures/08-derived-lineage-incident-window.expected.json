@@ -1,0 +1,166 @@
+{
+  "required_relations": [
+    {
+      "from": "kb:core_source",
+      "to": "kb:core_stage1",
+      "relation_type": "derives_to"
+    },
+    {
+      "from": "kb:core_stage1",
+      "to": "kb:core_stage2",
+      "relation_type": "derives_to"
+    },
+    {
+      "from": "kb:core_stage2",
+      "to": "kb:core_stage3",
+      "relation_type": "derives_to"
+    }
+  ],
+  "decision_expectations": [
+    {
+      "name": "acme_user_can_read_high_when_incident_active",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_company_via_lineage": {
+          "matched": true,
+          "subject_values_contains": [
+            "company:acme"
+          ],
+          "object_values_contains": [
+            "company:acme"
+          ]
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_read_same_company_lineage_incident_window"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "allow_read_same_company_lineage_incident_window"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_company_via_lineage": true
+      }
+    },
+    {
+      "name": "acme_user_denied_when_incident_inactive",
+      "mode": "model_route",
+      "expected_effect": "deny",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_company_via_lineage": {
+          "matched": true,
+          "subject_values_contains": [
+            "company:acme"
+          ],
+          "object_values_contains": [
+            "company:acme"
+          ]
+        }
+      },
+      "expected_matched_rules_contains": [
+        "deny_read_when_incident_inactive_high"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "deny_read_when_incident_inactive_high"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_company_via_lineage": true
+      }
+    },
+    {
+      "name": "thirdco_user_not_applicable_when_incident_active",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_same_company_via_lineage": {
+          "matched": false,
+          "subject_values_contains": [
+            "company:thirdco"
+          ],
+          "object_values_contains": [
+            "company:acme"
+          ]
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_company_via_lineage": false
+      }
+    },
+    {
+      "name": "acme_user_not_applicable_after_validity_window",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_company_via_lineage": {
+          "matched": true,
+          "subject_values_contains": [
+            "company:acme"
+          ],
+          "object_values_contains": [
+            "company:acme"
+          ]
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_company_via_lineage": true
+      }
+    },
+    {
+      "name": "any_user_can_read_normal_kb",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_same_company_via_lineage": {
+          "matched": false,
+          "subject_values_contains": [
+            "company:thirdco"
+          ],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_read_normal_kb"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "allow_read_normal_kb"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_company_via_lineage": false
+      }
+    }
+  ]
+}

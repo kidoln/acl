@@ -1,0 +1,211 @@
+{
+  "route": {
+    "tenant_id": "tenant_finbank",
+    "environment": "prod"
+  },
+  "namespace_prefix": "tenant_finbank.dataset.incident_response",
+  "objects": [
+    {
+      "object_id": "dataset:payments_prod",
+      "object_type": "dataset",
+      "owner_ref": "user:alice",
+      "sensitivity": "high"
+    },
+    {
+      "object_id": "dataset:payments_masked",
+      "object_type": "dataset",
+      "owner_ref": "user:alice",
+      "sensitivity": "normal"
+    },
+    {
+      "object_id": "dataset:legal_cases",
+      "object_type": "dataset",
+      "owner_ref": "user:tom",
+      "sensitivity": "normal"
+    }
+  ],
+  "relation_events": [
+    {
+      "from": "user:alice",
+      "to": "department:finance",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:bob",
+      "to": "department:finance",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:carol",
+      "to": "department:security",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:dave",
+      "to": "department:legal",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:tom",
+      "to": "department:legal",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:finance",
+      "to": "company:finbank",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:security",
+      "to": "company:finbank",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:legal",
+      "to": "company:finbank",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "oncall:finance_ir",
+      "to": "department:finance",
+      "relation_type": "oncall_group_for_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "oncall:legal_ir",
+      "to": "department:legal",
+      "relation_type": "oncall_group_for_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:carol",
+      "to": "oncall:finance_ir",
+      "relation_type": "member_of_oncall",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:dave",
+      "to": "oncall:legal_ir",
+      "relation_type": "member_of_oncall",
+      "operation": "upsert"
+    },
+    {
+      "from": "dataset:payments_prod",
+      "to": "user:alice",
+      "relation_type": "owned_by",
+      "operation": "upsert"
+    },
+    {
+      "from": "dataset:payments_masked",
+      "to": "user:alice",
+      "relation_type": "owned_by",
+      "operation": "upsert"
+    },
+    {
+      "from": "dataset:legal_cases",
+      "to": "user:tom",
+      "relation_type": "owned_by",
+      "operation": "upsert"
+    }
+  ],
+  "decision_inputs": [
+    {
+      "name": "finance_member_read_high_dataset",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:bob",
+          "type": "user"
+        },
+        "object": {
+          "id": "dataset:payments_prod",
+          "type": "dataset",
+          "sensitivity": "high"
+        }
+      }
+    },
+    {
+      "name": "security_oncall_read_high_dataset",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:carol",
+          "type": "user"
+        },
+        "object": {
+          "id": "dataset:payments_prod",
+          "type": "dataset",
+          "sensitivity": "high"
+        }
+      }
+    },
+    {
+      "name": "security_oncall_export_high_dataset_denied",
+      "input": {
+        "action": "export",
+        "subject": {
+          "id": "user:carol",
+          "type": "user"
+        },
+        "object": {
+          "id": "dataset:payments_prod",
+          "type": "dataset",
+          "sensitivity": "high"
+        }
+      }
+    },
+    {
+      "name": "security_oncall_export_low_dataset_allowed",
+      "input": {
+        "action": "export",
+        "subject": {
+          "id": "user:carol",
+          "type": "user"
+        },
+        "object": {
+          "id": "dataset:payments_masked",
+          "type": "dataset",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "legal_oncall_read_legal_dataset",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:dave",
+          "type": "user"
+        },
+        "object": {
+          "id": "dataset:legal_cases",
+          "type": "dataset",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    {
+      "name": "legal_oncall_cannot_read_finance_dataset",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:dave",
+          "type": "user"
+        },
+        "object": {
+          "id": "dataset:payments_prod",
+          "type": "dataset",
+          "sensitivity": "high"
+        }
+      }
+    }
+  ]
+}

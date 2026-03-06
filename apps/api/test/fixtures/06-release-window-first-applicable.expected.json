@@ -1,0 +1,251 @@
+{
+  "required_relations": [
+    {
+      "from": "user:bob",
+      "to": "role:release_manager_payments",
+      "relation_type": "holds_role"
+    },
+    {
+      "from": "role:release_manager_payments",
+      "to": "team:payments",
+      "relation_type": "role_scope_team"
+    },
+    {
+      "from": "repo:payments_api",
+      "to": "team:payments",
+      "relation_type": "repo_owned_by_team"
+    }
+  ],
+  "decision_expectations": [
+    {
+      "name": "freeze_window_blocks_release_manager",
+      "mode": "model_route",
+      "expected_effect": "deny",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_release_manager_for_repo": {
+          "matched": true,
+          "subject_values_contains": [
+            "team:payments"
+          ],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        },
+        "infer_team_lead_for_repo": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        }
+      },
+      "expected_matched_rules_contains": [
+        "deny_change_freeze_window"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "deny_change_freeze_window"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "is_release_manager": true,
+        "is_team_lead": false
+      }
+    },
+    {
+      "name": "release_manager_allowed_open_window",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_release_manager_for_repo": {
+          "matched": true,
+          "subject_values_contains": [
+            "team:payments"
+          ],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        },
+        "infer_team_lead_for_repo": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_release_manager_in_valid_window"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "allow_release_manager_in_valid_window"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "is_release_manager": true,
+        "is_team_lead": false
+      }
+    },
+    {
+      "name": "release_manager_outside_validity_denied_by_fallback",
+      "mode": "model_route",
+      "expected_effect": "deny",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_release_manager_for_repo": {
+          "matched": true,
+          "subject_values_contains": [
+            "team:payments"
+          ],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        },
+        "infer_team_lead_for_repo": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        }
+      },
+      "expected_matched_rules_contains": [
+        "deny_critical_repo_fallback"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "deny_critical_repo_fallback"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "is_release_manager": true,
+        "is_team_lead": false
+      }
+    },
+    {
+      "name": "team_lead_day_shift_allowed_when_not_release_manager",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_release_manager_for_repo": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        },
+        "infer_team_lead_for_repo": {
+          "matched": true,
+          "subject_values_contains": [
+            "team:payments"
+          ],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_team_lead_day_shift"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "allow_team_lead_day_shift"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "is_release_manager": false,
+        "is_team_lead": true
+      }
+    },
+    {
+      "name": "missing_change_window_results_indeterminate",
+      "mode": "model_route",
+      "expected_effect": "indeterminate",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_release_manager_for_repo": {
+          "matched": true,
+          "subject_values_contains": [
+            "team:payments"
+          ],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        },
+        "infer_team_lead_for_repo": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "is_release_manager": true,
+        "is_team_lead": false
+      }
+    },
+    {
+      "name": "other_team_release_manager_denied_by_fallback",
+      "mode": "model_route",
+      "expected_effect": "deny",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_release_manager_for_repo": {
+          "matched": false,
+          "subject_values_contains": [
+            "team:search"
+          ],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        },
+        "infer_team_lead_for_repo": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": [
+            "team:payments"
+          ]
+        }
+      },
+      "expected_matched_rules_contains": [
+        "deny_critical_repo_fallback"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "deny_critical_repo_fallback"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "is_release_manager": false,
+        "is_team_lead": false
+      }
+    }
+  ]
+}

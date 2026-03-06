@@ -1,0 +1,273 @@
+{
+  "required_relations": [
+    {
+      "from": "department:rnd_ai",
+      "to": "department:rnd_center",
+      "relation_type": "parent_department"
+    },
+    {
+      "from": "department:rnd_center",
+      "to": "department:tech_group",
+      "relation_type": "parent_department"
+    },
+    {
+      "from": "dashboard:platform_incident",
+      "to": "user:alice",
+      "relation_type": "owned_by"
+    }
+  ],
+  "decision_expectations": [
+    {
+      "name": "sibling_department_same_bu_can_read_normal",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_direct_department": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:rnd_ai"
+          ],
+          "object_values_contains": [
+            "department:rnd_platform"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_same_bu_parent_chain": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:tech_group"
+          ],
+          "object_values_contains": [
+            "department:tech_group"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_same_bu_parent_chain_read_normal_dashboard"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "allow_same_bu_parent_chain_read_normal_dashboard"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_direct_department": false,
+        "same_bu_parent_chain": true
+      }
+    },
+    {
+      "name": "same_department_can_read_normal",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_direct_department": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:rnd_platform"
+          ],
+          "object_values_contains": [
+            "department:rnd_platform"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_same_bu_parent_chain": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:tech_group"
+          ],
+          "object_values_contains": [
+            "department:tech_group"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_same_direct_department_read_dashboard",
+        "allow_same_bu_parent_chain_read_normal_dashboard"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "allow_same_direct_department_read_dashboard",
+        "allow_same_bu_parent_chain_read_normal_dashboard"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_direct_department": true,
+        "same_bu_parent_chain": true
+      }
+    },
+    {
+      "name": "cross_bu_cannot_read_normal",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_same_direct_department": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:finance_ops"
+          ],
+          "object_values_contains": [
+            "department:rnd_platform"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_same_bu_parent_chain": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:corp_group"
+          ],
+          "object_values_contains": [
+            "department:tech_group"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_direct_department": false,
+        "same_bu_parent_chain": false
+      }
+    },
+    {
+      "name": "contractor_same_bu_high_denied",
+      "mode": "model_route",
+      "expected_effect": "deny",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_direct_department": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:rnd_ai"
+          ],
+          "object_values_contains": [
+            "department:rnd_platform"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_same_bu_parent_chain": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:tech_group"
+          ],
+          "object_values_contains": [
+            "department:tech_group"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [
+        "deny_contractor_read_high_dashboard"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "deny_contractor_read_high_dashboard"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_direct_department": false,
+        "same_bu_parent_chain": true
+      }
+    },
+    {
+      "name": "same_bu_cannot_read_high_without_direct",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_direct_department": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:rnd_ai"
+          ],
+          "object_values_contains": [
+            "department:rnd_platform"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_same_bu_parent_chain": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:tech_group"
+          ],
+          "object_values_contains": [
+            "department:tech_group"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_direct_department": false,
+        "same_bu_parent_chain": true
+      }
+    },
+    {
+      "name": "same_department_can_read_high",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_direct_department": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:rnd_platform"
+          ],
+          "object_values_contains": [
+            "department:rnd_platform"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_same_bu_parent_chain": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:tech_group"
+          ],
+          "object_values_contains": [
+            "department:tech_group"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_same_direct_department_read_dashboard"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "allow_same_direct_department_read_dashboard"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_direct_department": true,
+        "same_bu_parent_chain": true
+      }
+    }
+  ]
+}

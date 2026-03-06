@@ -1,0 +1,183 @@
+{
+  "model_meta": {
+    "model_id": "tenant_devops_release_window_control",
+    "tenant_id": "tenant_devops",
+    "version": "2026.03.07",
+    "status": "draft",
+    "combining_algorithm": "first-applicable"
+  },
+  "catalogs": {
+    "action_catalog": ["deploy"],
+    "subject_type_catalog": ["user", "role", "team"],
+    "object_type_catalog": ["repo"],
+    "subject_relation_type_catalog": [
+      "holds_role",
+      "role_scope_team",
+      "leads_team"
+    ],
+    "object_relation_type_catalog": [
+      "repo_owned_by_team"
+    ],
+    "subject_object_relation_type_catalog": []
+  },
+  "relation_signature": {
+    "subject_relations": [
+      {
+        "relation_type": "holds_role",
+        "from_types": ["user"],
+        "to_types": ["role"]
+      },
+      {
+        "relation_type": "role_scope_team",
+        "from_types": ["role"],
+        "to_types": ["team"]
+      },
+      {
+        "relation_type": "leads_team",
+        "from_types": ["user"],
+        "to_types": ["team"]
+      }
+    ],
+    "object_relations": [
+      {
+        "relation_type": "repo_owned_by_team",
+        "from_types": ["repo"],
+        "to_types": ["repo"]
+      }
+    ],
+    "subject_object_relations": []
+  },
+  "object_onboarding": {
+    "compatibility_mode": "compat_balanced",
+    "default_profile": "minimal",
+    "profiles": {
+      "minimal": {
+        "required_fields": ["tenant_id", "object_id", "object_type", "created_by"],
+        "autofill": {
+          "owner_ref": "created_by",
+          "sensitivity": "normal"
+        }
+      }
+    },
+    "conditional_required": []
+  },
+  "policies": {
+    "rules": [
+      {
+        "id": "deny_change_freeze_window",
+        "subject_selector": "subject.type == user and context.change_window == freeze",
+        "object_selector": "object.type == repo",
+        "action_set": ["deploy"],
+        "effect": "deny",
+        "priority": 400
+      },
+      {
+        "id": "allow_release_manager_in_valid_window",
+        "subject_selector": "subject.type == user and context.is_release_manager == true",
+        "object_selector": "object.type == repo",
+        "action_set": ["deploy"],
+        "effect": "allow",
+        "priority": 300,
+        "validity": {
+          "start": "2026-03-01T00:00:00.000Z",
+          "end": "2026-03-31T23:59:59.000Z"
+        }
+      },
+      {
+        "id": "allow_team_lead_day_shift",
+        "subject_selector": "subject.type == user and context.is_team_lead == true and context.shift == day",
+        "object_selector": "object.type == repo",
+        "action_set": ["deploy"],
+        "effect": "allow",
+        "priority": 200
+      },
+      {
+        "id": "deny_critical_repo_fallback",
+        "subject_selector": "subject.type == user",
+        "object_selector": "object.type == repo and object.tier == critical",
+        "action_set": ["deploy"],
+        "effect": "deny",
+        "priority": 100
+      }
+    ]
+  },
+  "constraints": {
+    "sod_rules": [],
+    "cardinality_rules": []
+  },
+  "lifecycle": {
+    "event_rules": [
+      {
+        "event_type": "subject_removed",
+        "handler": "revoke_direct_edges",
+        "required": true
+      },
+      {
+        "event_type": "release_window_changed",
+        "handler": "refresh_context_cache",
+        "required": false
+      }
+    ]
+  },
+  "consistency": {
+    "default_level": "bounded_staleness",
+    "high_risk_level": "strong",
+    "bounded_staleness_ms": 1000
+  },
+  "quality_guardrails": {
+    "attribute_quality": {
+      "authority_whitelist": ["iam_system", "release_calendar"],
+      "freshness_ttl_sec": {
+        "role_binding": 300,
+        "team_mapping": 300
+      },
+      "reject_unknown_source": true
+    },
+    "mandatory_obligations": []
+  },
+  "context_inference": {
+    "enabled": true,
+    "rules": [
+      {
+        "id": "infer_release_manager_for_repo",
+        "output_field": "is_release_manager",
+        "subject_edges": [
+          {
+            "relation_type": "holds_role",
+            "entity_side": "from"
+          },
+          {
+            "relation_type": "role_scope_team",
+            "entity_side": "from"
+          }
+        ],
+        "object_edges": [
+          {
+            "relation_type": "repo_owned_by_team",
+            "entity_side": "from"
+          }
+        ]
+      },
+      {
+        "id": "infer_team_lead_for_repo",
+        "output_field": "is_team_lead",
+        "subject_edges": [
+          {
+            "relation_type": "leads_team",
+            "entity_side": "from"
+          }
+        ],
+        "object_edges": [
+          {
+            "relation_type": "repo_owned_by_team",
+            "entity_side": "from"
+          }
+        ]
+      }
+    ],
+    "constraints": {
+      "monotonic_only": true,
+      "stratified_negation": false
+    }
+  }
+}

@@ -1,0 +1,204 @@
+{
+  "route": {
+    "tenant_id": "tenant_orbit",
+    "environment": "prod"
+  },
+  "namespace_prefix": "tenant_orbit.kb.lineage_incident",
+  "objects": [
+    {
+      "object_id": "kb:core_source",
+      "object_type": "kb",
+      "owner_ref": "user:alice",
+      "sensitivity": "high"
+    },
+    {
+      "object_id": "kb:core_stage1",
+      "object_type": "kb",
+      "owner_ref": "user:alice",
+      "sensitivity": "high"
+    },
+    {
+      "object_id": "kb:core_stage2",
+      "object_type": "kb",
+      "owner_ref": "user:ops_bot",
+      "sensitivity": "high"
+    },
+    {
+      "object_id": "kb:core_stage3",
+      "object_type": "kb",
+      "owner_ref": "user:vendor_z",
+      "sensitivity": "high"
+    },
+    {
+      "object_id": "kb:public_faq",
+      "object_type": "kb",
+      "owner_ref": "user:alice",
+      "sensitivity": "normal"
+    }
+  ],
+  "relation_events": [
+    {
+      "from": "user:alice",
+      "to": "department:rnd",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:bob",
+      "to": "department:legal",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:ops_bot",
+      "to": "department:ops",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "user:mallory",
+      "to": "department:ext",
+      "relation_type": "belongs_to_department",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:rnd",
+      "to": "company:acme",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:legal",
+      "to": "company:acme",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:ops",
+      "to": "company:acme",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "department:ext",
+      "to": "company:thirdco",
+      "relation_type": "belongs_to_company",
+      "operation": "upsert"
+    },
+    {
+      "from": "kb:core_source",
+      "to": "kb:core_stage1",
+      "relation_type": "derives_to",
+      "operation": "upsert"
+    },
+    {
+      "from": "kb:core_stage1",
+      "to": "kb:core_stage2",
+      "relation_type": "derives_to",
+      "operation": "upsert"
+    },
+    {
+      "from": "kb:core_stage2",
+      "to": "kb:core_stage3",
+      "relation_type": "derives_to",
+      "operation": "upsert"
+    }
+  ],
+  "decision_inputs": [
+    {
+      "name": "acme_user_can_read_high_when_incident_active",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:bob",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:core_stage3",
+          "type": "kb",
+          "sensitivity": "high"
+        },
+        "context": {
+          "incident_active": true,
+          "request_time": "2026-03-15T10:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "acme_user_denied_when_incident_inactive",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:bob",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:core_stage3",
+          "type": "kb",
+          "sensitivity": "high"
+        },
+        "context": {
+          "incident_active": false,
+          "request_time": "2026-03-15T10:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "thirdco_user_not_applicable_when_incident_active",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:mallory",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:core_stage3",
+          "type": "kb",
+          "sensitivity": "high"
+        },
+        "context": {
+          "incident_active": true,
+          "request_time": "2026-03-15T10:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "acme_user_not_applicable_after_validity_window",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:bob",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:core_stage3",
+          "type": "kb",
+          "sensitivity": "high"
+        },
+        "context": {
+          "incident_active": true,
+          "request_time": "2026-04-10T10:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "any_user_can_read_normal_kb",
+      "input": {
+        "action": "read",
+        "subject": {
+          "id": "user:mallory",
+          "type": "user"
+        },
+        "object": {
+          "id": "kb:public_faq",
+          "type": "kb",
+          "sensitivity": "normal"
+        },
+        "context": {
+          "incident_active": false,
+          "request_time": "2026-03-15T10:00:00.000Z"
+        }
+      }
+    }
+  ]
+}

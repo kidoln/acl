@@ -1,0 +1,275 @@
+{
+  "required_relations": [
+    {
+      "from": "user:carol",
+      "to": "oncall:finance_ir",
+      "relation_type": "member_of_oncall"
+    },
+    {
+      "from": "oncall:finance_ir",
+      "to": "department:finance",
+      "relation_type": "oncall_group_for_department"
+    },
+    {
+      "from": "dataset:payments_prod",
+      "to": "user:alice",
+      "relation_type": "owned_by"
+    }
+  ],
+  "decision_expectations": [
+    {
+      "name": "finance_member_read_high_dataset",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:finance"
+          ],
+          "object_values_contains": [
+            "department:finance"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_oncall_department_match": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": [
+            "department:finance"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_read_same_department_owner_resource"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "allow_read_same_department_owner_resource"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_department_owner": true,
+        "oncall_department_match": false
+      }
+    },
+    {
+      "name": "security_oncall_read_high_dataset",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_owner": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:security"
+          ],
+          "object_values_contains": [
+            "department:finance"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_oncall_department_match": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:finance"
+          ],
+          "object_values_contains": [
+            "department:finance"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_read_oncall_department_resource"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "allow_read_oncall_department_resource"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_department_owner": false,
+        "oncall_department_match": true
+      }
+    },
+    {
+      "name": "security_oncall_export_high_dataset_denied",
+      "mode": "model_route",
+      "expected_effect": "deny",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_owner": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:security"
+          ],
+          "object_values_contains": [
+            "department:finance"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_oncall_department_match": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:finance"
+          ],
+          "object_values_contains": [
+            "department:finance"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [
+        "deny_export_high_sensitivity"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "deny_export_high_sensitivity"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_department_owner": false,
+        "oncall_department_match": true
+      }
+    },
+    {
+      "name": "security_oncall_export_low_dataset_allowed",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_owner": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:security"
+          ],
+          "object_values_contains": [
+            "department:finance"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_oncall_department_match": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:finance"
+          ],
+          "object_values_contains": [
+            "department:finance"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_export_oncall_low_sensitivity"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "allow_export_oncall_low_sensitivity"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_department_owner": false,
+        "oncall_department_match": true
+      }
+    },
+    {
+      "name": "legal_oncall_read_legal_dataset",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:legal"
+          ],
+          "object_values_contains": [
+            "department:legal"
+          ],
+          "object_owner_ref": "user:tom"
+        },
+        "infer_oncall_department_match": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:legal"
+          ],
+          "object_values_contains": [
+            "department:legal"
+          ],
+          "object_owner_ref": "user:tom"
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_read_same_department_owner_resource",
+        "allow_read_oncall_department_resource"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "allow_read_same_department_owner_resource",
+        "allow_read_oncall_department_resource"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_department_owner": true,
+        "oncall_department_match": true
+      }
+    },
+    {
+      "name": "legal_oncall_cannot_read_finance_dataset",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_same_department_owner": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:legal"
+          ],
+          "object_values_contains": [
+            "department:finance"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_oncall_department_match": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:legal"
+          ],
+          "object_values_contains": [
+            "department:finance"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_department_owner": false,
+        "oncall_department_match": false
+      }
+    }
+  ]
+}
