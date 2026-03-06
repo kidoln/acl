@@ -1116,6 +1116,7 @@ interface InstanceGraphPayload {
     id: string;
     label: string;
     category: "subject" | "object" | "mixed";
+    subject_type?: string;
   }>;
   edges: Array<{
     from: string;
@@ -1124,6 +1125,81 @@ interface InstanceGraphPayload {
     dashed: boolean;
     color: string;
   }>;
+  subject_layout?: {
+    type_catalog: string[];
+    type_edges: Array<{
+      from_type: string;
+      to_type: string;
+    }>;
+  };
+}
+
+interface SubjectLayoutModelMeta {
+  typeCatalog: string[];
+  typeEdges: Array<{
+    fromType: string;
+    toType: string;
+  }>;
+}
+
+function inferEntityTypeFromId(entityId: string): string | null {
+  const separatorIndex = entityId.indexOf(":");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+  const candidate = entityId.slice(0, separatorIndex).trim();
+  return candidate.length > 0 ? candidate : null;
+}
+
+function collectSubjectLayoutModelMeta(
+  viewModel: ConsolePageViewModel,
+): SubjectLayoutModelMeta {
+  const sourceRecord = pickPublishRecordForOverview(viewModel);
+  const modelSnapshot = sourceRecord
+    ? getModelSnapshotFromPublish(sourceRecord)
+    : null;
+  if (!modelSnapshot) {
+    return {
+      typeCatalog: [],
+      typeEdges: [],
+    };
+  }
+
+  const catalogs = asRecord(modelSnapshot.catalogs);
+  const relationSignature = asRecord(modelSnapshot.relation_signature);
+  const subjectRelationItems = Array.isArray(relationSignature?.subject_relations)
+    ? relationSignature.subject_relations
+    : [];
+  const typeCatalog = normalizeStringArray(catalogs?.subject_type_catalog);
+
+  const dedupTypeEdgeKeys = new Set<string>();
+  const typeEdges: SubjectLayoutModelMeta["typeEdges"] = [];
+  subjectRelationItems.forEach((item) => {
+    const relation = asRecord(item);
+    if (!relation) {
+      return;
+    }
+    const fromTypes = normalizeStringArray(relation.from_types);
+    const toTypes = normalizeStringArray(relation.to_types);
+    fromTypes.forEach((fromType) => {
+      toTypes.forEach((toType) => {
+        const edgeKey = `${fromType}->${toType}`;
+        if (dedupTypeEdgeKeys.has(edgeKey)) {
+          return;
+        }
+        dedupTypeEdgeKeys.add(edgeKey);
+        typeEdges.push({
+          fromType,
+          toType,
+        });
+      });
+    });
+  });
+
+  return {
+    typeCatalog,
+    typeEdges,
+  };
 }
 
 function buildInstanceGraphPayload(
@@ -1135,6 +1211,8 @@ function buildInstanceGraphPayload(
   const relationItems = viewModel.control_relations?.ok
     ? viewModel.control_relations.data.items
     : [];
+  const subjectLayoutModelMeta = collectSubjectLayoutModelMeta(viewModel);
+  const subjectTypeCatalogSet = new Set(subjectLayoutModelMeta.typeCatalog);
 
   const nodeMeta = new Map<
     string,
@@ -1143,23 +1221,46 @@ function buildInstanceGraphPayload(
       label: string;
       isObject: boolean;
       isSubject: boolean;
+      subjectType?: string;
     }
   >();
   const edgeMap = new Map<string, InstanceGraphPayload["edges"][number]>();
 
+  const inferSubjectType = (nodeId: string): string | undefined => {
+    const inferredType = inferEntityTypeFromId(nodeId);
+    if (!inferredType) {
+      return undefined;
+    }
+    if (
+      subjectTypeCatalogSet.size > 0 &&
+      !subjectTypeCatalogSet.has(inferredType)
+    ) {
+      return undefined;
+    }
+    return inferredType;
+  };
+
   const ensureNode = (
     id: string,
     label: string,
-    options?: { asObject?: boolean; asSubject?: boolean },
+    options?: { asObject?: boolean; asSubject?: boolean; subjectType?: string },
   ): void => {
     const trimmedId = id.trim();
     if (trimmedId.length === 0) {
       return;
     }
+    const normalizedSubjectType = options?.subjectType?.trim();
     const existing = nodeMeta.get(trimmedId);
     if (existing) {
       existing.isObject = existing.isObject || options?.asObject === true;
       existing.isSubject = existing.isSubject || options?.asSubject === true;
+      if (
+        normalizedSubjectType &&
+        normalizedSubjectType.length > 0 &&
+        !existing.subjectType
+      ) {
+        existing.subjectType = normalizedSubjectType;
+      }
       if (
         label.trim().length > 0 &&
         existing.label === trimmedId &&
@@ -1174,6 +1275,10 @@ function buildInstanceGraphPayload(
       label: label.trim().length > 0 ? label.trim() : trimmedId,
       isObject: options?.asObject === true,
       isSubject: options?.asSubject === true,
+      subjectType:
+        normalizedSubjectType && normalizedSubjectType.length > 0
+          ? normalizedSubjectType
+          : undefined,
     });
   };
 
@@ -1209,7 +1314,10 @@ function buildInstanceGraphPayload(
     if (ownerRef.length === 0) {
       return;
     }
-    ensureNode(ownerRef, ownerRef, { asSubject: true });
+    ensureNode(ownerRef, ownerRef, {
+      asSubject: true,
+      subjectType: inferSubjectType(ownerRef),
+    });
     appendEdge({
       from: ownerRef,
       to: objectId,
@@ -1225,8 +1333,14 @@ function buildInstanceGraphPayload(
     if (from.length === 0 || to.length === 0) {
       return;
     }
-    ensureNode(from, from, { asSubject: true });
-    ensureNode(to, to, { asSubject: true });
+    ensureNode(from, from, {
+      asSubject: true,
+      subjectType: inferSubjectType(from),
+    });
+    ensureNode(to, to, {
+      asSubject: true,
+      subjectType: inferSubjectType(to),
+    });
 
     const relationType = item.relation_type.trim();
     const scope = (item.scope ?? "").trim();
@@ -1258,6 +1372,11 @@ function buildInstanceGraphPayload(
         id: item.id,
         label: item.label,
         category,
+        ...(item.subjectType
+          ? {
+              subject_type: item.subjectType,
+            }
+          : {}),
       };
     })
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -1265,6 +1384,13 @@ function buildInstanceGraphPayload(
   return {
     nodes,
     edges: [...edgeMap.values()],
+    subject_layout: {
+      type_catalog: subjectLayoutModelMeta.typeCatalog,
+      type_edges: subjectLayoutModelMeta.typeEdges.map((item) => ({
+        from_type: item.fromType,
+        to_type: item.toType,
+      })),
+    },
   };
 }
 
@@ -1566,7 +1692,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
   return (
     `<article class="card card-hover">` +
     `<h3>控制面总览</h3>` +
-    `<form class="filters toolbar" method="GET" action="/">` +
+    `<form class="filters toolbar" method="GET" action="/" data-control-incremental="true" data-control-namespace-form="true">` +
     `<label>命名空间 Namespace` +
     `<input type="text" name="namespace" value="${escapeHtml(namespace)}" placeholder="tenant_a.crm" />` +
     `</label>` +
@@ -1579,6 +1705,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<button type="submit" class="btn btn-primary">切换命名空间</button>` +
     `</form>` +
     publishedMetricsSection +
+    `<section data-control-runtime-summary>` +
     `<p class="muted metric-caption">运行态控制面统计（subject 来自 relation 端点与 object.owner_ref 推断）</p>` +
     controlRuntimeHint +
     `<section class="decision-grid">` +
@@ -1586,6 +1713,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<div class="metric"><span>objects</span><strong>${overviewMetrics.objects}</strong></div>` +
     `<div class="metric"><span>relations</span><strong>${overviewMetrics.relations}</strong></div>` +
     `<div class="metric"><span>model routes</span><strong>${modelRouteCount}</strong></div>` +
+    `</section>` +
     `</section>` +
     `<p class="muted metric-caption">说明：下方维护操作只写入控制面运行态数据，不会回写“策略模型提交”卡片中的 JSON。</p>` +
     `<section class="management-grid model-submit-grid">` +
@@ -1657,7 +1785,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<h4>Instance 导入 / 维护 / 展示</h4>` +
     `<p class="muted">此卡片只维护运行态 instance 数据（model_route / object / relation），不会修改上方“策略模型提交”的 JSON。</p>` +
     `<section class="model-editor" data-instance-editor>` +
-    `<form class="action-form setup-fixture-form" method="POST" action="/actions/control/setup/apply">` +
+    `<form class="action-form setup-fixture-form" method="POST" action="/actions/control/setup/apply" data-control-incremental="true" data-control-setup-form="true">` +
     `<h4>预置场景批量导入</h4>` +
     hiddenWithoutNamespace +
     `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
@@ -1665,7 +1793,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<p class="muted">一键写入 Object / Relation，适合快速回放 fixture 中预制的主体、客体与关系数据。</p>` +
     `<button type="submit" class="btn btn-primary" ${setupFixtureSubmitAttr}>执行批量 Setup</button>` +
     `</form>` +
-    fixedRuntimeSectionWithFallback +
+    `<section data-control-fixed-runtime>${fixedRuntimeSectionWithFallback}</section>` +
     `<section class="instance-object-relation-block" data-json-scope>` +
     `<div class="model-editor-head">` +
     `<p class="muted">客体台账 / 关系边视图</p>` +
@@ -1673,18 +1801,19 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `</div>` +
     `<section class="json-switchable" data-json-switchable>` +
     `<div class="json-view" data-json-view="visual">` +
-    objectRelationSectionWithFallback +
+    `<section data-control-object-relation-visual>${objectRelationSectionWithFallback}</section>` +
     `</div>` +
     `<div class="json-view" data-json-view="graph" hidden>` +
-    `<section class="model-graph" data-instance-graph>` +
+    `<section class="model-graph" data-instance-graph data-subject-tree-direction="bottom-up">` +
     `<textarea hidden data-instance-graph-payload>${instanceGraphPayloadJson}</textarea>` +
     `<p class="muted model-graph-placeholder">Graph 视图展示当前命名空间全部 instance 关系（relation_events + object.owner_ref）。</p>` +
-    `<div class="model-graph-chart-wrap"><button type="button" class="model-graph-zoom-reset" title="重置缩放">重置</button><div class="model-graph-echart" data-instance-echart role="img" aria-label="Instance 关系图"></div></div>` +
-    `<p class="muted model-graph-legend">说明：节点为运行态主体/客体实例；边标签为 relation_type（含 scope）；虚线代表 owner_ref 关系。</p>` +
+    `<div class="instance-graph-layout-bar"><span class="muted">Subject 树方向</span><div class="json-toggle" role="tablist" aria-label="Subject 树方向"><button type="button" class="json-toggle-btn active" data-instance-subject-direction-btn="bottom-up" aria-pressed="true">自下而上</button><button type="button" class="json-toggle-btn" data-instance-subject-direction-btn="top-down" aria-pressed="false">自上而下</button></div></div>` +
+    `<div class="model-graph-chart-wrap"><div class="instance-graph-actions"><button type="button" class="model-graph-node-hide" data-instance-hide-node title="先点击一个节点，再点击隐藏" disabled>隐藏节点</button><button type="button" class="model-graph-zoom-reset" title="重置缩放并恢复全部节点">重置</button></div><div class="model-graph-echart" data-instance-echart role="img" aria-label="Instance 关系图"></div></div>` +
+    `<p class="muted model-graph-legend">说明：左侧 subject 节点按模型定义的 type 分层树状布局（同 type 同层，可切换自下而上/自上而下）；边标签为 relation_type（含 scope）；虚线代表 owner_ref 关系。点击节点后可用“隐藏节点”临时隐藏该节点及关联边，点击“重置”恢复全部节点。</p>` +
     `</section>` +
     `</div>` +
     `<div class="json-view" data-json-view="raw" hidden>` +
-    `<form class="action-form" method="POST" action="/actions/control/instance/json/apply">` +
+    `<form class="action-form" method="POST" action="/actions/control/instance/json/apply" data-control-incremental="true" data-control-instance-json-form="true">` +
     hiddenWithoutNamespace +
     `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
     `<label>Instance JSON<textarea name="instance_json" rows="16" required>${instanceSnapshotJson}</textarea></label>` +

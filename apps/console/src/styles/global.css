@@ -673,6 +673,16 @@ body {
   position: relative;
 }
 
+.instance-graph-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .model-graph-zoom-reset {
   position: absolute;
   top: 8px;
@@ -691,9 +701,34 @@ body {
     background 0.15s;
 }
 
-.model-graph-zoom-reset:hover {
+.model-graph-node-hide {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #475569;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0.86;
+  transition:
+    opacity 0.15s,
+    background 0.15s;
+}
+
+.instance-graph-actions > .model-graph-zoom-reset {
+  position: static;
+}
+
+.model-graph-zoom-reset:hover,
+.model-graph-node-hide:hover {
   opacity: 1;
   background: #fff;
+}
+
+.model-graph-node-hide:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .model-graph-echart {
@@ -704,6 +739,19 @@ body {
 
 .model-graph-empty {
   margin: 0;
+}
+
+.instance-graph-layout-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.instance-graph-layout-bar > .muted {
+  margin: 0;
+  font-size: 12px;
 }
 
 .model-graph-legend {

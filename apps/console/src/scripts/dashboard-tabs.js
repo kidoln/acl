@@ -48,6 +48,258 @@
     );
   }
 
+  const CONTROL_INCREMENTAL_FORM_SELECTOR =
+    'form[data-control-incremental="true"]';
+  const CONTROL_INCREMENTAL_REPLACE_SELECTORS = [
+    "main.shell > .hero",
+    "[data-control-runtime-summary]",
+    "[data-control-fixed-runtime]",
+    "[data-control-object-relation-visual]",
+    'form[data-control-namespace-form="true"]',
+    'form[data-control-setup-form="true"]',
+    'form[data-control-instance-json-form="true"]',
+  ];
+
+  function initControlIncrementalRefresh() {
+    if (
+      document.body.getAttribute("data-control-incremental-refresh-bound") ===
+      "true"
+    ) {
+      return;
+    }
+    document.body.setAttribute("data-control-incremental-refresh-bound", "true");
+
+    const replaceBySelector = (nextDoc, selector) => {
+      const currentNode = document.querySelector(selector);
+      const nextNode = nextDoc.querySelector(selector);
+      if (!currentNode || !nextNode) {
+        return false;
+      }
+      currentNode.replaceWith(nextNode);
+      return true;
+    };
+
+    const findDirectChildByClass = (container, className) =>
+      Array.from(container.children).find(
+        (node) =>
+          node instanceof HTMLElement && node.classList.contains(className),
+      ) || null;
+
+    const syncFlashSection = (nextDoc) => {
+      const currentMain = document.querySelector("main.shell");
+      const nextMain = nextDoc.querySelector("main.shell");
+      if (!(currentMain instanceof HTMLElement) || !(nextMain instanceof HTMLElement)) {
+        return false;
+      }
+
+      const currentFlash = findDirectChildByClass(currentMain, "flash");
+      const nextFlash = findDirectChildByClass(nextMain, "flash");
+      if (currentFlash && nextFlash) {
+        currentFlash.replaceWith(nextFlash);
+        return true;
+      }
+      if (currentFlash && !nextFlash) {
+        currentFlash.remove();
+        return true;
+      }
+      if (!currentFlash && nextFlash) {
+        const tabNav = findDirectChildByClass(currentMain, "tab-nav");
+        if (tabNav) {
+          tabNav.insertAdjacentElement("afterend", nextFlash);
+          return true;
+        }
+        const hero = findDirectChildByClass(currentMain, "hero");
+        if (hero) {
+          hero.insertAdjacentElement("afterend", nextFlash);
+          return true;
+        }
+        currentMain.prepend(nextFlash);
+        return true;
+      }
+      return false;
+    };
+
+    const readTextPayload = (node) => {
+      if (node instanceof HTMLTextAreaElement) {
+        return node.value;
+      }
+      return node.textContent || "";
+    };
+
+    const writeTextPayload = (node, value) => {
+      if (node instanceof HTMLTextAreaElement) {
+        node.value = value;
+        return;
+      }
+      node.textContent = value;
+    };
+
+    const syncInstanceGraphPayload = (nextDoc) => {
+      const currentPayloadNode = document.querySelector(
+        "[data-instance-graph-payload]",
+      );
+      const nextPayloadNode = nextDoc.querySelector(
+        "[data-instance-graph-payload]",
+      );
+      if (!currentPayloadNode || !nextPayloadNode) {
+        return false;
+      }
+
+      const nextValue = readTextPayload(nextPayloadNode);
+      const currentValue = readTextPayload(currentPayloadNode);
+      if (currentValue === nextValue) {
+        return false;
+      }
+
+      writeTextPayload(currentPayloadNode, nextValue);
+      const switchable = currentPayloadNode.closest("[data-json-switchable]");
+      const graphView = switchable?.querySelector('[data-json-view="graph"]');
+      if (graphView && !graphView.hidden) {
+        document.dispatchEvent(
+          new CustomEvent("acl:model-graph-visible", {
+            detail: {
+              switchableId:
+                switchable.getAttribute("data-json-switchable-id") || "",
+            },
+          }),
+        );
+      }
+      return true;
+    };
+
+    const applyControlPartialUpdate = (nextDoc) => {
+      let changed = false;
+      CONTROL_INCREMENTAL_REPLACE_SELECTORS.forEach((selector) => {
+        if (replaceBySelector(nextDoc, selector)) {
+          changed = true;
+        }
+      });
+      if (syncFlashSection(nextDoc)) {
+        changed = true;
+      }
+      if (syncInstanceGraphPayload(nextDoc)) {
+        changed = true;
+      }
+      if (nextDoc.title && nextDoc.title.trim().length > 0) {
+        document.title = nextDoc.title;
+      }
+      return changed;
+    };
+
+    const toGetRequestUrl = (form) => {
+      const actionUrl = new URL(
+        form.getAttribute("action") || window.location.href,
+        window.location.href,
+      );
+      const formData = new FormData(form);
+      const params = new URLSearchParams();
+      formData.forEach((value, key) => {
+        if (typeof value === "string") {
+          params.append(key, value);
+        }
+      });
+      actionUrl.search = params.toString();
+      return actionUrl.toString();
+    };
+
+    const fallbackNativeSubmit = (form) => {
+      form.setAttribute("data-control-incremental-bypass", "true");
+      form.removeAttribute("data-control-incremental-pending");
+      HTMLFormElement.prototype.submit.call(form);
+    };
+
+    document.addEventListener("submit", async (event) => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) {
+        return;
+      }
+      if (!form.matches(CONTROL_INCREMENTAL_FORM_SELECTOR)) {
+        return;
+      }
+      if (form.getAttribute("data-control-incremental-bypass") === "true") {
+        form.removeAttribute("data-control-incremental-bypass");
+        return;
+      }
+      if (form.getAttribute("data-control-incremental-pending") === "true") {
+        event.preventDefault();
+        return;
+      }
+
+      event.preventDefault();
+      form.setAttribute("data-control-incremental-pending", "true");
+
+      const submitButtons = Array.from(
+        form.querySelectorAll('button[type="submit"], input[type="submit"]'),
+      );
+      const prevDisabledStates = submitButtons.map((button) => button.disabled);
+      submitButtons.forEach((button) => {
+        button.disabled = true;
+      });
+
+      let usedNativeFallback = false;
+      try {
+        const method = (form.getAttribute("method") || "GET")
+          .trim()
+          .toUpperCase();
+        let response;
+        if (method === "GET") {
+          const requestUrl = toGetRequestUrl(form);
+          response = await fetch(requestUrl, {
+            method: "GET",
+            headers: {
+              Accept: "text/html,application/xhtml+xml",
+            },
+          });
+        } else {
+          const requestUrl = new URL(
+            form.getAttribute("action") || window.location.href,
+            window.location.href,
+          );
+          const formData = new FormData(form);
+          response = await fetch(requestUrl.toString(), {
+            method,
+            body: formData,
+            headers: {
+              Accept: "text/html,application/xhtml+xml",
+            },
+          });
+        }
+
+        const contentType = response.headers.get("content-type") || "";
+        if (!response.ok || !contentType.includes("text/html")) {
+          usedNativeFallback = true;
+          fallbackNativeSubmit(form);
+          return;
+        }
+
+        const html = await response.text();
+        const nextDoc = new DOMParser().parseFromString(html, "text/html");
+        if (!applyControlPartialUpdate(nextDoc)) {
+          usedNativeFallback = true;
+          fallbackNativeSubmit(form);
+          return;
+        }
+
+        if (response.url && response.url.length > 0) {
+          window.history.replaceState(window.history.state, "", response.url);
+        }
+      } catch {
+        usedNativeFallback = true;
+        fallbackNativeSubmit(form);
+      } finally {
+        if (!usedNativeFallback) {
+          form.removeAttribute("data-control-incremental-pending");
+          submitButtons.forEach((button, index) => {
+            if (!button.isConnected) {
+              return;
+            }
+            button.disabled = prevDisabledStates[index] ?? false;
+          });
+        }
+      }
+    });
+  }
+
   function initTabNav() {
     const tabNav = document.querySelector(".tab-nav");
     if (!tabNav) {
@@ -2213,6 +2465,119 @@
       instanceCanvasWidth / instanceCanvasHeight,
       0.1,
     );
+    const defaultSubjectTreeDirection = "bottom-up";
+    const validSubjectTreeDirections = new Set(["bottom-up", "top-down"]);
+
+    const normalizeSubjectTreeDirection = (value) =>
+      validSubjectTreeDirections.has(value) ? value : defaultSubjectTreeDirection;
+
+    const readSubjectTreeDirection = (editor) =>
+      normalizeSubjectTreeDirection(
+        editor.getAttribute("data-subject-tree-direction") || "",
+      );
+
+    const writeSubjectTreeDirection = (editor, direction) => {
+      editor.setAttribute(
+        "data-subject-tree-direction",
+        normalizeSubjectTreeDirection(direction),
+      );
+    };
+
+    const hiddenNodeIdsByEditor = new WeakMap();
+    const selectedNodeIdByEditor = new WeakMap();
+    const manualNodePositionsByEditor = new WeakMap();
+
+    const readHiddenNodeIds = (editor) => {
+      const current = hiddenNodeIdsByEditor.get(editor);
+      if (current instanceof Set) {
+        return current;
+      }
+      const next = new Set();
+      hiddenNodeIdsByEditor.set(editor, next);
+      return next;
+    };
+
+    const readSelectedNodeId = (editor) => {
+      const value = selectedNodeIdByEditor.get(editor);
+      return typeof value === "string" ? value : "";
+    };
+
+    const writeSelectedNodeId = (editor, nodeId) => {
+      if (typeof nodeId === "string" && nodeId.length > 0) {
+        selectedNodeIdByEditor.set(editor, nodeId);
+        return;
+      }
+      selectedNodeIdByEditor.delete(editor);
+    };
+
+    const clearGraphVisibilityState = (editor) => {
+      hiddenNodeIdsByEditor.delete(editor);
+      writeSelectedNodeId(editor, "");
+    };
+
+    const readManualNodePositionMap = (editor) => {
+      const current = manualNodePositionsByEditor.get(editor);
+      if (current instanceof Map) {
+        return current;
+      }
+      const next = new Map();
+      manualNodePositionsByEditor.set(editor, next);
+      return next;
+    };
+
+    const clearManualNodePositions = (editor) => {
+      manualNodePositionsByEditor.delete(editor);
+    };
+
+    const snapshotManualNodePositionsFromChart = (editor, chart) => {
+      if (!chart || typeof chart.getOption !== "function") {
+        return;
+      }
+      const chartOption = chart.getOption();
+      const seriesList = Array.isArray(chartOption?.series)
+        ? chartOption.series
+        : [];
+      if (seriesList.length === 0) {
+        return;
+      }
+      const graphSeries =
+        seriesList.find((series) => series && series.type === "graph") ||
+        seriesList[0];
+      const dataList = Array.isArray(graphSeries?.data) ? graphSeries.data : [];
+      if (dataList.length === 0) {
+        return;
+      }
+      const manualNodePositionMap = readManualNodePositionMap(editor);
+      dataList.forEach((item) => {
+        const nodeId =
+          typeof item?.node_id === "string"
+            ? item.node_id
+            : typeof item?.id === "string"
+              ? item.id
+              : "";
+        const x = Number(item?.x);
+        const y = Number(item?.y);
+        if (nodeId.length === 0 || !Number.isFinite(x) || !Number.isFinite(y)) {
+          return;
+        }
+        manualNodePositionMap.set(nodeId, { x, y });
+      });
+    };
+
+    const updateHideNodeButtonState = (editor, visibleNodeIdSet) => {
+      const hideNodeBtn = editor.querySelector("[data-instance-hide-node]");
+      if (!(hideNodeBtn instanceof HTMLButtonElement)) {
+        return;
+      }
+      const selectedNodeId = readSelectedNodeId(editor);
+      const canHide =
+        selectedNodeId.length > 0 && visibleNodeIdSet.has(selectedNodeId);
+      hideNodeBtn.disabled = !canHide;
+      hideNodeBtn.setAttribute("aria-disabled", canHide ? "false" : "true");
+      hideNodeBtn.title = canHide
+        ? `隐藏节点：${selectedNodeId}`
+        : "先点击一个节点，再点击隐藏";
+    };
 
     const queueEditorRender = (editor) => {
       if (!(editor instanceof HTMLElement)) {
@@ -2320,6 +2685,49 @@
       });
     };
 
+    const normalizeStringArray = (input) => {
+      if (!Array.isArray(input)) {
+        return [];
+      }
+      return Array.from(
+        new Set(
+          input
+            .filter((item) => typeof item === "string")
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0),
+        ),
+      );
+    };
+
+    const normalizeSubjectTypeEdges = (input) => {
+      if (!Array.isArray(input)) {
+        return [];
+      }
+      const dedupKeys = new Set();
+      const normalizedEdges = [];
+      input.forEach((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+          return;
+        }
+        const fromType =
+          typeof item.from_type === "string" ? item.from_type.trim() : "";
+        const toType = typeof item.to_type === "string" ? item.to_type.trim() : "";
+        if (fromType.length === 0 || toType.length === 0) {
+          return;
+        }
+        const edgeKey = `${fromType}->${toType}`;
+        if (dedupKeys.has(edgeKey)) {
+          return;
+        }
+        dedupKeys.add(edgeKey);
+        normalizedEdges.push({
+          fromType,
+          toType,
+        });
+      });
+      return normalizedEdges;
+    };
+
     const readPayload = (editor) => {
       const payloadField = editor.querySelector(
         "[data-instance-graph-payload]",
@@ -2341,13 +2749,44 @@
         }
         const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
         const edges = Array.isArray(parsed.edges) ? parsed.edges : [];
+        const subjectLayoutRaw =
+          parsed.subject_layout &&
+          typeof parsed.subject_layout === "object" &&
+          !Array.isArray(parsed.subject_layout)
+            ? parsed.subject_layout
+            : null;
+        const subjectLayout = subjectLayoutRaw
+          ? {
+              typeCatalog: normalizeStringArray(subjectLayoutRaw.type_catalog),
+              typeEdges: normalizeSubjectTypeEdges(subjectLayoutRaw.type_edges),
+            }
+          : {
+              typeCatalog: [],
+              typeEdges: [],
+            };
         return {
           nodes,
           edges,
+          subjectLayout,
         };
       } catch {
         return null;
       }
+    };
+
+    const updateSubjectDirectionButtons = (editor) => {
+      const currentDirection = readSubjectTreeDirection(editor);
+      const directionButtons = Array.from(
+        editor.querySelectorAll("[data-instance-subject-direction-btn]"),
+      );
+      directionButtons.forEach((button) => {
+        const direction = normalizeSubjectTreeDirection(
+          button.getAttribute("data-instance-subject-direction-btn") || "",
+        );
+        const isActive = direction === currentDirection;
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
     };
 
     const renderGraph = (editor) => {
@@ -2356,17 +2795,73 @@
       if (!container) {
         return;
       }
+      const chartWrap = container.closest(".model-graph-chart-wrap");
+      if (graphPanel instanceof HTMLElement) {
+        const panelDirection = normalizeSubjectTreeDirection(
+          graphPanel.getAttribute("data-subject-tree-direction") || "",
+        );
+        writeSubjectTreeDirection(editor, panelDirection);
+      }
+      const subjectTreeDirection = readSubjectTreeDirection(editor);
 
       const payload = readPayload(editor);
       if (!payload || payload.nodes.length === 0) {
+        clearManualNodePositions(editor);
+        updateHideNodeButtonState(editor, new Set());
         disposeChart(container);
         container.innerHTML =
           '<p class="muted model-graph-empty">暂无 instance 关系可绘制。</p>';
         return;
       }
 
+      const nodeIdSet = new Set(
+        payload.nodes
+          .map((node) => (typeof node.id === "string" ? node.id : ""))
+          .filter((nodeId) => nodeId.length > 0),
+      );
+      const hiddenNodeIds = readHiddenNodeIds(editor);
+      Array.from(hiddenNodeIds).forEach((nodeId) => {
+        if (!nodeIdSet.has(nodeId)) {
+          hiddenNodeIds.delete(nodeId);
+        }
+      });
+
+      if (!nodeIdSet.has(readSelectedNodeId(editor))) {
+        writeSelectedNodeId(editor, "");
+      }
+      const manualNodePositionMap = readManualNodePositionMap(editor);
+      Array.from(manualNodePositionMap.keys()).forEach((nodeId) => {
+        if (!nodeIdSet.has(nodeId)) {
+          manualNodePositionMap.delete(nodeId);
+        }
+      });
+
+      const visibleNodes = payload.nodes.filter((node) => {
+        const id = typeof node.id === "string" ? node.id : "";
+        if (id.length === 0) {
+          return true;
+        }
+        return !hiddenNodeIds.has(id);
+      });
+      const visibleNodeIdSet = new Set(
+        visibleNodes
+          .map((node) => (typeof node.id === "string" ? node.id : ""))
+          .filter((nodeId) => nodeId.length > 0),
+      );
+      if (!visibleNodeIdSet.has(readSelectedNodeId(editor))) {
+        writeSelectedNodeId(editor, "");
+      }
+      const selectedNodeId = readSelectedNodeId(editor);
+      updateHideNodeButtonState(editor, visibleNodeIdSet);
+      const visibleEdges = payload.edges.filter((edge) => {
+        const from = typeof edge.from === "string" ? edge.from : "";
+        const to = typeof edge.to === "string" ? edge.to : "";
+        return visibleNodeIdSet.has(from) && visibleNodeIdSet.has(to);
+      });
+
       const echartsGlobal = window.echarts;
       if (!echartsGlobal || typeof echartsGlobal.init !== "function") {
+        updateHideNodeButtonState(editor, new Set());
         disposeChart(container);
         container.innerHTML =
           '<p class="muted model-graph-empty">ECharts 未加载，暂无法渲染 Instance Graph。</p>';
@@ -2385,24 +2880,33 @@
           renderer: "canvas",
         });
         chartInstances.set(container, chart);
+      } else {
+        snapshotManualNodePositionsFromChart(editor, chart);
       }
 
-      // 计算节点位置：subject在左边，object在右边，mixed在中间
-      // 基于固定坐标系，再按容器等比映射，避免图形被拉伸
-      const subjectNodes = payload.nodes.filter(
-        (n) => n.category === "subject",
+      // 布局分组：始终基于全量节点计算坐标，隐藏仅影响渲染可见性
+      // 这样“隐藏节点”不会触发剩余节点重新 layout
+      const allNodes = payload.nodes;
+      const layoutSubjectNodes = allNodes.filter((n) => n.category === "subject");
+      const layoutObjectNodes = allNodes.filter((n) => n.category === "object");
+      const layoutMixedNodes = allNodes.filter((n) => n.category === "mixed");
+      const subjectNodeIdSet = new Set(
+        layoutSubjectNodes
+          .map((node) => (typeof node.id === "string" ? node.id : ""))
+          .filter((nodeId) => nodeId.length > 0),
       );
-      const objectNodes = payload.nodes.filter((n) => n.category === "object");
-      const mixedNodes = payload.nodes.filter((n) => n.category === "mixed");
-
-      const chartWrap = container.closest(".model-graph-chart-wrap");
+      const subjectEdges = payload.edges.filter((edge) => {
+        const from = typeof edge.from === "string" ? edge.from : "";
+        const to = typeof edge.to === "string" ? edge.to : "";
+        return subjectNodeIdSet.has(from) && subjectNodeIdSet.has(to);
+      });
 
       // 根据原始坐标比例约束容器尺寸，避免横向拉伸
       if (chartWrap instanceof HTMLElement) {
         const maxColNodes = Math.max(
-          subjectNodes.length,
-          objectNodes.length,
-          mixedNodes.length,
+          layoutSubjectNodes.length,
+          layoutObjectNodes.length,
+          layoutMixedNodes.length,
           1,
         );
         const preferredHeight = Math.max(
@@ -2441,10 +2945,13 @@
       const offsetY = (viewportHeight - renderHeight) / 2;
       const graphLeft = padding + offsetX;
       const graphTop = padding + offsetY;
+      const graphBottom = graphTop + renderHeight;
 
-      const positionNodes = (nodes, xCenter, startY, endY) => {
+      const positionLinearNodes = (nodes, xCenter, startY, endY) => {
         const count = nodes.length;
-        if (count === 0) return;
+        if (count === 0) {
+          return;
+        }
         const step = count > 1 ? (endY - startY) / (count - 1) : 0;
         nodes.forEach((node, i) => {
           node._x = xCenter;
@@ -2452,15 +2959,367 @@
         });
       };
 
-      // subject在左，object在右，mixed在中间
-      const leftX = graphLeft + renderWidth * 0.2;
-      const centerX = graphLeft + renderWidth * 0.5;
-      const rightX = graphLeft + renderWidth * 0.8;
-      const graphBottom = graphTop + renderHeight;
+      const inferEntityTypeFromId = (entityId) => {
+        if (typeof entityId !== "string") {
+          return "";
+        }
+        const separatorIndex = entityId.indexOf(":");
+        if (separatorIndex <= 0) {
+          return "";
+        }
+        return entityId.slice(0, separatorIndex).trim();
+      };
 
-      positionNodes(subjectNodes, leftX, graphTop, graphBottom);
-      positionNodes(mixedNodes, centerX, graphTop, graphBottom);
-      positionNodes(objectNodes, rightX, graphTop, graphBottom);
+      const readNodeSubjectType = (node) =>
+        typeof node.subject_type === "string" ? node.subject_type.trim() : "";
+
+      const buildTypeSortFn = (typeCatalog) => {
+        const typeOrderMap = new Map();
+        typeCatalog.forEach((type, index) => {
+          typeOrderMap.set(type, index);
+        });
+        return (left, right) => {
+          const leftRank = typeOrderMap.has(left)
+            ? typeOrderMap.get(left)
+            : Number.MAX_SAFE_INTEGER;
+          const rightRank = typeOrderMap.has(right)
+            ? typeOrderMap.get(right)
+            : Number.MAX_SAFE_INTEGER;
+          if (leftRank !== rightRank) {
+            return leftRank - rightRank;
+          }
+          return String(left).localeCompare(String(right));
+        };
+      };
+
+      const buildSubjectTypeLevelMap = (
+        nodes,
+        typeCatalog,
+        typeEdges,
+      ) => {
+        const sortTypes = buildTypeSortFn(typeCatalog);
+        const usedTypes = new Set();
+        nodes.forEach((node) => {
+          const nodeType = readNodeSubjectType(node) || inferEntityTypeFromId(node.id);
+          if (nodeType.length > 0) {
+            usedTypes.add(nodeType);
+          }
+        });
+        const allTypes = Array.from(new Set([...typeCatalog, ...usedTypes]));
+        if (allTypes.length === 0) {
+          return new Map();
+        }
+
+        if (typeEdges.length === 0) {
+          const fallbackLevels = new Map();
+          allTypes
+            .slice()
+            .sort(sortTypes)
+            .forEach((type, index) => {
+              fallbackLevels.set(type, index);
+            });
+          return fallbackLevels;
+        }
+
+        const adjacency = new Map();
+        const indegree = new Map();
+        allTypes.forEach((type) => {
+          adjacency.set(type, new Set());
+          indegree.set(type, 0);
+        });
+
+        typeEdges.forEach((edge) => {
+          const fromType =
+            typeof edge.fromType === "string" ? edge.fromType.trim() : "";
+          const toType = typeof edge.toType === "string" ? edge.toType.trim() : "";
+          if (fromType.length === 0 || toType.length === 0) {
+            return;
+          }
+          if (!adjacency.has(fromType)) {
+            adjacency.set(fromType, new Set());
+            indegree.set(fromType, 0);
+          }
+          if (!adjacency.has(toType)) {
+            adjacency.set(toType, new Set());
+            indegree.set(toType, 0);
+          }
+          if (adjacency.get(fromType).has(toType)) {
+            return;
+          }
+          adjacency.get(fromType).add(toType);
+          indegree.set(toType, (indegree.get(toType) || 0) + 1);
+        });
+
+        const orderedTypes = Array.from(adjacency.keys()).sort(sortTypes);
+        const typeLevels = new Map();
+        orderedTypes.forEach((type) => {
+          typeLevels.set(type, 0);
+        });
+        const pending = orderedTypes
+          .filter((type) => (indegree.get(type) || 0) === 0)
+          .sort(sortTypes);
+        const visited = new Set();
+
+        while (pending.length > 0) {
+          const currentType = pending.shift();
+          if (!currentType || visited.has(currentType)) {
+            continue;
+          }
+          visited.add(currentType);
+          const nextLevel = (typeLevels.get(currentType) || 0) + 1;
+          Array.from(adjacency.get(currentType) || [])
+            .sort(sortTypes)
+            .forEach((targetType) => {
+              typeLevels.set(
+                targetType,
+                Math.max(typeLevels.get(targetType) || 0, nextLevel),
+              );
+              indegree.set(targetType, (indegree.get(targetType) || 0) - 1);
+              if ((indegree.get(targetType) || 0) === 0) {
+                pending.push(targetType);
+                pending.sort(sortTypes);
+              }
+            });
+        }
+
+        if (visited.size < orderedTypes.length) {
+          let fallbackLevel = Math.max(0, ...Array.from(typeLevels.values()));
+          orderedTypes
+            .filter((type) => !visited.has(type))
+            .sort(sortTypes)
+            .forEach((type) => {
+              fallbackLevel += 1;
+              typeLevels.set(type, fallbackLevel);
+            });
+        }
+
+        return typeLevels;
+      };
+
+      const buildLayerSlots = (count, areaLeft, areaRight) => {
+        if (count <= 0) {
+          return [];
+        }
+        if (count === 1) {
+          return [(areaLeft + areaRight) / 2];
+        }
+        const areaWidth = Math.max(areaRight - areaLeft, 1);
+        const horizontalPadding =
+          count >= 14
+            ? 4
+            : count >= 10
+              ? 8
+              : count >= 7
+                ? 12
+                : Math.min(22, Math.max(Math.floor(areaWidth * 0.06), 12));
+        const usableLeft = areaLeft + horizontalPadding;
+        const usableRight = areaRight - horizontalPadding;
+        const step = (usableRight - usableLeft) / (count - 1);
+        return Array.from({ length: count }, (_, index) => usableLeft + step * index);
+      };
+
+      const positionSubjectNodesByTypeTree = ({
+        nodes,
+        edges,
+        areaLeft,
+        areaRight,
+        startY,
+        endY,
+        typeCatalog,
+        typeEdges,
+        direction,
+      }) => {
+        if (nodes.length === 0) {
+          return {
+            maxLayerCount: 0,
+            minSlotGap: Number.POSITIVE_INFINITY,
+          };
+        }
+
+        const unknownTypeKey = "__unknown_subject_type__";
+        const typeLevels = buildSubjectTypeLevelMap(nodes, typeCatalog, typeEdges);
+        const knownMaxLevel =
+          typeLevels.size > 0 ? Math.max(...Array.from(typeLevels.values())) : 0;
+        const nodeLevelMap = new Map();
+        const layerBuckets = new Map();
+
+        nodes.forEach((node) => {
+          const nodeType = readNodeSubjectType(node) || inferEntityTypeFromId(node.id);
+          const normalizedType = nodeType.length > 0 ? nodeType : unknownTypeKey;
+          const level = typeLevels.has(normalizedType)
+            ? typeLevels.get(normalizedType)
+            : knownMaxLevel + 1;
+          nodeLevelMap.set(node.id, level);
+          if (!layerBuckets.has(level)) {
+            layerBuckets.set(level, []);
+          }
+          layerBuckets.get(level).push(node);
+        });
+
+        const orderedLayers = Array.from(layerBuckets.keys()).sort((a, b) => a - b);
+        const layerYMap = new Map();
+        if (orderedLayers.length === 1) {
+          layerYMap.set(orderedLayers[0], (startY + endY) / 2);
+        } else {
+          const yStep = (endY - startY) / (orderedLayers.length - 1);
+          const isBottomUp = direction !== "top-down";
+          orderedLayers.forEach((layer, index) => {
+            layerYMap.set(
+              layer,
+              isBottomUp ? endY - yStep * index : startY + yStep * index,
+            );
+          });
+        }
+
+        const parentMap = new Map();
+        edges.forEach((edge) => {
+          const source = typeof edge.from === "string" ? edge.from : "";
+          const target = typeof edge.to === "string" ? edge.to : "";
+          if (source.length === 0 || target.length === 0) {
+            return;
+          }
+          if (!nodeLevelMap.has(source) || !nodeLevelMap.has(target)) {
+            return;
+          }
+          const sourceLevel = nodeLevelMap.get(source);
+          const targetLevel = nodeLevelMap.get(target);
+          if (sourceLevel >= targetLevel) {
+            return;
+          }
+          if (!parentMap.has(target)) {
+            parentMap.set(target, []);
+          }
+          parentMap.get(target).push(source);
+        });
+
+        const positionedNodeX = new Map();
+        let maxLayerCount = 0;
+        let minSlotGap = Number.POSITIVE_INFINITY;
+        orderedLayers.forEach((layer) => {
+          const layerNodes = layerBuckets.get(layer) || [];
+          if (layerNodes.length === 0) {
+            return;
+          }
+          maxLayerCount = Math.max(maxLayerCount, layerNodes.length);
+          const slots = buildLayerSlots(layerNodes.length, areaLeft, areaRight);
+          if (slots.length > 1) {
+            const layerGap =
+              (slots[slots.length - 1] - slots[0]) / (slots.length - 1);
+            if (Number.isFinite(layerGap) && layerGap > 0) {
+              minSlotGap = Math.min(minSlotGap, layerGap);
+            }
+          }
+          const arrangedNodes = layerNodes
+            .map((node, index) => {
+              const parentIds = parentMap.get(node.id) || [];
+              const parentXs = parentIds
+                .map((parentId) => positionedNodeX.get(parentId))
+                .filter((value) => Number.isFinite(value));
+              const expectedX =
+                parentXs.length > 0
+                  ? parentXs.reduce((sum, value) => sum + value, 0) /
+                    parentXs.length
+                  : slots[Math.min(index, slots.length - 1)];
+              return {
+                node,
+                expectedX,
+                id: typeof node.id === "string" ? node.id : "",
+              };
+            })
+            .sort(
+              (left, right) =>
+                left.expectedX - right.expectedX ||
+                left.id.localeCompare(right.id),
+            );
+
+          arrangedNodes.forEach((entry, index) => {
+            const x = slots[Math.min(index, slots.length - 1)];
+            entry.node._x = x;
+            entry.node._y = layerYMap.get(layer);
+            positionedNodeX.set(entry.node.id, x);
+          });
+        });
+
+        return {
+          maxLayerCount,
+          minSlotGap,
+        };
+      };
+
+      const calcSubjectSymbolSize = (layoutMetrics, areaWidth) => {
+        if (!layoutMetrics || layoutMetrics.maxLayerCount <= 1) {
+          return 56;
+        }
+        const fallbackGap = areaWidth / Math.max(layoutMetrics.maxLayerCount - 1, 1);
+        const layerGap = Number.isFinite(layoutMetrics.minSlotGap)
+          ? layoutMetrics.minSlotGap
+          : fallbackGap;
+        const preferredByGap = Math.floor(layerGap * 0.72);
+        const preferredByDensity =
+          layoutMetrics.maxLayerCount >= 16
+            ? 22
+            : layoutMetrics.maxLayerCount >= 12
+              ? 26
+              : layoutMetrics.maxLayerCount >= 9
+                ? 32
+                : 38;
+        return Math.max(20, Math.min(56, Math.min(preferredByGap, preferredByDensity)));
+      };
+
+      const subjectTypeCatalog = Array.isArray(payload.subjectLayout?.typeCatalog)
+        ? payload.subjectLayout.typeCatalog
+        : [];
+      const subjectTypeEdges = Array.isArray(payload.subjectLayout?.typeEdges)
+        ? payload.subjectLayout.typeEdges
+        : [];
+
+      const subjectWidthRatio =
+        layoutSubjectNodes.length >= 24
+          ? 0.68
+          : layoutSubjectNodes.length >= 16
+            ? 0.63
+            : layoutSubjectNodes.length >= 10
+              ? 0.58
+              : 0.54;
+      const subjectAreaLeft = graphLeft + renderWidth * 0.03;
+      const subjectAreaRight = graphLeft + renderWidth * subjectWidthRatio;
+      const centerX = graphLeft + renderWidth * Math.min(subjectWidthRatio + 0.14, 0.82);
+      const rightX = graphLeft + renderWidth * 0.92;
+
+      const subjectLayoutMetrics = positionSubjectNodesByTypeTree({
+        nodes: layoutSubjectNodes,
+        edges: subjectEdges,
+        areaLeft: subjectAreaLeft,
+        areaRight: subjectAreaRight,
+        startY: graphTop,
+        endY: graphBottom,
+        typeCatalog: subjectTypeCatalog,
+        typeEdges: subjectTypeEdges,
+        direction: subjectTreeDirection,
+      });
+      positionLinearNodes(layoutMixedNodes, centerX, graphTop, graphBottom);
+      positionLinearNodes(layoutObjectNodes, rightX, graphTop, graphBottom);
+      allNodes.forEach((node) => {
+        const nodeId = typeof node.id === "string" ? node.id : "";
+        if (nodeId.length === 0) {
+          return;
+        }
+        const manualPosition = manualNodePositionMap.get(nodeId);
+        if (!manualPosition) {
+          return;
+        }
+        if (
+          Number.isFinite(manualPosition.x) &&
+          Number.isFinite(manualPosition.y)
+        ) {
+          node._x = manualPosition.x;
+          node._y = manualPosition.y;
+        }
+      });
+      const subjectSymbolSize = calcSubjectSymbolSize(
+        subjectLayoutMetrics,
+        Math.max(subjectAreaRight - subjectAreaLeft, 1),
+      );
 
       // 节点配色：参考统一关系签名图的浅色背景
       const instanceNodeColor = (category) => {
@@ -2477,12 +3336,19 @@
       };
 
       // 边配色：subject边蓝色，object边橙色
+      const nodeById = new Map();
+      visibleNodes.forEach((node) => {
+        const nodeId = typeof node.id === "string" ? node.id : "";
+        if (nodeId.length > 0) {
+          nodeById.set(nodeId, node);
+        }
+      });
       const instanceEdgeColor = (edge) => {
         if (edge.dashed === true) {
           return "#ad4f8f"; // owner_fallback 紫色虚线
         }
         // 根据源节点类型决定颜色
-        const sourceNode = payload.nodes.find((n) => n.id === edge.from);
+        const sourceNode = nodeById.get(edge.from);
         if (sourceNode?.category === "subject") {
           return "#1f6bc6"; // 蓝色
         }
@@ -2492,11 +3358,12 @@
         return "#5c6882";
       };
 
-      const nodeData = payload.nodes.map((node) => {
+      const nodeData = visibleNodes.map((node) => {
         const id = typeof node.id === "string" ? node.id : "";
         const label = typeof node.label === "string" ? node.label : id;
         const category =
           typeof node.category === "string" ? node.category : "subject";
+        const isSelected = id.length > 0 && id === selectedNodeId;
         return {
           id,
           name: label,
@@ -2504,17 +3371,25 @@
           node_category: category,
           x: node._x || centerX,
           y: node._y || graphTop + renderHeight / 2,
-          symbolSize: category === "mixed" ? 66 : 56,
+          symbolSize:
+            category === "subject" ? subjectSymbolSize : category === "mixed" ? 66 : 56,
           draggable: true,
           itemStyle: {
             color: instanceNodeColor(category),
-            borderColor: "#c5d3ec",
-            borderWidth: 1,
+            borderColor: isSelected ? "#2563eb" : "#c5d3ec",
+            borderWidth: isSelected ? 2.5 : 1,
           },
           label: {
             show: true,
             color: "#1f2937",
-            fontSize: 11,
+            fontSize:
+              category === "subject"
+                ? subjectSymbolSize <= 24
+                  ? 8
+                  : subjectSymbolSize <= 32
+                    ? 9
+                    : 10
+                : 11,
             fontWeight: 700,
             formatter: (params) => String(params.data.node_id || ""),
             position: "inside",
@@ -2526,7 +3401,7 @@
         };
       });
 
-      const linkData = payload.edges.map((edge) => {
+      const linkData = visibleEdges.map((edge) => {
         const from = typeof edge.from === "string" ? edge.from : "";
         const to = typeof edge.to === "string" ? edge.to : "";
         const label =
@@ -2598,6 +3473,50 @@
       chart.resize();
       activeChartContainers.add(container);
 
+      if (typeof chart.off === "function") {
+        chart.off("click");
+      }
+      if (typeof chart.on === "function") {
+        chart.on("click", (params) => {
+          if (!params || params.dataType !== "node") {
+            return;
+          }
+          const nextNodeId =
+            params.data && typeof params.data.node_id === "string"
+              ? params.data.node_id
+              : "";
+          if (nextNodeId.length === 0 || !visibleNodeIdSet.has(nextNodeId)) {
+            return;
+          }
+          const currentSelectedNodeId = readSelectedNodeId(editor);
+          writeSelectedNodeId(
+            editor,
+            currentSelectedNodeId === nextNodeId ? "" : nextNodeId,
+          );
+          snapshotManualNodePositionsFromChart(editor, chart);
+          renderGraph(editor);
+        });
+      }
+
+      const hideNodeBtn = chartWrap?.querySelector("[data-instance-hide-node]");
+      if (
+        hideNodeBtn instanceof HTMLButtonElement &&
+        !hideNodeBtn.hasAttribute("data-instance-graph-hide-bound")
+      ) {
+        hideNodeBtn.setAttribute("data-instance-graph-hide-bound", "1");
+        hideNodeBtn.addEventListener("click", () => {
+          const targetNodeId = readSelectedNodeId(editor);
+          if (targetNodeId.length === 0) {
+            return;
+          }
+          const hiddenNodeIdsSet = readHiddenNodeIds(editor);
+          hiddenNodeIdsSet.add(targetNodeId);
+          writeSelectedNodeId(editor, "");
+          snapshotManualNodePositionsFromChart(editor, chart);
+          renderGraph(editor);
+        });
+      }
+
       // 绑定 zoom reset 按钮点击事件
       const resetBtn = chartWrap?.querySelector(".model-graph-zoom-reset");
       if (
@@ -2606,16 +3525,15 @@
       ) {
         resetBtn.setAttribute("data-instance-graph-reset-bound", "1");
         resetBtn.addEventListener("click", () => {
+          clearGraphVisibilityState(editor);
+          clearManualNodePositions(editor);
           const currentChart = chartInstances.get(container);
-          if (
-            !currentChart ||
-            typeof currentChart.dispatchAction !== "function"
-          ) {
-            return;
+          if (currentChart && typeof currentChart.dispatchAction === "function") {
+            currentChart.dispatchAction({
+              type: "restore",
+            });
           }
-          currentChart.dispatchAction({
-            type: "restore",
-          });
+          renderGraph(editor);
         });
       }
 
@@ -2627,6 +3545,48 @@
         }
       }
     };
+
+    editors.forEach((editor) => {
+      if (!(editor instanceof HTMLElement)) {
+        return;
+      }
+      const graphPanel = editor.querySelector("[data-instance-graph]");
+      const initialDirection = normalizeSubjectTreeDirection(
+        graphPanel instanceof HTMLElement
+          ? graphPanel.getAttribute("data-subject-tree-direction") || ""
+          : editor.getAttribute("data-subject-tree-direction") || "",
+      );
+      writeSubjectTreeDirection(editor, initialDirection);
+      if (graphPanel instanceof HTMLElement) {
+        graphPanel.setAttribute("data-subject-tree-direction", initialDirection);
+      }
+
+      const directionButtons = Array.from(
+        editor.querySelectorAll("[data-instance-subject-direction-btn]"),
+      );
+      if (directionButtons.length === 0) {
+        return;
+      }
+      updateSubjectDirectionButtons(editor);
+      directionButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const nextDirection = normalizeSubjectTreeDirection(
+            button.getAttribute("data-instance-subject-direction-btn") || "",
+          );
+          writeSubjectTreeDirection(editor, nextDirection);
+          clearManualNodePositions(editor);
+          if (graphPanel instanceof HTMLElement) {
+            graphPanel.setAttribute("data-subject-tree-direction", nextDirection);
+          }
+          updateSubjectDirectionButtons(editor);
+          const graphView = editor.querySelector('[data-json-view="graph"]');
+          if (graphView && graphView.hidden) {
+            return;
+          }
+          renderGraph(editor);
+        });
+      });
+    });
 
     const renderVisibleGraphs = (targetSwitchableId) => {
       editors.forEach((editor) => {
@@ -2655,6 +3615,7 @@
   }
 
   function init() {
+    initControlIncrementalRefresh();
     initTabNav();
     initMatrixDrawer();
     initJsonViewToggles();
