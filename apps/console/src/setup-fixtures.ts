@@ -46,19 +46,19 @@ const SETUP_FIXTURE_DISPLAY_OVERRIDES: Record<
   string,
   SetupFixtureDisplayOverride
 > = {
-  "same-company-derived.setup.json": {
+  "01-same-company-derived.setup.json": {
     order: 1,
     label: "样例1：同公司派生关系 setup",
   },
-  "virtual-team-department-scope.setup.json": {
+  "02-virtual-team-department-scope.setup.json": {
     order: 2,
     label: "样例2：虚拟团队 + 部门范围 setup",
   },
-  "mixed-model-instance-hybrid.setup.json": {
+  "03-mixed-model-instance-hybrid.setup.json": {
     order: 3,
     label: "样例3：Model/Instance 混合 setup",
   },
-  "department-kb-permissions.setup.json": {
+  "04-department-kb-permissions.setup.json": {
     order: 4,
     label: "样例4：部门知识库权限 setup",
   },

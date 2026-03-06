@@ -1,0 +1,116 @@
+{
+  "required_relations": [
+    {
+      "from": "user:alice",
+      "to": "department:rnd",
+      "relation_type": "belongs_to_department"
+    },
+    {
+      "from": "department:rnd",
+      "to": "company:acme",
+      "relation_type": "belongs_to_company"
+    },
+    {
+      "from": "department:legal",
+      "to": "company:acme",
+      "relation_type": "belongs_to_company"
+    }
+  ],
+  "decision_expectations": [
+    {
+      "name": "same_company_can_read_source_object",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_company_direct": {
+          "matched": true,
+          "subject_values_contains": [
+            "company:acme"
+          ],
+          "object_values_contains": [
+            "company:acme"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_same_company_via_derived_source": {
+          "matched": false,
+          "subject_values_contains": [
+            "company:acme"
+          ],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "same_company_can_read_derived_object",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_company_direct": {
+          "matched": false,
+          "subject_values_contains": [
+            "company:acme"
+          ],
+          "object_values_contains": []
+        },
+        "infer_same_company_via_derived_source": {
+          "matched": true,
+          "subject_values_contains": [
+            "company:acme"
+          ],
+          "object_values_contains": [
+            "company:acme"
+          ]
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "cross_company_cannot_read_derived_object",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_same_company_direct": {
+          "matched": false,
+          "subject_values_contains": [
+            "company:thirdco"
+          ],
+          "object_values_contains": []
+        },
+        "infer_same_company_via_derived_source": {
+          "matched": false,
+          "subject_values_contains": [
+            "company:thirdco"
+          ],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    }
+  ]
+}

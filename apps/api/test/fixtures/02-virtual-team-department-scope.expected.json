@@ -1,0 +1,250 @@
+{
+  "required_relations": [
+    {
+      "from": "user:bob",
+      "to": "virtual_team:project_neo",
+      "relation_type": "member_of_virtual_team"
+    },
+    {
+      "from": "virtual_team:project_neo",
+      "to": "user:alice",
+      "relation_type": "virtual_team_created_by"
+    }
+  ],
+  "decision_expectations": [
+    {
+      "name": "same_department_direct_can_read_source_object",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_direct": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:rnd"
+          ],
+          "object_values_contains": [
+            "department:rnd"
+          ],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_same_department_via_derived_source": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:rnd"
+          ],
+          "object_values_contains": []
+        },
+        "infer_same_virtual_team_with_owner": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "virtual_team_member_cross_department_can_read_source_object",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_direct": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:legal"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:alice"
+        },
+        "infer_same_department_via_derived_source": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:legal"
+          ],
+          "object_values_contains": []
+        },
+        "infer_same_virtual_team_with_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "virtual_team:project_neo"
+          ],
+          "object_values_contains": [
+            "virtual_team:project_neo"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "same_department_can_read_derived_object",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_direct": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:rnd"
+          ],
+          "object_values_contains": []
+        },
+        "infer_same_department_via_derived_source": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:rnd"
+          ],
+          "object_values_contains": [
+            "department:rnd"
+          ]
+        },
+        "infer_same_virtual_team_with_owner": {
+          "matched": false,
+          "subject_values_contains": [
+            "virtual_team:project_neo"
+          ],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "virtual_team_member_different_virtual_team_cannot_read_source_object",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_same_department_direct": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:legal"
+          ],
+          "object_values_contains": []
+        },
+        "infer_same_department_via_derived_source": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:legal"
+          ],
+          "object_values_contains": []
+        },
+        "infer_same_virtual_team_with_owner": {
+          "matched": false,
+          "subject_values_contains": [
+            "virtual_team:project_zen"
+          ],
+          "object_values_contains": [
+            "virtual_team:project_neo"
+          ],
+          "object_owner_ref": "user:alice"
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "owner_in_two_virtual_teams_enables_bridge_visibility",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_direct": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:legal"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:harry"
+        },
+        "infer_same_department_via_derived_source": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:legal"
+          ],
+          "object_values_contains": []
+        },
+        "infer_same_virtual_team_with_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "virtual_team:project_zen"
+          ],
+          "object_values_contains": [
+            "virtual_team:project_zen"
+          ],
+          "object_owner_ref": "user:harry"
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "cross_department_cannot_read_derived_object",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_same_department_direct": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:ext"
+          ],
+          "object_values_contains": []
+        },
+        "infer_same_department_via_derived_source": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:ext"
+          ],
+          "object_values_contains": []
+        },
+        "infer_same_virtual_team_with_owner": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    }
+  ]
+}

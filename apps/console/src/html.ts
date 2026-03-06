@@ -838,18 +838,18 @@ const MODEL_TEMPLATE_DISPLAY_OVERRIDES: Record<
     description: string;
   }
 > = {
-  "mixed-model-instance-hybrid.model.json": {
+  "03-mixed-model-instance-hybrid.model.json": {
     order: 3,
     label: "样例3：Model/Instance 混合判权",
     description:
       "覆盖动态属性判权、控制面索引推导、model 内 instance 高优先级规则。",
   },
-  "same-company-derived.model.json": {
+  "01-same-company-derived.model.json": {
     order: 1,
     label: "样例1：同公司派生可见（当前）",
     description: "当前默认样例：同公司主体可访问 owner 资源及派生资源。",
   },
-  "virtual-team-department-scope.model.json": {
+  "02-virtual-team-department-scope.model.json": {
     order: 2,
     label: "样例2：虚拟团队 + 部门可见",
     description: "新增虚拟团队关系建模，并将可见性收敛到同部门范围。",

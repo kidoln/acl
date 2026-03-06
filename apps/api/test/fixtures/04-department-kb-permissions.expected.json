@@ -1,0 +1,289 @@
+{
+  "required_relations": [
+    {
+      "from": "user:eng_admin",
+      "to": "department:engineering",
+      "relation_type": "is_department_admin"
+    },
+    {
+      "from": "user:eng_member_1",
+      "to": "department:engineering",
+      "relation_type": "belongs_to_department"
+    }
+  ],
+  "decision_expectations": [
+    {
+      "name": "owner_can_read_own_kb_via_same_department",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_with_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:engineering"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        },
+        "infer_is_department_admin_of_owner": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "owner_cannot_write_own_kb_without_admin",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_with_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:engineering"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        },
+        "infer_is_department_admin_of_owner": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "same_department_member_can_read",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_with_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:engineering"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        },
+        "infer_is_department_admin_of_owner": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "same_department_member_cannot_write",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_with_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:engineering"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        },
+        "infer_is_department_admin_of_owner": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "department_admin_can_read_same_department_kb",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_with_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:engineering"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        },
+        "infer_is_department_admin_of_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:engineering"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "department_admin_can_write_same_department_kb",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_department_with_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:engineering"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        },
+        "infer_is_department_admin_of_owner": {
+          "matched": true,
+          "subject_values_contains": [
+            "department:engineering"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "cross_department_member_cannot_read",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_same_department_with_owner": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:sales"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        },
+        "infer_is_department_admin_of_owner": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "cross_department_admin_cannot_read",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_same_department_with_owner": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:sales"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        },
+        "infer_is_department_admin_of_owner": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:sales"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "cross_department_admin_cannot_write",
+      "mode": "model_route",
+      "expected_effect": "not_applicable",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_same_department_with_owner": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:sales"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        },
+        "infer_is_department_admin_of_owner": {
+          "matched": false,
+          "subject_values_contains": [
+            "department:sales"
+          ],
+          "object_values_contains": [],
+          "object_owner_ref": "user:eng_member_1"
+        }
+      },
+      "expected_matched_rules_contains": [],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": null,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    }
+  ]
+}

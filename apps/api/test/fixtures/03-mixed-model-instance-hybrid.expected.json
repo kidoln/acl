@@ -1,0 +1,96 @@
+{
+  "required_relations": [],
+  "decision_expectations": [
+    {
+      "name": "external_snapshot_dynamic_attributes",
+      "mode": "inline_model",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": false,
+      "expected_rules": {},
+      "expected_matched_rules_contains": [
+        "allow_read_by_input_attributes"
+      ],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": false,
+        "applied": null,
+        "reason": "disabled_by_option"
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "control_plane_instance_without_attributes",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_company": {
+          "matched": true,
+          "subject_values_contains": [],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_read_same_company_from_control_plane_instance"
+      ],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "model_instance_rule_has_highest_priority",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": false,
+      "expected_rules": {
+        "infer_same_company": {
+          "matched": false,
+          "subject_values_contains": [],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_read_instance_override_alice_kb1"
+      ],
+      "expected_trace_matched_rules_contains": [
+        "deny_read_knowledge_base_1",
+        "allow_read_instance_override_alice_kb1"
+      ],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {}
+    },
+    {
+      "name": "inference_overrides_conflicting_request_context",
+      "mode": "model_route",
+      "expected_effect": "allow",
+      "expected_any_rule_matched": true,
+      "expected_rules": {
+        "infer_same_company": {
+          "matched": true,
+          "subject_values_contains": [],
+          "object_values_contains": []
+        }
+      },
+      "expected_matched_rules_contains": [
+        "allow_read_same_company_from_control_plane_instance"
+      ],
+      "expected_trace_matched_rules_contains": [],
+      "expected_relation_inference": {
+        "enabled": true,
+        "applied": true,
+        "reason": null
+      },
+      "expected_context_values": {
+        "same_company": true
+      }
+    }
+  ]
+}
