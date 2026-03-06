@@ -35,6 +35,7 @@
     "model_meta",
     "catalogs",
     "action_signature",
+    "relation_signature",
     "object_onboarding",
     "policies",
     "constraints",
@@ -132,6 +133,25 @@
           "type": "array",
           "items": { "$ref": "#/$defs/action_signature_tuple" },
           "uniqueItems": true
+        }
+      }
+    },
+    "relation_signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject_relations", "object_relations", "subject_object_relations"],
+      "properties": {
+        "subject_relations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/relation_signature_tuple" }
+        },
+        "object_relations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/relation_signature_tuple" }
+        },
+        "subject_object_relations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/relation_signature_tuple" }
         }
       }
     },
@@ -293,6 +313,7 @@
         }
       },
       "then": {
+        "required": ["action_signature", "relation_signature"],
         "properties": {
           "catalogs": {
             "properties": {
@@ -307,6 +328,25 @@
             "properties": {
               "tuples": { "minItems": 1 }
             }
+          },
+          "relation_signature": {
+            "anyOf": [
+              {
+                "properties": {
+                  "subject_relations": { "minItems": 1 }
+                }
+              },
+              {
+                "properties": {
+                  "object_relations": { "minItems": 1 }
+                }
+              },
+              {
+                "properties": {
+                  "subject_object_relations": { "minItems": 1 }
+                }
+              }
+            ]
           },
           "policies": {
             "properties": {
@@ -440,6 +480,27 @@
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/$defs/action" },
+          "uniqueItems": true
+        },
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "relation_signature_tuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relation_type", "from_types", "to_types"],
+      "properties": {
+        "relation_type": { "$ref": "#/$defs/type_name" },
+        "from_types": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/type_name" },
+          "uniqueItems": true
+        },
+        "to_types": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/type_name" },
           "uniqueItems": true
         },
         "enabled": { "type": "boolean" }
@@ -657,7 +718,7 @@
 14. 每个 Profile 的 `required_fields` 至少包含硬必填四项。  
 15. `compat_strict` 模式下，条件必填字段缺失应拒绝入管。  
 16. `subject_removed` 等关键事件必须存在且 `required=true`。  
-17. `RULE_CONFLICT_UNRESOLVED`、`ACTION_SIGNATURE_MISMATCH`、`SEARCH_PUSHDOWN_UNSAFE` 与 `OBLIGATION_NOT_EXECUTABLE` 归属 `P0` 阻断。
+17. `RULE_CONFLICT_UNRESOLVED`、`ACTION_SIGNATURE_MISMATCH`、`RELATION_SIGNATURE_MISMATCH`、`SEARCH_PUSHDOWN_UNSAFE` 与 `OBLIGATION_NOT_EXECUTABLE` 归属 `P0` 阻断。
 
 ### 4.2 `relation_signature`（新增）
 
@@ -693,9 +754,10 @@
 
 约束说明：
 
-1. `relation_signature` 为模型级关系端点签名声明，不承载实例关系数据。  
+1. `relation_signature` 为顶层必填块，且为模型级关系端点签名声明，不承载实例关系数据。  
 2. 每个签名元组必须包含 `relation_type/from_types/to_types`，且 `from_types/to_types` 不可为空。  
-3. 端点类型集合由 `catalogs.subject_type_catalog/object_type_catalog` 约束，越界类型由语义校验器拦截为 `RELATION_SIGNATURE_MISMATCH`。
+3. 端点类型集合由 `catalogs.subject_type_catalog/object_type_catalog` 约束，越界类型由语义校验器拦截为 `RELATION_SIGNATURE_MISMATCH`。  
+4. `catalogs.subject_relation_type_catalog/object_relation_type_catalog/subject_object_relation_type_catalog` 中每个 `relation_type` 都必须至少命中一个已启用签名元组，否则拦截为 `RELATION_SIGNATURE_MISMATCH`。
 
 ### 4.1 `owner_fallback_include_input` 使用约定（新增）
 

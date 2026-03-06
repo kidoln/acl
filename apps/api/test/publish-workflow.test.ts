@@ -35,6 +35,7 @@ function mockGateResult(finalResult: PublishGateResult['final_result']): Publish
         selector_type_mismatch_count: 0,
         unregistered_action_count: 0,
         action_signature_mismatch_count: 0,
+        relation_signature_mismatch_count: 0,
         unknown_relation_type_count: 0,
         inference_rule_unsafe_count: 0,
         duplicate_rule_id_count: 0,

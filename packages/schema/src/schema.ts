@@ -7,6 +7,7 @@ export const authzModelSchema = {
   required: [
     'model_meta',
     'catalogs',
+    'relation_signature',
     'object_onboarding',
     'policies',
     'constraints',
@@ -272,7 +273,7 @@ export const authzModelSchema = {
         },
       },
       then: {
-        required: ['action_signature'],
+        required: ['action_signature', 'relation_signature'],
         properties: {
           catalogs: {
             properties: {
@@ -288,6 +289,25 @@ export const authzModelSchema = {
             properties: {
               tuples: { minItems: 1 },
             },
+          },
+          relation_signature: {
+            anyOf: [
+              {
+                properties: {
+                  subject_relations: { minItems: 1 },
+                },
+              },
+              {
+                properties: {
+                  object_relations: { minItems: 1 },
+                },
+              },
+              {
+                properties: {
+                  subject_object_relations: { minItems: 1 },
+                },
+              },
+            ],
           },
           policies: {
             properties: {

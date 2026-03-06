@@ -164,7 +164,7 @@ export interface AuthzModelConfig {
     subject_object_relation_type_catalog?: string[];
   };
   action_signature?: ActionSignatureConfig;
-  relation_signature?: RelationSignatureConfig;
+  relation_signature: RelationSignatureConfig;
   object_onboarding: ObjectOnboardingConfig;
   policies: {
     rules: PolicyRule[];

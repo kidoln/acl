@@ -22,6 +22,34 @@ function makeModel(handlers: string[]): AuthzModelConfig {
       object_relation_type_catalog: ['contains'],
       subject_object_relation_type_catalog: ['manages', 'delegates_to'],
     },
+    relation_signature: {
+      subject_relations: [
+        {
+          relation_type: 'member_of',
+          from_types: ['user'],
+          to_types: ['group'],
+        },
+      ],
+      object_relations: [
+        {
+          relation_type: 'contains',
+          from_types: ['kb', 'agent'],
+          to_types: ['kb', 'agent'],
+        },
+      ],
+      subject_object_relations: [
+        {
+          relation_type: 'manages',
+          from_types: ['user'],
+          to_types: ['kb', 'agent'],
+        },
+        {
+          relation_type: 'delegates_to',
+          from_types: ['user'],
+          to_types: ['kb', 'agent'],
+        },
+      ],
+    },
     object_onboarding: {
       compatibility_mode: 'compat_balanced',
       default_profile: 'minimal',

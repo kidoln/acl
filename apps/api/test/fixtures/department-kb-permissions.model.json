@@ -20,6 +20,39 @@
       "belongs_to_department"
     ]
   },
+  "relation_signature": {
+    "subject_relations": [
+      {
+        "relation_type": "belongs_to_department",
+        "from_types": ["user"],
+        "to_types": ["department"]
+      },
+      {
+        "relation_type": "belongs_to_company",
+        "from_types": ["department"],
+        "to_types": ["company"]
+      },
+      {
+        "relation_type": "is_department_admin",
+        "from_types": ["user"],
+        "to_types": ["department"]
+      }
+    ],
+    "object_relations": [
+      {
+        "relation_type": "owned_by",
+        "from_types": ["kb"],
+        "to_types": ["kb"]
+      }
+    ],
+    "subject_object_relations": [
+      {
+        "relation_type": "belongs_to_department",
+        "from_types": ["user"],
+        "to_types": ["kb"]
+      }
+    ]
+  },
   "object_onboarding": {
     "compatibility_mode": "compat_balanced",
     "default_profile": "minimal",

@@ -32,6 +32,7 @@ export interface GateMetrics {
     selector_type_mismatch_count: number;
     unregistered_action_count: number;
     action_signature_mismatch_count: number;
+    relation_signature_mismatch_count: number;
     unknown_relation_type_count: number;
     inference_rule_unsafe_count: number;
     duplicate_rule_id_count: number;

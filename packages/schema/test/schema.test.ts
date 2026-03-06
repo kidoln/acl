@@ -11,6 +11,15 @@ describe('authz model schema', () => {
     expect(result.errors).toHaveLength(0);
   });
 
+  it('rejects missing relation_signature', () => {
+    const badModel = structuredClone(minimalDraftModel) as Record<string, unknown>;
+    delete badModel.relation_signature;
+
+    const result = validateAuthzModel(badModel);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((error) => error.instancePath === '' && error.keyword === 'required')).toBe(true);
+  });
+
   it('rejects published model with empty rules', () => {
     const badModel = {
       ...minimalDraftModel,

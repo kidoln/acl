@@ -20,12 +20,26 @@ function normalizeLegacyRelationCatalog(model: Record<string, unknown>): Record<
     return nextModel;
   }
 
-  const legacyRelationCatalog = Array.isArray(catalogs.relation_type_catalog)
-    ? catalogs.relation_type_catalog
-        .filter((item): item is string => typeof item === 'string')
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0)
-    : [];
+  const toStringList = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value
+          .filter((item): item is string => typeof item === 'string')
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0)
+      : [];
+
+  const buildSignatureTuples = (
+    relationTypes: string[],
+    fromTypes: string[],
+    toTypes: string[],
+  ): Array<{ relation_type: string; from_types: string[]; to_types: string[] }> =>
+    relationTypes.map((relationType) => ({
+      relation_type: relationType,
+      from_types: fromTypes,
+      to_types: toTypes,
+    }));
+
+  const legacyRelationCatalog = toStringList(catalogs.relation_type_catalog);
 
   if (legacyRelationCatalog.length > 0) {
     if (!Array.isArray(catalogs.subject_relation_type_catalog)) {
@@ -35,11 +49,66 @@ function normalizeLegacyRelationCatalog(model: Record<string, unknown>): Record<
       catalogs.object_relation_type_catalog = legacyRelationCatalog;
     }
     delete catalogs.relation_type_catalog;
-    delete nextModel.relation_signature;
   }
 
   if (!Array.isArray(catalogs.subject_object_relation_type_catalog)) {
     catalogs.subject_object_relation_type_catalog = [];
+  }
+
+  const subjectTypeCatalog = toStringList(catalogs.subject_type_catalog);
+  const objectTypeCatalog = toStringList(catalogs.object_type_catalog);
+  const subjectRelationCatalog = toStringList(catalogs.subject_relation_type_catalog);
+  const objectRelationCatalog = toStringList(catalogs.object_relation_type_catalog);
+  const subjectObjectRelationCatalog = toStringList(catalogs.subject_object_relation_type_catalog);
+
+  const relationSignature =
+    nextModel.relation_signature
+    && typeof nextModel.relation_signature === 'object'
+    && !Array.isArray(nextModel.relation_signature)
+      ? (nextModel.relation_signature as Record<string, unknown>)
+      : null;
+
+  if (legacyRelationCatalog.length > 0 || !relationSignature) {
+    nextModel.relation_signature = {
+      subject_relations: buildSignatureTuples(
+        subjectRelationCatalog,
+        subjectTypeCatalog,
+        subjectTypeCatalog,
+      ),
+      object_relations: buildSignatureTuples(
+        objectRelationCatalog,
+        objectTypeCatalog,
+        objectTypeCatalog,
+      ),
+      subject_object_relations: buildSignatureTuples(
+        subjectObjectRelationCatalog,
+        subjectTypeCatalog,
+        objectTypeCatalog,
+      ),
+    };
+    return nextModel;
+  }
+
+  if (!Array.isArray(relationSignature.subject_relations)) {
+    relationSignature.subject_relations = buildSignatureTuples(
+      subjectRelationCatalog,
+      subjectTypeCatalog,
+      subjectTypeCatalog,
+    );
+  }
+  if (!Array.isArray(relationSignature.object_relations)) {
+    relationSignature.object_relations = buildSignatureTuples(
+      objectRelationCatalog,
+      objectTypeCatalog,
+      objectTypeCatalog,
+    );
+  }
+  if (!Array.isArray(relationSignature.subject_object_relations)) {
+    relationSignature.subject_object_relations = buildSignatureTuples(
+      subjectObjectRelationCatalog,
+      subjectTypeCatalog,
+      objectTypeCatalog,
+    );
   }
 
   return nextModel;

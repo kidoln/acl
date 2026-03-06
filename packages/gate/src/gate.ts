@@ -115,6 +115,7 @@ function buildMetrics(model: AuthzModelConfig, validation: ModelValidationResult
       selector_type_mismatch_count: countIssue(validation, 'SELECTOR_TYPE_MISMATCH'),
       unregistered_action_count: countIssue(validation, 'ACTION_NOT_REGISTERED'),
       action_signature_mismatch_count: countIssue(validation, 'ACTION_SIGNATURE_MISMATCH'),
+      relation_signature_mismatch_count: countIssue(validation, 'RELATION_SIGNATURE_MISMATCH'),
       unknown_relation_type_count: countIssue(validation, 'RELATION_TYPE_UNKNOWN'),
       inference_rule_unsafe_count: countIssue(validation, 'INFERENCE_RULE_UNSAFE'),
       duplicate_rule_id_count: countIssue(validation, 'DUPLICATE_RULE_ID'),
@@ -210,6 +211,14 @@ const BASELINE_RULES: GateRule[] = [
     decision: 'block',
     check: (m) => m.semantic.unknown_relation_type_count === 0,
     detail: 'all relation type must be registered in catalog',
+  },
+  {
+    level: 'P0',
+    rule_id: 'p0_relation_signature',
+    code: 'RELATION_SIGNATURE_MISMATCH',
+    decision: 'block',
+    check: (m) => m.semantic.relation_signature_mismatch_count === 0,
+    detail: 'each relation type must be covered by relation_signature endpoint tuples',
   },
   {
     level: 'P0',

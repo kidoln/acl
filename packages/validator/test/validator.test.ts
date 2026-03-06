@@ -14,6 +14,16 @@ describe('model validator', () => {
     expect(result.summary.blocking_issues).toBe(0);
   });
 
+  it('rejects model when relation_signature is missing', () => {
+    const model = structuredClone(minimalDraftModel) as Record<string, unknown>;
+    delete model.relation_signature;
+
+    const result = validateModelConfig(model);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((issue) => issue.code === 'SCHEMA_VALIDATION_FAILED')).toBe(true);
+    expect(result.issues.some((issue) => issue.code === 'RELATION_SIGNATURE_MISMATCH')).toBe(true);
+  });
+
   it('rejects deprecated top-level relations block in model', () => {
     const model = {
       ...minimalDraftModel,
@@ -405,9 +415,38 @@ describe('model validator', () => {
     expect(result.issues.some((issue) => issue.code === 'RELATION_SIGNATURE_MISMATCH')).toBe(true);
   });
 
+  it('detects missing relation signature coverage for registered relation type', () => {
+    const model = {
+      ...minimalDraftModel,
+      relation_signature: {
+        ...minimalDraftModel.relation_signature,
+        subject_relations: [
+          {
+            relation_type: 'belongs_to',
+            from_types: ['user'],
+            to_types: ['group'],
+          },
+        ],
+      },
+    };
+
+    const result = validateModelConfig(model);
+    expect(
+      result.issues.some(
+        (issue) =>
+          issue.code === 'RELATION_SIGNATURE_MISMATCH'
+          && issue.path === '/relation_signature/subject_relations',
+      ),
+    ).toBe(true);
+  });
+
   it('accepts relation signature tuples when catalogs and endpoint types match', () => {
     const model = {
       ...minimalDraftModel,
+      catalogs: {
+        ...minimalDraftModel.catalogs,
+        subject_relation_type_catalog: ['member_of'],
+      },
       relation_signature: {
         ...minimalDraftModel.relation_signature,
         subject_relations: [

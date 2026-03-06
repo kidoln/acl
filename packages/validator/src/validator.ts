@@ -170,6 +170,7 @@ function collectTopLevelStructureIssues(config: unknown, issues: ValidationIssue
   const requiredBlocks = [
     'model_meta',
     'catalogs',
+    'relation_signature',
     'object_onboarding',
     'policies',
     'constraints',
@@ -483,6 +484,13 @@ function buildRelationTypeCatalogSets(model: AuthzModelConfig): RelationTypeCata
 function validateRelationSignature(model: AuthzModelConfig, issues: ValidationIssue[]): void {
   const relationSignature = model.relation_signature;
   if (!relationSignature) {
+    addIssue(
+      issues,
+      'RELATION_SIGNATURE_MISMATCH',
+      'semantic',
+      'relation_signature is required',
+      '/relation_signature',
+    );
     return;
   }
   const subjectSignatureTuples = Array.isArray(relationSignature.subject_relations)
@@ -566,6 +574,53 @@ function validateRelationSignature(model: AuthzModelConfig, issues: ValidationIs
     subjectTypeCatalog,
     objectTypeCatalog,
     relationCatalogs.subjectObject,
+    'catalogs.subject_object_relation_type_catalog',
+  );
+
+  const validateCoverage = (
+    relationTypes: Set<string>,
+    tuples: RelationSignatureTuple[],
+    tuplePath: string,
+    catalogHint: string,
+  ): void => {
+    const coveredRelationTypes = new Set<string>();
+    tuples.forEach((tuple) => {
+      if (tuple.enabled === false) {
+        return;
+      }
+      coveredRelationTypes.add(tuple.relation_type);
+    });
+
+    relationTypes.forEach((relationType) => {
+      if (coveredRelationTypes.has(relationType)) {
+        return;
+      }
+      addIssue(
+        issues,
+        'RELATION_SIGNATURE_MISMATCH',
+        'semantic',
+        `relation type ${relationType} in ${catalogHint} must declare at least one enabled signature tuple`,
+        tuplePath,
+      );
+    });
+  };
+
+  validateCoverage(
+    relationCatalogs.subject,
+    subjectSignatureTuples,
+    '/relation_signature/subject_relations',
+    'catalogs.subject_relation_type_catalog',
+  );
+  validateCoverage(
+    relationCatalogs.object,
+    objectSignatureTuples,
+    '/relation_signature/object_relations',
+    'catalogs.object_relation_type_catalog',
+  );
+  validateCoverage(
+    relationCatalogs.subjectObject,
+    subjectObjectSignatureTuples,
+    '/relation_signature/subject_object_relations',
     'catalogs.subject_object_relation_type_catalog',
   );
 }

@@ -2880,6 +2880,28 @@
       let editor = null;
       let editorReady = false;
       let scrollGuard = null;
+      const compactTableWelcomeButtons = () => {
+        const nestedArrayButtons = Array.from(
+          editorTarget.querySelectorAll(
+            ".jse-table-mode-welcome .jse-nested-arrays button.jse-nested-array-action",
+          ),
+        );
+        nestedArrayButtons.forEach((button) => {
+          if (!(button instanceof HTMLElement)) {
+            return;
+          }
+          button.style.setProperty("min-height", "20px", "important");
+          button.style.setProperty("padding", "2px 8px", "important");
+          button.style.setProperty("line-height", "1.2", "important");
+          button.style.setProperty("border-radius", "6px", "important");
+          button.style.setProperty("font-size", "12px", "important");
+        });
+      };
+      const scheduleCompactTableWelcomeButtons = () => {
+        window.requestAnimationFrame(() => {
+          compactTableWelcomeButtons();
+        });
+      };
 
       const updateStatus = (message, isError) => {
         if (!(statusNode instanceof HTMLElement)) {
@@ -2963,18 +2985,22 @@
               },
               onChangeMode: () => {
                 if (!scrollGuard) {
+                  scheduleCompactTableWelcomeButtons();
                   return;
                 }
                 const anchorPosition = scrollGuard.consumeModeAnchorPosition();
                 if (!anchorPosition) {
+                  scheduleCompactTableWelcomeButtons();
                   return;
                 }
                 scrollGuard.restoreWindowScrollPosition(anchorPosition);
+                scheduleCompactTableWelcomeButtons();
               },
             },
           });
           scrollGuard = bindEditorExpandScrollGuard(editorTarget);
           editorReady = true;
+          scheduleCompactTableWelcomeButtons();
 
           editorWrapper.hidden = false;
           if (textareaField instanceof HTMLElement) {
@@ -2995,6 +3021,7 @@
               mode: parsed.mode === "text" ? modeText : modeTree,
             });
             if (!syncStatus) {
+              scheduleCompactTableWelcomeButtons();
               return;
             }
             updateStatus(
@@ -3003,6 +3030,7 @@
                 : "已从文本重新加载为结构化树视图。",
               parsed.mode === "text",
             );
+            scheduleCompactTableWelcomeButtons();
           };
 
           textarea.addEventListener("acl:jsoneditor-refresh", () => {

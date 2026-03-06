@@ -305,6 +305,33 @@ describe('publish gate', () => {
     expect(result.gates.some((gate) => gate.code === 'ACTION_SIGNATURE_MISMATCH')).toBe(true);
   });
 
+  it('blocks when relation signature misses registered relation type coverage', () => {
+    const model = {
+      ...minimalDraftModel,
+      relation_signature: {
+        ...minimalDraftModel.relation_signature,
+        subject_relations: [
+          {
+            relation_type: 'belongs_to',
+            from_types: ['user'],
+            to_types: ['group'],
+          },
+        ],
+      },
+    };
+
+    const result = runPublishGate({
+      model,
+      profile: 'baseline',
+      validator_options: {
+        available_obligation_executors: ['audit_write'],
+      },
+    });
+
+    expect(result.final_result).toBe('blocked');
+    expect(result.gates.some((gate) => gate.code === 'RELATION_SIGNATURE_MISMATCH')).toBe(true);
+  });
+
   it('blocks when inference constraints are unsafe', () => {
     const model = {
       ...minimalDraftModel,
@@ -322,7 +349,7 @@ describe('publish gate', () => {
             ],
             object_edges: [
               {
-                relation_type: 'belongs_to',
+                relation_type: 'derives_to',
                 entity_side: 'to' as const,
               },
             ],
@@ -360,7 +387,7 @@ describe('publish gate', () => {
             ],
             object_edges: [
               {
-                relation_type: 'belongs_to',
+                relation_type: 'derives_to',
                 entity_side: 'to' as const,
               },
             ],
@@ -403,7 +430,7 @@ describe('publish gate', () => {
             ],
             object_edges: [
               {
-                relation_type: 'belongs_to',
+                relation_type: 'derives_to',
                 entity_side: 'to' as const,
               },
             ],
