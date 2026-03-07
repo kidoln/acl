@@ -333,6 +333,35 @@
     });
   }
 
+  function initSetupFixturePreviewForm() {
+    if (
+      document.body.getAttribute("data-control-setup-preview-bound") ===
+      "true"
+    ) {
+      return;
+    }
+    document.body.setAttribute("data-control-setup-preview-bound", "true");
+
+    document.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLSelectElement)) {
+        return;
+      }
+      if (
+        !target.matches(
+          'form[data-control-setup-preview-form="true"] select[name="fixture_id"]',
+        )
+      ) {
+        return;
+      }
+      const form = target.closest('form[data-control-setup-preview-form="true"]');
+      if (!(form instanceof HTMLFormElement)) {
+        return;
+      }
+      form.requestSubmit();
+    });
+  }
+
   function initTabNav() {
     const tabNav = document.querySelector(".tab-nav");
     if (!tabNav) {
@@ -3350,6 +3379,210 @@
       return normalizedEdges;
     };
 
+    const inferEntityTypeFromId = (entityId) => {
+      if (typeof entityId !== "string") {
+        return "";
+      }
+      const separatorIndex = entityId.indexOf(":");
+      if (separatorIndex <= 0) {
+        return "";
+      }
+      return entityId.slice(0, separatorIndex).trim();
+    };
+
+    const buildPayloadFromInstanceJson = (editor, fallbackSubjectLayout) => {
+      const textarea = editor.querySelector("[data-instance-json-textarea]");
+      if (!(textarea instanceof HTMLTextAreaElement)) {
+        return null;
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(textarea.value);
+      } catch {
+        return null;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+
+      const rawObjects = Array.isArray(parsed.objects) ? parsed.objects : [];
+      const rawRelations = Array.isArray(parsed.relation_events)
+        ? parsed.relation_events
+        : [];
+
+      const nodeMeta = new Map();
+      const edgeMap = new Map();
+      const subjectTypeCatalogSet = new Set(
+        Array.isArray(fallbackSubjectLayout?.typeCatalog)
+          ? fallbackSubjectLayout.typeCatalog
+          : [],
+      );
+
+      const inferSubjectType = (nodeId) => {
+        const inferredType = inferEntityTypeFromId(nodeId);
+        if (!inferredType) {
+          return undefined;
+        }
+        if (
+          subjectTypeCatalogSet.size > 0 &&
+          !subjectTypeCatalogSet.has(inferredType)
+        ) {
+          return undefined;
+        }
+        return inferredType;
+      };
+
+      const ensureNode = (id, label, options = {}) => {
+        const trimmedId = typeof id === "string" ? id.trim() : "";
+        if (trimmedId.length === 0) {
+          return;
+        }
+        const nextSubjectType =
+          typeof options.subjectType === "string" &&
+          options.subjectType.trim().length > 0
+            ? options.subjectType.trim()
+            : undefined;
+        const existing = nodeMeta.get(trimmedId);
+        if (existing) {
+          existing.isObject = existing.isObject || options.asObject === true;
+          existing.isSubject = existing.isSubject || options.asSubject === true;
+          if (!existing.subjectType && nextSubjectType) {
+            existing.subjectType = nextSubjectType;
+          }
+          if (
+            typeof label === "string" &&
+            label.trim().length > 0 &&
+            existing.label === trimmedId &&
+            label.trim() !== trimmedId
+          ) {
+            existing.label = label.trim();
+          }
+          return;
+        }
+        nodeMeta.set(trimmedId, {
+          id: trimmedId,
+          label:
+            typeof label === "string" && label.trim().length > 0
+              ? label.trim()
+              : trimmedId,
+          isObject: options.asObject === true,
+          isSubject: options.asSubject === true,
+          subjectType: nextSubjectType,
+        });
+      };
+
+      const appendEdge = (edge) => {
+        const from = typeof edge.from === "string" ? edge.from.trim() : "";
+        const to = typeof edge.to === "string" ? edge.to.trim() : "";
+        if (from.length === 0 || to.length === 0) {
+          return;
+        }
+        const label = typeof edge.label === "string" ? edge.label : "related_to";
+        const key = `${from}::${to}::${label}::${edge.dashed ? "d" : "s"}`;
+        if (edgeMap.has(key)) {
+          return;
+        }
+        edgeMap.set(key, {
+          from,
+          to,
+          label,
+          dashed: edge.dashed === true,
+          color: typeof edge.color === "string" ? edge.color : "#2563eb",
+        });
+      };
+
+      rawObjects.forEach((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+          return;
+        }
+        const objectId =
+          typeof item.object_id === "string" ? item.object_id.trim() : "";
+        if (objectId.length === 0) {
+          return;
+        }
+        const objectType =
+          typeof item.object_type === "string" ? item.object_type.trim() : "";
+        const ownerRef =
+          typeof item.owner_ref === "string" ? item.owner_ref.trim() : "";
+        ensureNode(
+          objectId,
+          objectType.length > 0 ? `${objectId} (${objectType})` : objectId,
+          { asObject: true },
+        );
+        if (ownerRef.length > 0) {
+          ensureNode(ownerRef, ownerRef, {
+            asSubject: true,
+            subjectType: inferSubjectType(ownerRef),
+          });
+          appendEdge({
+            from: ownerRef,
+            to: objectId,
+            label: "owner_ref",
+            dashed: true,
+            color: "#8b5cf6",
+          });
+        }
+      });
+
+      rawRelations.forEach((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+          return;
+        }
+        const from = typeof item.from === "string" ? item.from.trim() : "";
+        const to = typeof item.to === "string" ? item.to.trim() : "";
+        if (from.length === 0 || to.length === 0) {
+          return;
+        }
+        const relationType =
+          typeof item.relation_type === "string"
+            ? item.relation_type.trim()
+            : "";
+        const scope = typeof item.scope === "string" ? item.scope.trim() : "";
+        ensureNode(from, from, {
+          asSubject: true,
+          subjectType: inferSubjectType(from),
+        });
+        ensureNode(to, to, {
+          asSubject: true,
+          subjectType: inferSubjectType(to),
+        });
+        appendEdge({
+          from,
+          to,
+          label:
+            relationType.length > 0
+              ? scope.length > 0
+                ? `${relationType} [${scope}]`
+                : relationType
+              : "related_to",
+          dashed: false,
+          color: "#2563eb",
+        });
+      });
+
+      return {
+        nodes: Array.from(nodeMeta.values())
+          .map((item) => ({
+            id: item.id,
+            label: item.label,
+            category:
+              item.isObject && item.isSubject
+                ? "mixed"
+                : item.isObject
+                  ? "object"
+                  : "subject",
+            ...(item.subjectType ? { subject_type: item.subjectType } : {}),
+          }))
+          .sort((left, right) => left.id.localeCompare(right.id)),
+        edges: Array.from(edgeMap.values()),
+        subjectLayout: fallbackSubjectLayout || {
+          typeCatalog: [],
+          typeEdges: [],
+        },
+      };
+    };
+
     const readPayload = (editor) => {
       const payloadField = editor.querySelector(
         "[data-instance-graph-payload]",
@@ -3386,13 +3619,17 @@
               typeCatalog: [],
               typeEdges: [],
             };
-        return {
+        const normalized = {
           nodes,
           edges,
           subjectLayout,
         };
+        if (nodes.length > 0) {
+          return normalized;
+        }
+        return buildPayloadFromInstanceJson(editor, subjectLayout) || normalized;
       } catch {
-        return null;
+        return buildPayloadFromInstanceJson(editor, null);
       }
     };
 
@@ -4241,6 +4478,7 @@
 
   function init() {
     initControlIncrementalRefresh();
+    initSetupFixturePreviewForm();
     initTabNav();
     initMatrixDrawer();
     initJsonViewToggles();
@@ -4249,7 +4487,9 @@
     initInstanceEditors();
     initPolicyRulesTable();
     document.addEventListener("acl:control-partial-updated", () => {
+      initJsonViewToggles();
       initInstanceJsonEditors();
+      initInstanceEditors();
     });
   }
 

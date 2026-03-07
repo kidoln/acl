@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { listSetupFixtureOptions } from "./setup-fixtures";
+import {
+  listSetupFixtureOptions,
+  loadSetupFixtureById,
+  type ControlSetupFixture,
+} from "./setup-fixtures";
 import type {
   ApiResult,
   ConsoleTab,
@@ -104,6 +108,7 @@ function renderHiddenContextFields(
     ["tab", viewModel.query.tab],
     ["widget", viewModel.query.widget],
     ["detail_mode", viewModel.query.detail_mode],
+    ["fixture_id", viewModel.query.fixture_id],
     ["limit", viewModel.query.limit],
     ["offset", viewModel.query.offset],
     ["decision_id", viewModel.query.decision_id],
@@ -948,12 +953,26 @@ function buildDefaultModelTemplate(namespace: string): ModelTemplate {
 interface PublishedModelOverviewMetrics {
   publish_id: string;
   model_id: string;
+  tenant_id: string;
   model_version: string;
   subject_types: number;
   categories: number;
   object_types: number;
   relation_types: number;
   rules: number;
+}
+
+interface RuntimeRouteOverview {
+  tenant_label: string;
+  environment_label: string;
+  route_count: number;
+  route_items: Array<{
+    tenant_id: string;
+    environment: string;
+    model_id: string;
+    model_version: string;
+    publish_id: string;
+  }>;
 }
 
 function normalizeStringArray(input: unknown): string[] {
@@ -976,6 +995,41 @@ function getModelSnapshotFromPublish(
 ): Record<string, unknown> | null {
   const payload = asRecord(record.payload);
   return asRecord(payload?.model_snapshot);
+}
+
+function getModelMetaFromSnapshot(snapshot: unknown): {
+  model_id: string;
+  tenant_id: string;
+  version: string;
+} | null {
+  const snapshotRecord = asRecord(snapshot);
+  if (!snapshotRecord) {
+    return null;
+  }
+
+  const modelMeta = asRecord(snapshotRecord.model_meta);
+  if (!modelMeta) {
+    return null;
+  }
+
+  const modelId =
+    typeof modelMeta.model_id === "string" ? modelMeta.model_id.trim() : "";
+  const tenantId =
+    typeof modelMeta.tenant_id === "string"
+      ? modelMeta.tenant_id.trim()
+      : "";
+  const version =
+    typeof modelMeta.version === "string" ? modelMeta.version.trim() : "";
+
+  if (modelId.length === 0 || tenantId.length === 0 || version.length === 0) {
+    return null;
+  }
+
+  return {
+    model_id: modelId,
+    tenant_id: tenantId,
+    version,
+  };
 }
 
 function pickPublishRecordForOverview(
@@ -1016,7 +1070,7 @@ function collectPublishedModelOverviewMetrics(
     return null;
   }
 
-  const modelMeta = asRecord(modelSnapshot.model_meta);
+  const modelMeta = getModelMetaFromSnapshot(modelSnapshot);
   const catalogs = asRecord(modelSnapshot.catalogs);
   const policies = asRecord(modelSnapshot.policies);
 
@@ -1036,16 +1090,92 @@ function collectPublishedModelOverviewMetrics(
 
   return {
     publish_id: sourceRecord.publish_id,
-    model_id:
-      typeof modelMeta?.model_id === "string" ? modelMeta.model_id : "-",
-    model_version:
-      typeof modelMeta?.version === "string" ? modelMeta.version : "-",
+    model_id: modelMeta?.model_id ?? "-",
+    tenant_id: modelMeta?.tenant_id ?? "-",
+    model_version: modelMeta?.version ?? "-",
     subject_types: subjectTypeCatalog.length,
     categories: actionCatalog.length,
     object_types: objectTypeCatalog.length,
     relation_types: relationTypeCatalog.length,
     rules,
   };
+}
+
+function collectRuntimeRouteOverview(
+  viewModel: ConsolePageViewModel,
+): RuntimeRouteOverview {
+  if (!viewModel.model_routes?.ok) {
+    return {
+      tenant_label: "-",
+      environment_label: "-",
+      route_count: 0,
+      route_items: [],
+    };
+  }
+
+  const routeItems = viewModel.model_routes.data.items.map((item) => ({
+    tenant_id: item.tenant_id.trim(),
+    environment: item.environment.trim(),
+    model_id: item.model_id.trim(),
+    model_version: item.model_version?.trim() || "latest published",
+    publish_id: item.publish_id?.trim() || "latest published",
+  }));
+
+  const tenantIds = Array.from(
+    new Set(routeItems.map((item) => item.tenant_id).filter((item) => item.length > 0)),
+  );
+  const environments = Array.from(
+    new Set(
+      routeItems.map((item) => item.environment).filter((item) => item.length > 0),
+    ),
+  );
+
+  return {
+    tenant_label:
+      tenantIds.length === 0
+        ? "-"
+        : tenantIds.length === 1
+          ? tenantIds[0]
+          : `${tenantIds.length} tenants`,
+    environment_label:
+      environments.length === 0
+        ? "-"
+        : environments.length === 1
+          ? environments[0]
+          : environments.join(", "),
+    route_count: routeItems.length,
+    route_items: routeItems,
+  };
+}
+
+function buildRouteMismatchMessage(
+  publishedModelMetrics: PublishedModelOverviewMetrics | null,
+  runtimeRouteOverview: RuntimeRouteOverview,
+): string | null {
+  if (!publishedModelMetrics || runtimeRouteOverview.route_items.length === 0) {
+    return null;
+  }
+
+  const matchedRoute = runtimeRouteOverview.route_items.find(
+    (item) =>
+      item.tenant_id === publishedModelMetrics.tenant_id &&
+      item.model_id === publishedModelMetrics.model_id &&
+      (item.publish_id === publishedModelMetrics.publish_id ||
+        item.model_version === publishedModelMetrics.model_version),
+  );
+
+  if (matchedRoute) {
+    return null;
+  }
+
+  const routeSummary = runtimeRouteOverview.route_items
+    .map(
+      (item) =>
+        `${item.environment}: ${item.tenant_id} / ${item.model_id} / ${item.publish_id}`,
+    )
+    .join("；");
+
+  return `提醒：当前查看发布 ${publishedModelMetrics.publish_id}（${publishedModelMetrics.tenant_id} / ${publishedModelMetrics.model_id} / ${publishedModelMetrics.model_version}）与当前 namespace 的运行路由不一致；现有路由为 ${routeSummary}。`;
 }
 
 function collectControlOverviewMetrics(viewModel: ConsolePageViewModel): {
@@ -1142,6 +1272,50 @@ interface SubjectLayoutModelMeta {
   }>;
 }
 
+interface InstanceGraphSource {
+  objects: Array<{
+    object_id: string;
+    object_type?: string;
+    owner_ref?: string;
+  }>;
+  relations: Array<{
+    from: string;
+    to: string;
+    relation_type: string;
+    scope?: string;
+  }>;
+}
+
+interface InstanceSnapshotPayload {
+  namespace: string;
+  model_routes: Array<{
+    namespace?: string;
+    tenant_id: string;
+    environment: string;
+    model_id: string;
+    model_version?: string;
+    publish_id?: string;
+    operator?: string;
+  }>;
+  objects: Array<{
+    object_id: string;
+    object_type: string;
+    sensitivity?: string;
+    owner_ref?: string;
+    labels?: string[];
+    updated_at?: string;
+  }>;
+  relation_events: Array<{
+    from: string;
+    to: string;
+    relation_type: string;
+    operation: "upsert" | "delete";
+    scope?: string;
+    source?: string;
+    updated_at?: string;
+  }>;
+}
+
 function inferEntityTypeFromId(entityId: string): string | null {
   const separatorIndex = entityId.indexOf(":");
   if (separatorIndex <= 0) {
@@ -1204,13 +1378,16 @@ function collectSubjectLayoutModelMeta(
 
 function buildInstanceGraphPayload(
   viewModel: ConsolePageViewModel,
+  source?: InstanceGraphSource,
 ): InstanceGraphPayload {
-  const objectItems = viewModel.control_objects?.ok
-    ? viewModel.control_objects.data.items
-    : [];
-  const relationItems = viewModel.control_relations?.ok
-    ? viewModel.control_relations.data.items
-    : [];
+  const objectItems =
+    source?.objects ??
+    (viewModel.control_objects?.ok ? viewModel.control_objects.data.items : []);
+  const relationItems =
+    source?.relations ??
+    (viewModel.control_relations?.ok
+      ? viewModel.control_relations.data.items
+      : []);
   const subjectLayoutModelMeta = collectSubjectLayoutModelMeta(viewModel);
   const subjectTypeCatalogSet = new Set(subjectLayoutModelMeta.typeCatalog);
 
@@ -1304,13 +1481,14 @@ function buildInstanceGraphPayload(
     if (objectId.length === 0) {
       return;
     }
+    const objectType = (item.object_type ?? "").trim();
     const objectLabel =
-      item.object_type.trim().length > 0
-        ? `${objectId} (${item.object_type})`
+      objectType.length > 0
+        ? `${objectId} (${objectType})`
         : objectId;
     ensureNode(objectId, objectLabel, { asObject: true });
 
-    const ownerRef = item.owner_ref.trim();
+    const ownerRef = (item.owner_ref ?? "").trim();
     if (ownerRef.length === 0) {
       return;
     }
@@ -1394,10 +1572,10 @@ function buildInstanceGraphPayload(
   };
 }
 
-function buildInstanceSnapshotJson(
+function buildCurrentInstanceSnapshot(
   viewModel: ConsolePageViewModel,
   namespace: string,
-): string {
+): InstanceSnapshotPayload {
   const modelRoutes = viewModel.model_routes?.ok
     ? viewModel.model_routes.data.items.map((item) => ({
         namespace: item.namespace,
@@ -1416,6 +1594,7 @@ function buildInstanceSnapshotJson(
         sensitivity: item.sensitivity,
         owner_ref: item.owner_ref,
         labels: item.labels,
+        updated_at: item.updated_at,
       }))
     : [];
   const relationEvents = viewModel.control_relations?.ok
@@ -1423,86 +1602,143 @@ function buildInstanceSnapshotJson(
         from: item.from,
         to: item.to,
         relation_type: item.relation_type,
-        operation: "upsert",
+        operation: "upsert" as const,
         scope: item.scope,
         source: item.source,
+        updated_at: item.updated_at,
       }))
     : [];
 
-  return JSON.stringify(
-    {
-      namespace,
-      model_routes: modelRoutes,
-      objects,
-      relation_events: relationEvents,
-    },
-    null,
-    2,
-  );
+  return {
+    namespace,
+    model_routes: modelRoutes,
+    objects,
+    relation_events: relationEvents,
+  };
+}
+
+function buildFixtureInstanceSnapshot(
+  namespace: string,
+  fixture: ControlSetupFixture,
+): InstanceSnapshotPayload {
+  return {
+    namespace,
+    model_routes: [],
+    objects: fixture.objects.map((item) => ({
+      object_id: item.object_id,
+      object_type: item.object_type,
+      sensitivity: item.sensitivity,
+      owner_ref: item.owner_ref,
+      labels: item.labels,
+    })),
+    relation_events: fixture.relation_events.map((item) => ({
+      from: item.from,
+      to: item.to,
+      relation_type: item.relation_type,
+      operation: item.operation,
+      scope: item.scope,
+      source: item.source,
+    })),
+  };
+}
+
+function buildInstanceSnapshotJson(snapshot: InstanceSnapshotPayload): string {
+  return JSON.stringify(snapshot, null, 2);
+}
+
+function renderInstanceObjectRows(
+  objects: InstanceSnapshotPayload["objects"],
+): string {
+  return objects
+    .slice(0, 6)
+    .map(
+      (item) =>
+        `<tr><td>${escapeHtml(item.object_id)}</td><td>${escapeHtml(item.object_type)}</td><td>${escapeHtml(item.sensitivity ?? "")}</td><td>${escapeHtml(item.owner_ref ?? "")}</td><td>${escapeHtml((item.labels ?? []).join(", "))}</td><td>${escapeHtml(item.updated_at ? formatTime(item.updated_at) : "待导入")}</td></tr>`,
+    )
+    .join("");
+}
+
+function renderInstanceRelationRows(
+  relationEvents: InstanceSnapshotPayload["relation_events"],
+): string {
+  return relationEvents
+    .slice(0, 6)
+    .map(
+      (item) =>
+        `<tr><td>${escapeHtml(item.from)}</td><td>${escapeHtml(item.relation_type)}</td><td>${escapeHtml(item.to)}</td><td>${escapeHtml(item.scope ?? "")}</td><td>${escapeHtml(item.updated_at ? formatTime(item.updated_at) : "待导入")}</td></tr>`,
+    )
+    .join("");
 }
 
 function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
   const namespace = viewModel.query.namespace ?? "tenant_a.crm";
   const overviewMetrics = collectControlOverviewMetrics(viewModel);
   const publishedModelMetrics = collectPublishedModelOverviewMetrics(viewModel);
+  const runtimeRouteOverview = collectRuntimeRouteOverview(viewModel);
+  const routeMismatchMessage = buildRouteMismatchMessage(
+    publishedModelMetrics,
+    runtimeRouteOverview,
+  );
   const modelRouteCount = viewModel.model_routes?.ok
     ? viewModel.model_routes.data.total_count
     : 0;
-  const routedTenantIds = viewModel.model_routes?.ok
-    ? Array.from(
-        new Set(
-          viewModel.model_routes.data.items
-            .map((item) => item.tenant_id)
-            .filter((item) => item.length > 0),
-        ),
-      )
-    : [];
-  const routedEnvironments = viewModel.model_routes?.ok
-    ? Array.from(
-        new Set(
-          viewModel.model_routes.data.items
-            .map((item) => item.environment)
-            .filter((item) => item.length > 0),
-        ),
-      )
-    : [];
-  const environmentLabel =
-    routedEnvironments.length === 0
-      ? "-"
-      : routedEnvironments.length === 1
-        ? routedEnvironments[0]
-        : routedEnvironments.join(", ");
   const hiddenContext = renderHiddenContextFields(viewModel);
   const hiddenWithoutNamespace = renderHiddenContextFields(viewModel, [
     "namespace",
+    "fixture_id",
   ]);
   const setupFixtureOptions = listSetupFixtureOptions();
   const hasSetupFixtureOptions = setupFixtureOptions.length > 0;
+  const activeSetupFixtureId =
+    viewModel.query.fixture_id ?? setupFixtureOptions[0]?.id ?? "";
+  const activeSetupFixtureOption = setupFixtureOptions.find(
+    (option) => option.id === activeSetupFixtureId,
+  );
+  const activeSetupFixture = activeSetupFixtureId
+    ? loadSetupFixtureById(activeSetupFixtureId)
+    : null;
   const setupFixtureSelectOptions = hasSetupFixtureOptions
     ? setupFixtureOptions
         .map(
-          (option, index) =>
-            `<option value="${escapeHtml(option.id)}" ${index === 0 ? "selected" : ""} title="${escapeHtml(option.description)}">${escapeHtml(option.label)}</option>`,
+          (option) =>
+            `<option value="${escapeHtml(option.id)}" ${option.id === activeSetupFixtureId ? "selected" : ""} title="${escapeHtml(option.description)}">${escapeHtml(option.label)}</option>`,
         )
         .join("")
     : '<option value="">暂无可用 setup fixture</option>';
   const setupFixtureSelectAttr = hasSetupFixtureOptions
     ? "required"
     : "disabled";
-  const setupFixtureSubmitAttr = hasSetupFixtureOptions ? "" : "disabled";
+  const previewSetupSubmitAttr = hasSetupFixtureOptions ? "" : "disabled";
+  const currentInstanceSnapshot = buildCurrentInstanceSnapshot(
+    viewModel,
+    namespace,
+  );
+  const stagedInstanceSnapshot = activeSetupFixture
+    ? buildFixtureInstanceSnapshot(namespace, activeSetupFixture.fixture)
+    : currentInstanceSnapshot;
+  const stagedInstanceGraphPayload = buildInstanceGraphPayload(viewModel, {
+    objects: stagedInstanceSnapshot.objects,
+    relations: stagedInstanceSnapshot.relation_events,
+  });
+  const instanceGraphPayloadJson = escapeHtml(
+    JSON.stringify(stagedInstanceGraphPayload),
+  );
+  const instanceSnapshotJson = escapeHtml(
+    buildInstanceSnapshotJson(stagedInstanceSnapshot),
+  );
+  const stagedPreviewTitle = activeSetupFixtureOption
+    ? `当前预览：${activeSetupFixtureOption.label}`
+    : "当前预览：当前命名空间数据";
+  const stagedPreviewDescription = activeSetupFixtureOption
+    ? `${activeSetupFixtureOption.description}；已加载到下方视图，可先修改 JSON 再执行 setup。`
+    : "未选择 setup fixture，当前展示的是该 namespace 已存在的 instance 数据。";
   const modelTemplateOptions = buildModelTemplateOptions(namespace);
   const [defaultTemplateOption] = modelTemplateOptions;
   if (!defaultTemplateOption) {
     throw new Error("model template options are empty");
   }
   const defaultModel = defaultTemplateOption.model;
-  const currentTenantLabel =
-    routedTenantIds.length === 0
-      ? defaultModel.model_meta.tenant_id
-      : routedTenantIds.length === 1
-        ? routedTenantIds[0]
-        : `${routedTenantIds.length} tenants`;
-  const tenantSourceLabel = routedTenantIds.length === 0 ? "template" : "model routes";
+  const defaultTemplateMeta = getModelMetaFromSnapshot(defaultModel);
   const defaultRule = defaultModel.policies.rules[0] ?? {};
   const defaultModelJson = escapeHtml(JSON.stringify(defaultModel, null, 2));
   const modelTemplateMap = Object.fromEntries(
@@ -1609,25 +1845,11 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
         .join("")
     : '<tr><td colspan="4" class="muted">审计数据加载失败</td></tr>';
 
-  const objectRows = viewModel.control_objects?.ok
-    ? viewModel.control_objects.data.items
-        .slice(0, 6)
-        .map(
-          (item) =>
-            `<tr><td>${escapeHtml(item.object_id)}</td><td>${escapeHtml(item.object_type)}</td><td>${escapeHtml(item.sensitivity)}</td><td>${escapeHtml(item.owner_ref)}</td><td>${escapeHtml(item.labels.join(", "))}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`,
-        )
-        .join("")
-    : '<tr><td colspan="6" class="muted">object 加载失败</td></tr>';
+  const objectRows = renderInstanceObjectRows(stagedInstanceSnapshot.objects);
 
-  const relationRows = viewModel.control_relations?.ok
-    ? viewModel.control_relations.data.items
-        .slice(0, 6)
-        .map(
-          (item) =>
-            `<tr><td>${escapeHtml(item.from)}</td><td>${escapeHtml(item.relation_type)}</td><td>${escapeHtml(item.to)}</td><td>${escapeHtml(item.scope ?? "")}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`,
-        )
-        .join("")
-    : '<tr><td colspan="5" class="muted">relation 加载失败</td></tr>';
+  const relationRows = renderInstanceRelationRows(
+    stagedInstanceSnapshot.relation_events,
+  );
 
   const modelRouteRows = viewModel.model_routes?.ok
     ? viewModel.model_routes.data.items
@@ -1638,18 +1860,10 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
         )
         .join("")
     : '<tr><td colspan="8" class="muted">model route 加载失败</td></tr>';
-  const instanceGraphPayload = buildInstanceGraphPayload(viewModel);
-  const instanceGraphPayloadJson = escapeHtml(
-    JSON.stringify(instanceGraphPayload),
-  );
-  const instanceSnapshotJson = escapeHtml(
-    buildInstanceSnapshotJson(viewModel, namespace),
-  );
-
   const publishedMetricsSection = publishedModelMetrics
     ? `<section>` +
       `<p class="muted metric-caption">发布快照统计（无需先维护 Catalog/Object）</p>` +
-      `<p class="muted">统计来源：publish_id=${escapeHtml(publishedModelMetrics.publish_id)} / model_id=${escapeHtml(publishedModelMetrics.model_id)} / version=${escapeHtml(publishedModelMetrics.model_version)}</p>` +
+      `<p class="muted">统计来源：publish_id=${escapeHtml(publishedModelMetrics.publish_id)} / tenant_id=${escapeHtml(publishedModelMetrics.tenant_id)} / model_id=${escapeHtml(publishedModelMetrics.model_id)} / version=${escapeHtml(publishedModelMetrics.model_version)}</p>` +
       `<section class="decision-grid">` +
       `<div class="metric"><span>subject types</span><strong>${publishedModelMetrics.subject_types}</strong></div>` +
       `<div class="metric"><span>categories(action)</span><strong>${publishedModelMetrics.categories}</strong></div>` +
@@ -1663,6 +1877,56 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
       `<p class="muted">当前未找到可用的 model_snapshot。请先在“发布流程”选择一条包含模型快照的记录，或提交一次发布。</p>` +
       `</section>`;
 
+  const publishContextSection = publishedModelMetrics
+    ? `<section>` +
+      `<p class="muted metric-caption">当前查看发布（用于理解你刚提交/选中的发布快照）</p>` +
+      `<section class="kv-grid">` +
+      `<div class="kv-item"><span>publish_id</span><strong>${escapeHtml(publishedModelMetrics.publish_id)}</strong></div>` +
+      `<div class="kv-item"><span>tenant</span><strong>${escapeHtml(publishedModelMetrics.tenant_id)}</strong></div>` +
+      `<div class="kv-item"><span>model_id</span><strong>${escapeHtml(publishedModelMetrics.model_id)}</strong></div>` +
+      `<div class="kv-item"><span>version</span><strong>${escapeHtml(publishedModelMetrics.model_version)}</strong></div>` +
+      `</section>` +
+      `</section>`
+    : `<section>` +
+      `<p class="muted metric-caption">当前查看发布（用于理解你刚提交/选中的发布快照）</p>` +
+      `<p class="muted">当前没有选中可解析的发布快照；总览无法展示 tenant/model/version。</p>` +
+      `</section>`;
+
+  const runtimeRouteSection =
+    `<section>` +
+    `<p class="muted metric-caption">当前运行态路由（决定这个 namespace 现在会命中哪个已发布模型）</p>` +
+    `<section class="kv-grid">` +
+    `<div class="kv-item"><span>namespace</span><strong>${escapeHtml(namespace)}</strong></div>` +
+    `<div class="kv-item"><span>tenant</span><strong>${escapeHtml(runtimeRouteOverview.tenant_label)}</strong></div>` +
+    `<div class="kv-item"><span>environments</span><strong>${escapeHtml(runtimeRouteOverview.environment_label)}</strong></div>` +
+    `<div class="kv-item"><span>route count</span><strong>${runtimeRouteOverview.route_count}</strong></div>` +
+    `</section>` +
+    (runtimeRouteOverview.route_items.length > 0
+      ? `<p class="muted">${escapeHtml(
+          runtimeRouteOverview.route_items
+            .map(
+              (item) =>
+                `${item.environment}: ${item.model_id} / version=${item.model_version} / publish=${item.publish_id}`,
+            )
+            .join("；"),
+        )}</p>`
+      : `<p class="muted">当前 namespace 尚未配置 model_route，运行态不会自动切到你刚发布的模型。</p>`) +
+    (routeMismatchMessage
+      ? `<p class="overview-alert overview-alert-danger">${escapeHtml(routeMismatchMessage)}</p>`
+      : "") +
+    `</section>`;
+
+  const defaultTemplateSection =
+    `<section>` +
+    `<p class="muted metric-caption">默认提交模板（仅影响“策略模型提交”表单初始值，不代表当前生效模型）</p>` +
+    `<section class="kv-grid">` +
+    `<div class="kv-item"><span>template</span><strong>${escapeHtml(defaultTemplateOption.label)}</strong></div>` +
+    `<div class="kv-item"><span>tenant</span><strong>${escapeHtml(defaultTemplateMeta?.tenant_id ?? "-")}</strong></div>` +
+    `<div class="kv-item"><span>model_id</span><strong>${escapeHtml(defaultTemplateMeta?.model_id ?? "-")}</strong></div>` +
+    `<div class="kv-item"><span>version</span><strong>${escapeHtml(defaultTemplateMeta?.version ?? "-")}</strong></div>` +
+    `</section>` +
+    `</section>`;
+
   const controlRuntimeHint =
     overviewMetrics.subjects +
       overviewMetrics.objects +
@@ -1673,12 +1937,10 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
       : "";
 
   const hasObjectItems = Boolean(
-    viewModel.control_objects?.ok &&
-    viewModel.control_objects.data.items.length > 0,
+    stagedInstanceSnapshot.objects.length > 0,
   );
   const hasRelationItems = Boolean(
-    viewModel.control_relations?.ok &&
-    viewModel.control_relations.data.items.length > 0,
+    stagedInstanceSnapshot.relation_events.length > 0,
   );
   const hasModelRouteItems = Boolean(
     viewModel.model_routes?.ok && viewModel.model_routes.data.items.length > 0,
@@ -1696,11 +1958,11 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
       ? ""
       : `<section class="runtime-table-card"><h4>审计事件 Audits</h4><div class="table-container"><table class="data-table"><thead><tr><th>Event</th><th>Target</th><th>Operator</th><th>Created At</th></tr></thead><tbody>${auditRows}</tbody></table></div></section>`;
   const objectTableSection =
-    viewModel.control_objects?.ok && !hasObjectItems
+    !hasObjectItems
       ? ""
       : `<section class="runtime-table-card"><h4>客体台账 Objects</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div></section>`;
   const relationTableSection =
-    viewModel.control_relations?.ok && !hasRelationItems
+    !hasRelationItems
       ? ""
       : `<section class="runtime-table-card"><h4>关系边 Relations</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Scope</th><th>Updated</th></tr></thead><tbody>${relationRows}</tbody></table></div></section>`;
 
@@ -1716,8 +1978,8 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     objectRelationTableSection.length > 0
       ? objectRelationTableSection
       : `<section class="runtime-empty-hint">` +
-        `<p class="muted">当前命名空间暂无客体台账与关系边数据。</p>` +
-        `<p class="muted">可先执行 setup 导入，或切换到 JSON 视图直接维护 instance 数据。</p>` +
+        `<p class="muted">当前预览暂无客体台账与关系边数据。</p>` +
+        `<p class="muted">可切换其他预置 instance，或直接在 JSON 视图补充后再执行 setup。</p>` +
         `</section>`;
   const namespaceSwitchForm =
     `<form class="filters toolbar" method="GET" action="/" data-control-incremental="true" data-control-namespace-form="true">` +
@@ -1730,6 +1992,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<input type="hidden" name="tab" value="${escapeHtml(viewModel.query.tab ?? "")}" />` +
     `<input type="hidden" name="widget" value="${escapeHtml(viewModel.query.widget ?? "")}" />` +
     `<input type="hidden" name="detail_mode" value="${escapeHtml(viewModel.query.detail_mode ?? "")}" />` +
+    `<input type="hidden" name="fixture_id" value="${escapeHtml(activeSetupFixtureId)}" />` +
     `<button type="submit" class="btn btn-primary">切换命名空间</button>` +
     `</form>`;
   const runtimeSummarySection =
@@ -1743,22 +2006,13 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<div class="metric"><span>model routes</span><strong>${modelRouteCount}</strong></div>` +
     `</section>` +
     `</section>`;
-  const tenantContextSection =
-    `<section>` +
-    `<p class="muted metric-caption">模型与租户上下文（用于理解当前发布与模型归属，不直接决定运行态工作区）</p>` +
-    `<section class="kv-grid">` +
-    `<div class="kv-item"><span>tenant</span><strong>${escapeHtml(currentTenantLabel)}</strong></div>` +
-    `<div class="kv-item"><span>tenant source</span><strong>${escapeHtml(tenantSourceLabel)}</strong></div>` +
-    `<div class="kv-item"><span>template model_id</span><strong>${escapeHtml(defaultModel.model_meta.model_id)}</strong></div>` +
-    `<div class="kv-item"><span>environments</span><strong>${escapeHtml(environmentLabel)}</strong></div>` +
-    `</section>` +
-    `</section>`;
-
   return (
     `<article class="card card-hover">` +
     `<h3>控制面总览</h3>` +
     publishedMetricsSection +
-    tenantContextSection +
+    publishContextSection +
+    runtimeRouteSection +
+    defaultTemplateSection +
     `<p class="muted metric-caption">上半区聚焦模型发布与发布快照；运行态工作区选择与 instance 维护放在下方单独卡片。</p>` +
     `<p class="muted metric-caption">说明：下方维护操作只写入控制面运行态数据，不会回写“策略模型提交”卡片中的 JSON。</p>` +
     `<section class="management-grid model-submit-grid">` +
@@ -1836,21 +2090,28 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<p class="muted">此卡片只维护运行态 instance 数据（model_route / object / relation），不会修改上方“策略模型提交”的 JSON。</p>` +
     namespaceSwitchForm +
     runtimeSummarySection +
-    `<section class="model-editor" data-instance-editor>` +
-    `<form class="action-form setup-fixture-form" method="POST" action="/actions/control/setup/apply" data-control-incremental="true" data-control-setup-form="true">` +
-    `<h4>预置场景批量导入</h4>` +
-    hiddenWithoutNamespace +
-    `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
-    `<label>预置 Setup 脚本<select name="fixture_id" ${setupFixtureSelectAttr}>${setupFixtureSelectOptions}</select></label>` +
-    `<p class="muted">一键写入 Object / Relation，适合快速回放 fixture 中预制的主体、客体与关系数据。</p>` +
-    `<button type="submit" class="btn btn-primary" ${setupFixtureSubmitAttr}>执行批量 Setup</button>` +
-    `</form>` +
     `<section data-control-fixed-runtime>${fixedRuntimeSectionWithFallback}</section>` +
+    `<form class="action-form setup-fixture-preview-form" method="GET" action="/" data-control-incremental="true" data-control-setup-form="true" data-control-setup-preview-form="true">` +
+    `<h4>预置场景选择</h4>` +
+    hiddenWithoutNamespace +
+    `<div class="setup-fixture-preview-grid">` +
+    `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
+    `<label>预置 Instance<select name="fixture_id" ${setupFixtureSelectAttr}>${setupFixtureSelectOptions}</select></label>` +
+    `</div>` +
+    `<p class="muted">选择即预览，下方“客体台账 / 关系边视图”和 JSON 会立即切换；可先修改，再执行 setup。</p>` +
+    `</form>` +
+    `<section class="model-editor" data-instance-editor>` +
     `<section class="instance-object-relation-block" data-json-scope>` +
+    `<form class="action-form setup-fixture-form" method="POST" action="/actions/control/setup/apply" data-control-incremental="true" data-control-instance-json-form="true">` +
+    hiddenWithoutNamespace +
+    `<input type="hidden" name="fixture_id" value="${escapeHtml(activeSetupFixtureId)}" />` +
+    `<input type="hidden" name="namespace" value="${escapeHtml(namespace)}" />` +
     `<div class="model-editor-head">` +
     `<p class="muted">客体台账 / 关系边视图</p>` +
     `<div class="model-editor-head-actions">${renderModelEditorToggleSwitch()}</div>` +
     `</div>` +
+    `<p class="muted">${escapeHtml(stagedPreviewTitle)}</p>` +
+    `<p class="muted">${escapeHtml(stagedPreviewDescription)}</p>` +
     `<section class="json-switchable" data-json-switchable>` +
     `<div class="json-view" data-json-view="visual">` +
     `<section data-control-object-relation-visual>${objectRelationSectionWithFallback}</section>` +
@@ -1858,26 +2119,24 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<div class="json-view" data-json-view="graph" hidden>` +
     `<section class="model-graph" data-instance-graph data-subject-tree-direction="bottom-up">` +
     `<textarea hidden data-instance-graph-payload>${instanceGraphPayloadJson}</textarea>` +
-    `<p class="muted model-graph-placeholder">Graph 视图展示当前命名空间全部 instance 关系（relation_events + object.owner_ref）。</p>` +
+    `<p class="muted model-graph-placeholder">Graph 视图展示当前预览 instance 的关系（relation_events + object.owner_ref）。</p>` +
     `<div class="instance-graph-layout-bar"><span class="muted">Subject 树方向</span><div class="json-toggle" role="tablist" aria-label="Subject 树方向"><button type="button" class="json-toggle-btn active" data-instance-subject-direction-btn="bottom-up" aria-pressed="true">自下而上</button><button type="button" class="json-toggle-btn" data-instance-subject-direction-btn="top-down" aria-pressed="false">自上而下</button></div></div>` +
     `<div class="model-graph-chart-wrap"><div class="instance-graph-actions"><button type="button" class="model-graph-node-hide" data-instance-hide-node title="先点击一个节点，再点击隐藏" disabled>隐藏节点</button><button type="button" class="model-graph-zoom-reset" title="重置缩放并恢复全部节点">重置</button></div><div class="model-graph-echart" data-instance-echart role="img" aria-label="Instance 关系图"></div></div>` +
     `<p class="muted model-graph-legend">说明：左侧 subject 节点按模型定义的 type 分层树状布局（同 type 同层，可切换自下而上/自上而下）；边标签为 relation_type（含 scope）；虚线代表 owner_ref 关系。点击节点后可用“隐藏节点”临时隐藏该节点及关联边，点击“重置”恢复全部节点。</p>` +
     `</section>` +
     `</div>` +
     `<div class="json-view" data-json-view="raw" hidden>` +
-    `<form class="action-form" method="POST" action="/actions/control/instance/json/apply" data-control-incremental="true" data-control-instance-json-form="true">` +
-    hiddenWithoutNamespace +
-    `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
     `<section class="instance-json-rich-editor" data-instance-json-rich-editor hidden>` +
     `<div class="raw-json-toolbar"><button type="button" class="btn btn-secondary" data-instance-jsoneditor-reset>从文本重新加载</button></div>` +
     `<div class="instance-json-rich-editor-target" data-instance-jsoneditor-target></div>` +
     `<p class="muted instance-json-rich-editor-hint" data-instance-jsoneditor-status>结构化编辑器已启用：支持层级折叠、节点级值编辑与搜索。</p>` +
     `</section>` +
     `<label data-instance-json-textarea-field>Instance JSON<textarea name="instance_json" rows="16" required data-instance-json-textarea>${instanceSnapshotJson}</textarea></label>` +
-    `<p class="muted model-editor-note">支持字段：namespace、objects、relation_events（可选 model_routes）。提交后按 JSON 批量 upsert/sync。</p>` +
-    `<button type="submit" class="btn btn-primary">更新 Instance JSON</button>` +
-    `</form>` +
+    `<p class="muted model-editor-note">支持字段：namespace、objects、relation_events（可选 model_routes）。可基于当前预览微调后，再执行 setup。</p>` +
     `</div>` +
+    `</section>` +
+    `<button type="submit" class="btn btn-primary" ${previewSetupSubmitAttr}>执行批量 Setup</button>` +
+    `</form>` +
     `</section>` +
     `</section>` +
     `</section>` +

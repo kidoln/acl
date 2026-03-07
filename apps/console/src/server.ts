@@ -92,6 +92,7 @@ function parseQuery(inputUrl: URL): ConsoleQuery {
   const tabRaw = inputUrl.searchParams.get("tab");
   const widgetRaw = inputUrl.searchParams.get("widget");
   const detailModeRaw = inputUrl.searchParams.get("detail_mode");
+  const fixtureIdRaw = inputUrl.searchParams.get("fixture_id");
   const flashTypeRaw = inputUrl.searchParams.get("flash_type");
   const flashMessage = inputUrl.searchParams.get("flash_message")?.trim();
 
@@ -121,6 +122,7 @@ function parseQuery(inputUrl: URL): ConsoleQuery {
   const simulationId = inputUrl.searchParams.get("simulation_id")?.trim();
   const namespace = inputUrl.searchParams.get("namespace")?.trim();
   const cellKey = inputUrl.searchParams.get("cell_key")?.trim();
+  const fixtureId = fixtureIdRaw?.trim();
 
   return {
     status,
@@ -128,6 +130,7 @@ function parseQuery(inputUrl: URL): ConsoleQuery {
     tab,
     widget,
     detail_mode: detailMode,
+    fixture_id: fixtureId && fixtureId.length > 0 ? fixtureId : undefined,
     limit: parseInteger(inputUrl.searchParams.get("limit"), 20, 1, 100),
     offset: parseInteger(
       inputUrl.searchParams.get("offset"),
@@ -223,6 +226,9 @@ function buildRedirectUrl(input: {
   }
   if (query?.detail_mode) {
     params.set("detail_mode", query.detail_mode);
+  }
+  if (query?.fixture_id) {
+    params.set("fixture_id", query.fixture_id);
   }
   if (query?.limit && Number.isInteger(query.limit)) {
     params.set("limit", String(query.limit));
@@ -372,6 +378,7 @@ function parseContextFromForm(form: URLSearchParams): Partial<ConsoleQuery> {
   const tabRaw = form.get("tab");
   const widgetRaw = form.get("widget");
   const detailModeRaw = form.get("detail_mode");
+  const fixtureId = form.get("fixture_id")?.trim();
 
   const status =
     statusRaw && VALID_STATUSES.has(statusRaw as PublishWorkflowStatus)
@@ -406,6 +413,7 @@ function parseContextFromForm(form: URLSearchParams): Partial<ConsoleQuery> {
     tab,
     widget,
     detail_mode: detailMode,
+    fixture_id: fixtureId && fixtureId.length > 0 ? fixtureId : undefined,
     limit: parseInteger(form.get("limit"), 20, 1, 100),
     offset: parseInteger(form.get("offset"), 0, 0, Number.MAX_SAFE_INTEGER),
     publish_id: publishId && publishId.length > 0 ? publishId : undefined,
@@ -804,6 +812,105 @@ function parseInstanceJsonPayload(
       relation_events: relationEvents,
       model_routes: modelRoutes,
     },
+  };
+}
+
+async function applyParsedInstancePayload(input: {
+  client: AclApiClient;
+  namespaceInput: string;
+  parsed: ParsedInstanceJsonPayload;
+}): Promise<
+  | {
+      ok: true;
+      targetNamespace: string;
+      modelRouteCount: number;
+      objectCount: number;
+      relationCount: number;
+    }
+  | {
+      ok: false;
+      step: "model_routes" | "objects" | "relation_events";
+      error: string;
+    }
+> {
+  const targetNamespace = input.parsed.namespace ?? input.namespaceInput;
+
+  if (input.parsed.model_routes.length > 0) {
+    const groupedModelRoutes = new Map<
+      string,
+      Array<{
+        tenant_id: string;
+        environment: string;
+        model_id: string;
+        model_version?: string;
+        publish_id?: string;
+        operator?: string;
+      }>
+    >();
+
+    input.parsed.model_routes.forEach((item) => {
+      const namespace = item.namespace ?? targetNamespace;
+      const current = groupedModelRoutes.get(namespace) ?? [];
+      current.push({
+        tenant_id: item.tenant_id,
+        environment: item.environment,
+        model_id: item.model_id,
+        model_version: item.model_version,
+        publish_id: item.publish_id,
+        operator: item.operator,
+      });
+      groupedModelRoutes.set(namespace, current);
+    });
+
+    for (const [namespace, routes] of groupedModelRoutes.entries()) {
+      const routeResult = await input.client.upsertModelRoutes({
+        namespace,
+        routes,
+      });
+      if (!routeResult.ok) {
+        return {
+          ok: false,
+          step: "model_routes",
+          error: routeResult.error,
+        };
+      }
+    }
+  }
+
+  if (input.parsed.objects.length > 0) {
+    const objectResult = await input.client.upsertControlObjects({
+      namespace: targetNamespace,
+      objects: input.parsed.objects,
+    });
+    if (!objectResult.ok) {
+      return {
+        ok: false,
+        step: "objects",
+        error: objectResult.error,
+      };
+    }
+  }
+
+  if (input.parsed.relation_events.length > 0) {
+    const relationResult = await input.client.syncControlRelations({
+      namespace: targetNamespace,
+      events: input.parsed.relation_events,
+    });
+    if (!relationResult.ok) {
+      return {
+        ok: false,
+        step: "relation_events",
+        error: relationResult.error,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    targetNamespace,
+    modelRouteCount: input.parsed.model_routes.length,
+    objectCount: input.parsed.objects.length,
+    relationCount: input.parsed.relation_events.length,
   };
 }
 
@@ -1327,69 +1434,72 @@ async function handleControlSetupFixtureApplyAction(
 
   const namespace = form.get("namespace")?.trim();
   const fixtureId = form.get("fixture_id")?.trim();
+  const instanceJson = form.get("instance_json")?.trim();
 
-  if (!namespace || !fixtureId) {
+  if (!namespace) {
     redirectTo(
       res,
       buildRedirectUrl({
         query: context,
         flashType: "error",
-        flashMessage: "fixture setup 参数缺失：namespace/fixture_id 必填",
+        flashMessage: "fixture setup 参数缺失：namespace 必填",
       }),
     );
     return;
   }
 
-  const loadedFixture = loadSetupFixtureById(fixtureId);
-  if (!loadedFixture) {
-    redirectTo(
-      res,
-      buildRedirectUrl({
-        query: context,
-        flashType: "error",
-        flashMessage: `fixture setup 不存在或格式非法: ${fixtureId}`,
-      }),
-    );
-    return;
-  }
+  let parsedPayload: ParsedInstanceJsonPayload;
+  if (instanceJson && instanceJson.length > 0) {
+    const parsed = parseInstanceJsonPayload(instanceJson);
+    if (!parsed.ok) {
+      redirectTo(
+        res,
+        buildRedirectUrl({
+          query: context,
+          flashType: "error",
+          flashMessage: parsed.error,
+        }),
+      );
+      return;
+    }
+    parsedPayload = parsed.data;
+  } else {
+    if (!fixtureId) {
+      redirectTo(
+        res,
+        buildRedirectUrl({
+          query: context,
+          flashType: "error",
+          flashMessage: "fixture setup 参数缺失：fixture_id/instance_json 至少提供一个",
+        }),
+      );
+      return;
+    }
 
-  const {
-    id,
-    fixture: {
-      objects,
-      relation_events: relationEvents,
-    },
-  } = loadedFixture;
+    const loadedFixture = loadSetupFixtureById(fixtureId);
+    if (!loadedFixture) {
+      redirectTo(
+        res,
+        buildRedirectUrl({
+          query: context,
+          flashType: "error",
+          flashMessage: `fixture setup 不存在或格式非法: ${fixtureId}`,
+        }),
+      );
+      return;
+    }
 
-  if (objects.length > 0) {
-    const objectResult = await client.upsertControlObjects({
+    parsedPayload = {
       namespace,
-      objects: objects.map((item) => ({
+      model_routes: [],
+      objects: loadedFixture.fixture.objects.map((item) => ({
         object_id: item.object_id,
         object_type: item.object_type,
         sensitivity: item.sensitivity,
         owner_ref: item.owner_ref,
         labels: item.labels,
       })),
-    });
-
-    if (!objectResult.ok) {
-      redirectTo(
-        res,
-        buildRedirectUrl({
-          query: context,
-          flashType: "error",
-          flashMessage: `fixture setup 失败（objects）: ${objectResult.error}`,
-        }),
-      );
-      return;
-    }
-  }
-
-  if (relationEvents.length > 0) {
-    const relationResult = await client.syncControlRelations({
-      namespace,
-      events: relationEvents.map((item) => ({
+      relation_events: loadedFixture.fixture.relation_events.map((item) => ({
         from: item.from,
         to: item.to,
         relation_type: item.relation_type,
@@ -1397,30 +1507,35 @@ async function handleControlSetupFixtureApplyAction(
         scope: item.scope,
         source: item.source,
       })),
-    });
-
-    if (!relationResult.ok) {
-      redirectTo(
-        res,
-        buildRedirectUrl({
-          query: context,
-          flashType: "error",
-          flashMessage: `fixture setup 失败（relations）: ${relationResult.error}`,
-        }),
-      );
-      return;
-    }
+    };
   }
 
-  context.namespace = namespace;
+  const applyResult = await applyParsedInstancePayload({
+    client,
+    namespaceInput: namespace,
+    parsed: parsedPayload,
+  });
+  if (!applyResult.ok) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: "error",
+        flashMessage: `fixture setup 失败（${applyResult.step}）: ${applyResult.error}`,
+      }),
+    );
+    return;
+  }
+
+  context.namespace = applyResult.targetNamespace;
   redirectTo(
     res,
     buildRedirectUrl({
       query: context,
       flashType: "success",
       flashMessage:
-        `fixture setup 执行成功: ${id}` +
-        `（objects=${objects.length}, relations=${relationEvents.length}）`,
+        `fixture setup 执行成功: ${fixtureId ?? "custom"}` +
+        `（routes=${applyResult.modelRouteCount}, objects=${applyResult.objectCount}, relations=${applyResult.relationCount}）`,
     }),
   );
 }
@@ -1462,90 +1577,28 @@ async function handleControlInstanceJsonApplyAction(
     return;
   }
 
-  const targetNamespace = parsed.data.namespace ?? namespaceInput;
-  context.namespace = targetNamespace;
-
-  if (parsed.data.model_routes.length > 0) {
-    const groupedModelRoutes = new Map<
-      string,
-      Array<{
-        tenant_id: string;
-        environment: string;
-        model_id: string;
-        model_version?: string;
-        publish_id?: string;
-        operator?: string;
-      }>
-    >();
-
-    parsed.data.model_routes.forEach((item) => {
-      const namespace = item.namespace ?? targetNamespace;
-      const current = groupedModelRoutes.get(namespace) ?? [];
-      current.push({
-        tenant_id: item.tenant_id,
-        environment: item.environment,
-        model_id: item.model_id,
-        model_version: item.model_version,
-        publish_id: item.publish_id,
-        operator: item.operator,
-      });
-      groupedModelRoutes.set(namespace, current);
-    });
-
-    for (const [namespace, routes] of groupedModelRoutes.entries()) {
-      const routeResult = await client.upsertModelRoutes({
-        namespace,
-        routes,
-      });
-      if (!routeResult.ok) {
-        redirectTo(
-          res,
-          buildRedirectUrl({
-            query: context,
-            flashType: "error",
-            flashMessage: `instance_json 写入失败（model_routes）: ${routeResult.error}`,
-          }),
-        );
-        return;
-      }
-    }
+  const applyResult = await applyParsedInstancePayload({
+    client,
+    namespaceInput,
+    parsed: parsed.data,
+  });
+  if (!applyResult.ok) {
+    const stepLabel =
+      applyResult.step === "relation_events"
+        ? "relation_events"
+        : applyResult.step;
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: "error",
+        flashMessage: `instance_json 写入失败（${stepLabel}）: ${applyResult.error}`,
+      }),
+    );
+    return;
   }
 
-  if (parsed.data.objects.length > 0) {
-    const objectResult = await client.upsertControlObjects({
-      namespace: targetNamespace,
-      objects: parsed.data.objects,
-    });
-    if (!objectResult.ok) {
-      redirectTo(
-        res,
-        buildRedirectUrl({
-          query: context,
-          flashType: "error",
-          flashMessage: `instance_json 写入失败（objects）: ${objectResult.error}`,
-        }),
-      );
-      return;
-    }
-  }
-
-  if (parsed.data.relation_events.length > 0) {
-    const relationResult = await client.syncControlRelations({
-      namespace: targetNamespace,
-      events: parsed.data.relation_events,
-    });
-    if (!relationResult.ok) {
-      redirectTo(
-        res,
-        buildRedirectUrl({
-          query: context,
-          flashType: "error",
-          flashMessage: `instance_json 写入失败（relation_events）: ${relationResult.error}`,
-        }),
-      );
-      return;
-    }
-  }
+  context.namespace = applyResult.targetNamespace;
 
   redirectTo(
     res,
@@ -1554,7 +1607,7 @@ async function handleControlInstanceJsonApplyAction(
       flashType: "success",
       flashMessage:
         "instance_json 更新成功" +
-        `（routes=${parsed.data.model_routes.length}, objects=${parsed.data.objects.length}, relations=${parsed.data.relation_events.length}）`,
+        `（routes=${applyResult.modelRouteCount}, objects=${applyResult.objectCount}, relations=${applyResult.relationCount}）`,
     }),
   );
 }

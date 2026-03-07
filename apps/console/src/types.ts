@@ -174,6 +174,7 @@ export interface ConsoleQuery {
   tab?: ConsoleTab;
   widget?: ConsoleWidget;
   detail_mode?: DetailMode;
+  fixture_id?: string;
   limit: number;
   offset: number;
   publish_id?: string;

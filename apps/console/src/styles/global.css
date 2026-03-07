@@ -299,6 +299,21 @@ body {
   font-size: 12px;
 }
 
+.overview-alert {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.overview-alert-danger {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: #fecaca;
+}
+
 .error {
   border-color: #fecaca;
   background: #fff7f8;
@@ -1481,7 +1496,34 @@ pre {
 }
 
 .instance-editor-card .setup-fixture-form {
-  margin-bottom: 12px;
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+.instance-editor-card .setup-fixture-preview-form {
+  margin: 12px 0;
+}
+
+.instance-editor-card .setup-fixture-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.instance-editor-card .setup-fixture-preview-grid > label {
+  margin: 0;
+}
+
+.instance-editor-card .setup-fixture-preview-grid > label > input,
+.instance-editor-card .setup-fixture-preview-grid > label > select {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .instance-editor-card .setup-fixture-preview-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .runtime-empty-hint {
