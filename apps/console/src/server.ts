@@ -1019,6 +1019,78 @@ async function applyParsedInstancePayload(input: {
   };
 }
 
+export async function maybeAutoAttachFixtureRoute(input: {
+  client: AclApiClient;
+  namespaceInput: string;
+  fixtureId?: string;
+  parsed: ParsedInstanceJsonPayload;
+}): Promise<
+  | {
+      ok: true;
+      parsed: ParsedInstanceJsonPayload;
+      summary?: {
+        publish_id: string;
+        model_id: string;
+        model_version?: string;
+        tenant_id: string;
+        environment: string;
+      };
+    }
+  | {
+      ok: false;
+      step:
+        | "load_model_fixture"
+        | "publish_submit"
+        | "publish_review"
+        | "publish_activate"
+        | "model_meta";
+      error: string;
+    }
+> {
+  if (!input.fixtureId || input.parsed.model_routes.length > 0) {
+    return {
+      ok: true,
+      parsed: input.parsed,
+    };
+  }
+
+  const loadedFixture = loadSetupFixtureById(input.fixtureId);
+  const route = loadedFixture?.fixture.route;
+  if (!route) {
+    return {
+      ok: true,
+      parsed: input.parsed,
+    };
+  }
+
+  const targetNamespace = input.parsed.namespace ?? input.namespaceInput;
+  const bootstrapResult = await bootstrapFixtureRoute({
+    client: input.client,
+    fixtureId: input.fixtureId,
+    namespace: targetNamespace,
+    route,
+  });
+
+  if (!bootstrapResult.ok) {
+    return bootstrapResult;
+  }
+
+  return {
+    ok: true,
+    parsed: {
+      ...input.parsed,
+      model_routes: [bootstrapResult.route],
+    },
+    summary: {
+      publish_id: bootstrapResult.summary.publish_id,
+      model_id: bootstrapResult.summary.model_id,
+      model_version: bootstrapResult.summary.model_version,
+      tenant_id: bootstrapResult.summary.tenant_id,
+      environment: bootstrapResult.summary.environment,
+    },
+  };
+}
+
 async function handleIndex(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1694,7 +1766,28 @@ async function handleControlSetupFixtureApplyAction(
       );
       return;
     }
-    parsedPayload = parsed.data;
+
+    const routeAttachResult = await maybeAutoAttachFixtureRoute({
+      client,
+      namespaceInput: namespace,
+      fixtureId: fixtureId && fixtureId.length > 0 ? fixtureId : undefined,
+      parsed: parsed.data,
+    });
+    if (!routeAttachResult.ok) {
+      redirectTo(
+        res,
+        buildRedirectUrl({
+          query: context,
+          flashType: "error",
+          flashMessage:
+            `fixture setup 自动发布失败（${routeAttachResult.step}）: ${routeAttachResult.error}`,
+        }),
+      );
+      return;
+    }
+
+    parsedPayload = routeAttachResult.parsed;
+    autoRouteSummary = routeAttachResult.summary;
   } else {
     if (!fixtureId) {
       redirectTo(

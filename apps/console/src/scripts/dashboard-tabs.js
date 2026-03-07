@@ -73,6 +73,7 @@
     'form[data-control-setup-form="true"]',
     'form[data-control-instance-json-form="true"]',
     '[data-expectation-run-section]',
+    '[data-tab-panel="relations"]',
   ];
   const VANILLA_JSONEDITOR_MODULE_PATH = "/assets/vanilla-jsoneditor.js";
   let vanillaJsonEditorModulePromise = null;
