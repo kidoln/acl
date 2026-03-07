@@ -72,7 +72,8 @@
     'form[data-control-namespace-form="true"]',
     'form[data-control-setup-form="true"]',
     'form[data-control-instance-json-form="true"]',
-    '[data-expectation-run-section]',
+    "[data-expectation-run-section]",
+    '[data-tab-panel="simulation"]',
     '[data-tab-panel="relations"]',
   ];
   const VANILLA_JSONEDITOR_MODULE_PATH = "/assets/vanilla-jsoneditor.js";
@@ -83,12 +84,12 @@
       return vanillaJsonEditorModulePromise;
     }
 
-    vanillaJsonEditorModulePromise = import(VANILLA_JSONEDITOR_MODULE_PATH).catch(
-      (error) => {
-        vanillaJsonEditorModulePromise = null;
-        throw error;
-      },
-    );
+    vanillaJsonEditorModulePromise = import(
+      VANILLA_JSONEDITOR_MODULE_PATH
+    ).catch((error) => {
+      vanillaJsonEditorModulePromise = null;
+      throw error;
+    });
     return vanillaJsonEditorModulePromise;
   }
 
@@ -99,7 +100,10 @@
     ) {
       return;
     }
-    document.body.setAttribute("data-control-incremental-refresh-bound", "true");
+    document.body.setAttribute(
+      "data-control-incremental-refresh-bound",
+      "true",
+    );
 
     const replaceBySelector = (nextDoc, selector) => {
       const currentNode = document.querySelector(selector);
@@ -224,12 +228,12 @@
       }
 
       if (form.matches('form[data-expectation-preview-form="true"]')) {
-        const card = form.closest('[data-expectation-run-section]');
+        const card = form.closest("[data-expectation-run-section]");
         if (!(card instanceof HTMLElement)) {
           return null;
         }
         return {
-          selector: '[data-expectation-run-section]',
+          selector: "[data-expectation-run-section]",
           top: card.getBoundingClientRect().top,
         };
       }
@@ -249,7 +253,7 @@
         }
         const delta = node.getBoundingClientRect().top - anchorContext.top;
         if (Math.abs(delta) > 1) {
-          window.scrollBy({ left: 0, top: delta, behavior: 'auto' });
+          window.scrollBy({ left: 0, top: delta, behavior: "auto" });
         }
       };
 
@@ -425,7 +429,9 @@
     };
 
     const clearDismissTimer = (layer) => {
-      const timerId = Number(layer.getAttribute("data-system-notice-timer-id") || "");
+      const timerId = Number(
+        layer.getAttribute("data-system-notice-timer-id") || "",
+      );
       if (Number.isInteger(timerId) && timerId > 0) {
         window.clearTimeout(timerId);
       }
@@ -454,7 +460,9 @@
       if (!(closeButton instanceof HTMLButtonElement)) {
         return;
       }
-      if (closeButton.getAttribute("data-system-notice-close-bound") === "true") {
+      if (
+        closeButton.getAttribute("data-system-notice-close-bound") === "true"
+      ) {
         return;
       }
       closeButton.setAttribute("data-system-notice-close-bound", "true");
@@ -494,8 +502,7 @@
 
   function initSetupFixturePreviewForm() {
     if (
-      document.body.getAttribute("data-control-setup-preview-bound") ===
-      "true"
+      document.body.getAttribute("data-control-setup-preview-bound") === "true"
     ) {
       return;
     }
@@ -513,7 +520,9 @@
       ) {
         return;
       }
-      const form = target.closest('form[data-control-setup-preview-form="true"], form[data-expectation-preview-form="true"]');
+      const form = target.closest(
+        'form[data-control-setup-preview-form="true"], form[data-expectation-preview-form="true"]',
+      );
       if (!(form instanceof HTMLFormElement)) {
         return;
       }
@@ -564,8 +573,8 @@
         target.getAttribute("data-json-file-fixture-target") || "";
       const fixtureTarget = document.getElementById(fixtureTargetId);
       if (
-        fixtureTarget instanceof HTMLInputElement
-        || fixtureTarget instanceof HTMLSelectElement
+        fixtureTarget instanceof HTMLInputElement ||
+        fixtureTarget instanceof HTMLSelectElement
       ) {
         const matched = file.name.match(/^(.*)\.expected\.json$/u);
         if (matched && matched[1]) {
@@ -2844,8 +2853,9 @@
     const bindEditorExpandScrollGuard = (editorTarget) => {
       if (
         !(editorTarget instanceof HTMLElement) ||
-        editorTarget.getAttribute("data-instance-jsoneditor-scroll-guard-bound") ===
-          "true"
+        editorTarget.getAttribute(
+          "data-instance-jsoneditor-scroll-guard-bound",
+        ) === "true"
       ) {
         return null;
       }
@@ -2953,7 +2963,8 @@
       let popupObserver = null;
       let popupGuardDisposed = false;
 
-      const hasPopupOpened = () => Boolean(editorTarget.querySelector(popupRootSelector));
+      const hasPopupOpened = () =>
+        Boolean(editorTarget.querySelector(popupRootSelector));
 
       const disposePopupGuard = () => {
         if (popupGuardDisposed) {
@@ -2986,7 +2997,8 @@
         const nextPopupOpened = hasPopupOpened();
         if (nextPopupOpened && !popupOpened) {
           popupOpened = true;
-          popupAnchorPosition = popupAnchorPosition || readWindowScrollPosition();
+          popupAnchorPosition =
+            popupAnchorPosition || readWindowScrollPosition();
           return;
         }
         if (!nextPopupOpened && popupOpened) {
@@ -3000,7 +3012,8 @@
         if (!popupOpened || !ensureEditorAlive()) {
           return;
         }
-        const anchorPosition = popupAnchorPosition || readWindowScrollPosition();
+        const anchorPosition =
+          popupAnchorPosition || readWindowScrollPosition();
         popupAnchorPosition = anchorPosition;
         window.requestAnimationFrame(() => {
           syncPopupState();
@@ -3109,11 +3122,21 @@
       }
 
       const textarea = form.querySelector("[data-instance-json-textarea]");
-      const textareaField = form.querySelector("[data-instance-json-textarea-field]");
-      const editorWrapper = form.querySelector("[data-instance-json-rich-editor]");
-      const editorTarget = form.querySelector("[data-instance-jsoneditor-target]");
-      const resetButton = form.querySelector("[data-instance-jsoneditor-reset]");
-      const statusNode = form.querySelector("[data-instance-jsoneditor-status]");
+      const textareaField = form.querySelector(
+        "[data-instance-json-textarea-field]",
+      );
+      const editorWrapper = form.querySelector(
+        "[data-instance-json-rich-editor]",
+      );
+      const editorTarget = form.querySelector(
+        "[data-instance-jsoneditor-target]",
+      );
+      const resetButton = form.querySelector(
+        "[data-instance-jsoneditor-reset]",
+      );
+      const statusNode = form.querySelector(
+        "[data-instance-jsoneditor-status]",
+      );
 
       if (
         !(textarea instanceof HTMLTextAreaElement) ||
@@ -3155,7 +3178,10 @@
           return;
         }
         statusNode.textContent = message;
-        statusNode.setAttribute("data-instance-jsoneditor-status-type", isError ? "error" : "info");
+        statusNode.setAttribute(
+          "data-instance-jsoneditor-status-type",
+          isError ? "error" : "info",
+        );
       };
       const dispatchTextareaInput = () => {
         textarea.dispatchEvent(new Event("input", { bubbles: true }));
@@ -3201,9 +3227,13 @@
               ? module.Mode
               : null;
           const modeTree =
-            modeEnum && typeof modeEnum.tree === "string" ? modeEnum.tree : "tree";
+            modeEnum && typeof modeEnum.tree === "string"
+              ? modeEnum.tree
+              : "tree";
           const modeText =
-            modeEnum && typeof modeEnum.text === "string" ? modeEnum.text : "text";
+            modeEnum && typeof modeEnum.text === "string"
+              ? modeEnum.text
+              : "text";
 
           const initial = parseTextareaContent(textarea.value);
           editor = createJSONEditor({
@@ -3216,7 +3246,10 @@
               statusBar: true,
               onChange: (updatedContent, _previousContent, status) => {
                 const nextText = toTextContent(updatedContent);
-                if (typeof nextText === "string" && textarea.value !== nextText) {
+                if (
+                  typeof nextText === "string" &&
+                  textarea.value !== nextText
+                ) {
                   textarea.value = nextText;
                   dispatchTextareaInput();
                 }
@@ -3251,7 +3284,10 @@
 
           editorWrapper.hidden = false;
           if (textareaField instanceof HTMLElement) {
-            textareaField.setAttribute("data-jsoneditor-fallback-hidden", "true");
+            textareaField.setAttribute(
+              "data-jsoneditor-fallback-hidden",
+              "true",
+            );
           }
 
           form.addEventListener("submit", () => {
@@ -3320,7 +3356,9 @@
     const validSubjectTreeDirections = new Set(["bottom-up", "top-down"]);
 
     const normalizeSubjectTreeDirection = (value) =>
-      validSubjectTreeDirections.has(value) ? value : defaultSubjectTreeDirection;
+      validSubjectTreeDirections.has(value)
+        ? value
+        : defaultSubjectTreeDirection;
 
     const readSubjectTreeDirection = (editor) =>
       normalizeSubjectTreeDirection(
@@ -3580,7 +3618,8 @@
         }
         const fromType =
           typeof item.from_type === "string" ? item.from_type.trim() : "";
-        const toType = typeof item.to_type === "string" ? item.to_type.trim() : "";
+        const toType =
+          typeof item.to_type === "string" ? item.to_type.trim() : "";
         if (fromType.length === 0 || toType.length === 0) {
           return;
         }
@@ -3696,7 +3735,8 @@
         if (from.length === 0 || to.length === 0) {
           return;
         }
-        const label = typeof edge.label === "string" ? edge.label : "related_to";
+        const label =
+          typeof edge.label === "string" ? edge.label : "related_to";
         const key = `${from}::${to}::${label}::${edge.dashed ? "d" : "s"}`;
         if (edgeMap.has(key)) {
           return;
@@ -3845,7 +3885,9 @@
         if (nodes.length > 0) {
           return normalized;
         }
-        return buildPayloadFromInstanceJson(editor, subjectLayout) || normalized;
+        return (
+          buildPayloadFromInstanceJson(editor, subjectLayout) || normalized
+        );
       } catch {
         return buildPayloadFromInstanceJson(editor, null);
       }
@@ -3990,7 +4032,11 @@
         chart = globalChart;
         chartInstances.set(container, chart);
       }
-      if (chart && typeof chart.isDisposed === "function" && chart.isDisposed()) {
+      if (
+        chart &&
+        typeof chart.isDisposed === "function" &&
+        chart.isDisposed()
+      ) {
         chartInstances.delete(container);
         chart = null;
       }
@@ -4023,7 +4069,9 @@
       // 布局分组：始终基于全量节点计算坐标，隐藏仅影响渲染可见性
       // 这样“隐藏节点”不会触发剩余节点重新 layout
       const allNodes = payload.nodes;
-      const layoutSubjectNodes = allNodes.filter((n) => n.category === "subject");
+      const layoutSubjectNodes = allNodes.filter(
+        (n) => n.category === "subject",
+      );
       const layoutObjectNodes = allNodes.filter((n) => n.category === "object");
       const layoutMixedNodes = allNodes.filter((n) => n.category === "mixed");
       const subjectNodeIdSet = new Set(
@@ -4128,15 +4176,12 @@
         };
       };
 
-      const buildSubjectTypeLevelMap = (
-        nodes,
-        typeCatalog,
-        typeEdges,
-      ) => {
+      const buildSubjectTypeLevelMap = (nodes, typeCatalog, typeEdges) => {
         const sortTypes = buildTypeSortFn(typeCatalog);
         const usedTypes = new Set();
         nodes.forEach((node) => {
-          const nodeType = readNodeSubjectType(node) || inferEntityTypeFromId(node.id);
+          const nodeType =
+            readNodeSubjectType(node) || inferEntityTypeFromId(node.id);
           if (nodeType.length > 0) {
             usedTypes.add(nodeType);
           }
@@ -4167,7 +4212,8 @@
         typeEdges.forEach((edge) => {
           const fromType =
             typeof edge.fromType === "string" ? edge.fromType.trim() : "";
-          const toType = typeof edge.toType === "string" ? edge.toType.trim() : "";
+          const toType =
+            typeof edge.toType === "string" ? edge.toType.trim() : "";
           if (fromType.length === 0 || toType.length === 0) {
             return;
           }
@@ -4251,7 +4297,10 @@
         const usableLeft = areaLeft + horizontalPadding;
         const usableRight = areaRight - horizontalPadding;
         const step = (usableRight - usableLeft) / (count - 1);
-        return Array.from({ length: count }, (_, index) => usableLeft + step * index);
+        return Array.from(
+          { length: count },
+          (_, index) => usableLeft + step * index,
+        );
       };
 
       const positionSubjectNodesByTypeTree = ({
@@ -4273,15 +4322,23 @@
         }
 
         const unknownTypeKey = "__unknown_subject_type__";
-        const typeLevels = buildSubjectTypeLevelMap(nodes, typeCatalog, typeEdges);
+        const typeLevels = buildSubjectTypeLevelMap(
+          nodes,
+          typeCatalog,
+          typeEdges,
+        );
         const knownMaxLevel =
-          typeLevels.size > 0 ? Math.max(...Array.from(typeLevels.values())) : 0;
+          typeLevels.size > 0
+            ? Math.max(...Array.from(typeLevels.values()))
+            : 0;
         const nodeLevelMap = new Map();
         const layerBuckets = new Map();
 
         nodes.forEach((node) => {
-          const nodeType = readNodeSubjectType(node) || inferEntityTypeFromId(node.id);
-          const normalizedType = nodeType.length > 0 ? nodeType : unknownTypeKey;
+          const nodeType =
+            readNodeSubjectType(node) || inferEntityTypeFromId(node.id);
+          const normalizedType =
+            nodeType.length > 0 ? nodeType : unknownTypeKey;
           const level = typeLevels.has(normalizedType)
             ? typeLevels.get(normalizedType)
             : knownMaxLevel + 1;
@@ -4292,7 +4349,9 @@
           layerBuckets.get(level).push(node);
         });
 
-        const orderedLayers = Array.from(layerBuckets.keys()).sort((a, b) => a - b);
+        const orderedLayers = Array.from(layerBuckets.keys()).sort(
+          (a, b) => a - b,
+        );
         const layerYMap = new Map();
         if (orderedLayers.length === 1) {
           layerYMap.set(orderedLayers[0], (startY + endY) / 2);
@@ -4386,7 +4445,8 @@
         if (!layoutMetrics || layoutMetrics.maxLayerCount <= 1) {
           return 56;
         }
-        const fallbackGap = areaWidth / Math.max(layoutMetrics.maxLayerCount - 1, 1);
+        const fallbackGap =
+          areaWidth / Math.max(layoutMetrics.maxLayerCount - 1, 1);
         const layerGap = Number.isFinite(layoutMetrics.minSlotGap)
           ? layoutMetrics.minSlotGap
           : fallbackGap;
@@ -4399,10 +4459,15 @@
               : layoutMetrics.maxLayerCount >= 9
                 ? 32
                 : 38;
-        return Math.max(20, Math.min(56, Math.min(preferredByGap, preferredByDensity)));
+        return Math.max(
+          20,
+          Math.min(56, Math.min(preferredByGap, preferredByDensity)),
+        );
       };
 
-      const subjectTypeCatalog = Array.isArray(payload.subjectLayout?.typeCatalog)
+      const subjectTypeCatalog = Array.isArray(
+        payload.subjectLayout?.typeCatalog,
+      )
         ? payload.subjectLayout.typeCatalog
         : [];
       const subjectTypeEdges = Array.isArray(payload.subjectLayout?.typeEdges)
@@ -4419,7 +4484,8 @@
               : 0.54;
       const subjectAreaLeft = graphLeft + renderWidth * 0.03;
       const subjectAreaRight = graphLeft + renderWidth * subjectWidthRatio;
-      const centerX = graphLeft + renderWidth * Math.min(subjectWidthRatio + 0.14, 0.82);
+      const centerX =
+        graphLeft + renderWidth * Math.min(subjectWidthRatio + 0.14, 0.82);
       const rightX = graphLeft + renderWidth * 0.92;
 
       const subjectLayoutMetrics = positionSubjectNodesByTypeTree({
@@ -4519,7 +4585,11 @@
           x: node._x || centerX,
           y: node._y || graphTop + renderHeight / 2,
           symbolSize:
-            category === "subject" ? subjectSymbolSize : category === "mixed" ? 66 : 56,
+            category === "subject"
+              ? subjectSymbolSize
+              : category === "mixed"
+                ? 66
+                : 56,
           draggable: true,
           itemStyle: {
             color: instanceNodeColor(category),
@@ -4530,7 +4600,9 @@
                 : "#c5d3ec",
             borderWidth: isSelected ? 2.5 : isReplayFocus ? 2.2 : 1,
             shadowBlur: isReplayFocus ? 14 : 0,
-            shadowColor: isReplayFocus ? "rgba(245, 158, 11, 0.28)" : "transparent",
+            shadowColor: isReplayFocus
+              ? "rgba(245, 158, 11, 0.28)"
+              : "transparent",
           },
           label: {
             show: true,
@@ -4687,7 +4759,10 @@
           clearManualNodePositions(editor);
           skipNextChartSnapshot(editor);
           const currentChart = chartInstances.get(container);
-          if (currentChart && typeof currentChart.dispatchAction === "function") {
+          if (
+            currentChart &&
+            typeof currentChart.dispatchAction === "function"
+          ) {
             currentChart.dispatchAction({
               type: "restore",
             });
@@ -4717,7 +4792,10 @@
       );
       writeSubjectTreeDirection(editor, initialDirection);
       if (graphPanel instanceof HTMLElement) {
-        graphPanel.setAttribute("data-subject-tree-direction", initialDirection);
+        graphPanel.setAttribute(
+          "data-subject-tree-direction",
+          initialDirection,
+        );
       }
 
       const directionButtons = Array.from(
@@ -4736,7 +4814,10 @@
           clearManualNodePositions(editor);
           skipNextChartSnapshot(editor);
           if (graphPanel instanceof HTMLElement) {
-            graphPanel.setAttribute("data-subject-tree-direction", nextDirection);
+            graphPanel.setAttribute(
+              "data-subject-tree-direction",
+              nextDirection,
+            );
           }
           updateSubjectDirectionButtons(editor);
           const graphView = editor.querySelector('[data-json-view="graph"]');
@@ -4787,6 +4868,7 @@
     initInstanceEditors();
     initPolicyRulesTable();
     document.addEventListener("acl:control-partial-updated", () => {
+      initMatrixDrawer();
       initJsonViewToggles();
       initInstanceJsonEditors();
       initInstanceEditors();

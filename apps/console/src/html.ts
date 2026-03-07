@@ -137,11 +137,26 @@ function buildScopedQueryHref(
 
 function getScopedFieldNamesForTab(tab: ConsoleTab): QueryFieldName[] {
   if (tab === "workflow") {
-    return ["status", "profile", "detail_mode", "limit", "offset", "publish_id", "namespace"];
+    return [
+      "status",
+      "profile",
+      "detail_mode",
+      "limit",
+      "offset",
+      "publish_id",
+      "namespace",
+    ];
   }
 
   if (tab === "simulation") {
-    return ["profile", "detail_mode", "publish_id", "simulation_id", "namespace", "cell_key"];
+    return [
+      "profile",
+      "detail_mode",
+      "publish_id",
+      "simulation_id",
+      "namespace",
+      "cell_key",
+    ];
   }
 
   if (tab === "relations") {
@@ -155,9 +170,7 @@ function getScopedFieldNamesForTab(tab: ConsoleTab): QueryFieldName[] {
   return ["namespace"];
 }
 
-function getScopedFieldNamesForWidget(
-  widget: ConsoleWidget,
-): QueryFieldName[] {
+function getScopedFieldNamesForWidget(widget: ConsoleWidget): QueryFieldName[] {
   if (widget === "publish_list") {
     return ["status", "profile", "detail_mode", "limit", "offset", "namespace"];
   }
@@ -171,11 +184,24 @@ function getScopedFieldNamesForWidget(
   }
 
   if (widget === "simulation") {
-    return ["profile", "detail_mode", "publish_id", "simulation_id", "namespace"];
+    return [
+      "profile",
+      "detail_mode",
+      "publish_id",
+      "simulation_id",
+      "namespace",
+    ];
   }
 
   if (widget === "matrix") {
-    return ["profile", "detail_mode", "publish_id", "simulation_id", "namespace", "cell_key"];
+    return [
+      "profile",
+      "detail_mode",
+      "publish_id",
+      "simulation_id",
+      "namespace",
+      "cell_key",
+    ];
   }
 
   if (widget === "relation") {
@@ -726,7 +752,9 @@ function readFixtureFileContent(
   }
 }
 
-function renderExpectationRunStatus(status: ExpectationRunCaseResult["status"]): string {
+function renderExpectationRunStatus(
+  status: ExpectationRunCaseResult["status"],
+): string {
   const statusClass =
     status === "passed"
       ? "status-approved"
@@ -1065,20 +1093,23 @@ function renderRelationView(viewModel: ConsolePageViewModel): string {
     ? viewModel.control_relations.data.items.length === 0
       ? '<tr><td colspan="5" class="muted">关系事件为空</td></tr>'
       : viewModel.control_relations.data.items
-          .map(
-            (item) => {
-              const edgeKey = buildInstanceGraphEdgeKey({
-                from: item.from,
-                to: item.to,
-                label: buildInstanceGraphEdgeLabel(item.relation_type, item.scope),
-                dashed: false,
-              });
-              const rowClass = relationReplayFocus.highlight_edge_keys.includes(edgeKey)
-                ? ' class="runtime-focus-row"'
-                : "";
-              return `<tr${rowClass}><td>${escapeHtml(item.from)}</td><td>${escapeHtml(item.relation_type)}</td><td>${escapeHtml(item.to)}</td><td>${escapeHtml(item.scope ?? "")}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`;
-            },
-          )
+          .map((item) => {
+            const edgeKey = buildInstanceGraphEdgeKey({
+              from: item.from,
+              to: item.to,
+              label: buildInstanceGraphEdgeLabel(
+                item.relation_type,
+                item.scope,
+              ),
+              dashed: false,
+            });
+            const rowClass = relationReplayFocus.highlight_edge_keys.includes(
+              edgeKey,
+            )
+              ? ' class="runtime-focus-row"'
+              : "";
+            return `<tr${rowClass}><td>${escapeHtml(item.from)}</td><td>${escapeHtml(item.relation_type)}</td><td>${escapeHtml(item.to)}</td><td>${escapeHtml(item.scope ?? "")}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`;
+          })
           .join("")
     : '<tr><td colspan="5" class="muted">关系数据加载失败</td></tr>';
 
@@ -1480,9 +1511,7 @@ function getModelMetaFromSnapshot(snapshot: unknown): {
   const modelId =
     typeof modelMeta.model_id === "string" ? modelMeta.model_id.trim() : "";
   const tenantId =
-    typeof modelMeta.tenant_id === "string"
-      ? modelMeta.tenant_id.trim()
-      : "";
+    typeof modelMeta.tenant_id === "string" ? modelMeta.tenant_id.trim() : "";
   const version =
     typeof modelMeta.version === "string" ? modelMeta.version.trim() : "";
 
@@ -1587,11 +1616,17 @@ function collectRuntimeRouteOverview(
   }));
 
   const tenantIds = Array.from(
-    new Set(routeItems.map((item) => item.tenant_id).filter((item) => item.length > 0)),
+    new Set(
+      routeItems
+        .map((item) => item.tenant_id)
+        .filter((item) => item.length > 0),
+    ),
   );
   const environments = Array.from(
     new Set(
-      routeItems.map((item) => item.environment).filter((item) => item.length > 0),
+      routeItems
+        .map((item) => item.environment)
+        .filter((item) => item.length > 0),
     ),
   );
 
@@ -1818,7 +1853,9 @@ function collectSubjectLayoutModelMeta(
 
   const catalogs = asRecord(modelSnapshot.catalogs);
   const relationSignature = asRecord(modelSnapshot.relation_signature);
-  const subjectRelationItems = Array.isArray(relationSignature?.subject_relations)
+  const subjectRelationItems = Array.isArray(
+    relationSignature?.subject_relations,
+  )
     ? relationSignature.subject_relations
     : [];
   const typeCatalog = normalizeStringArray(catalogs?.subject_type_catalog);
@@ -2042,7 +2079,8 @@ function buildRelationReplayFocusPayload(
   const objectId = readPathString(request, ["object_id"], "").trim();
   const matchedRuleIds = Array.isArray(payload.matched_rules)
     ? payload.matched_rules.filter(
-        (item): item is string => typeof item === "string" && item.trim().length > 0,
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0,
       )
     : [];
   const traceRuleIds = Array.isArray(viewModel.decision_detail.data.traces)
@@ -2073,7 +2111,11 @@ function buildRelationReplayFocusPayload(
   }
 
   const highlightEdgeKeys = new Set<string>();
-  const pathToObject = findShortestDirectedEdgePath(graphEdges, subjectId, objectId);
+  const pathToObject = findShortestDirectedEdgePath(
+    graphEdges,
+    subjectId,
+    objectId,
+  );
   let pathFound = false;
   if (pathToObject.length > 0) {
     pathFound = true;
@@ -2083,7 +2125,11 @@ function buildRelationReplayFocusPayload(
       highlightNodeIds.add(edge.to);
     });
   } else if (ownerRef.length > 0) {
-    const pathToOwner = findShortestDirectedEdgePath(graphEdges, subjectId, ownerRef);
+    const pathToOwner = findShortestDirectedEdgePath(
+      graphEdges,
+      subjectId,
+      ownerRef,
+    );
     if (pathToOwner.length > 0) {
       pathFound = true;
       pathToOwner.forEach((edge) => {
@@ -2101,8 +2147,7 @@ function buildRelationReplayFocusPayload(
     });
     if (
       graphEdges.some(
-        (edge) =>
-          buildInstanceGraphEdgeKey(edge) === ownerEdgeKey,
+        (edge) => buildInstanceGraphEdgeKey(edge) === ownerEdgeKey,
       )
     ) {
       highlightEdgeKeys.add(ownerEdgeKey);
@@ -2138,7 +2183,8 @@ function renderRuntimeObjectRows(
         focusObjectId && item.object_id.trim() === focusObjectId.trim();
       const isFocusOwner =
         focusOwnerRef && item.owner_ref.trim() === focusOwnerRef.trim();
-      const rowClass = isFocusObject || isFocusOwner ? ' class="runtime-focus-row"' : "";
+      const rowClass =
+        isFocusObject || isFocusOwner ? ' class="runtime-focus-row"' : "";
       return (
         `<tr${rowClass}>` +
         `<td>${escapeHtml(item.object_id)}</td>` +
@@ -2260,9 +2306,7 @@ function buildInstanceGraphPayload(
     }
     const objectType = (item.object_type ?? "").trim();
     const objectLabel =
-      objectType.length > 0
-        ? `${objectId} (${objectType})`
-        : objectId;
+      objectType.length > 0 ? `${objectId} (${objectType})` : objectId;
     ensureNode(objectId, objectLabel, { asObject: true });
 
     const ownerRef = (item.owner_ref ?? "").trim();
@@ -2483,7 +2527,9 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     ? viewModel.model_routes.data.items[0]
     : undefined;
   const expectationTenantId =
-    activeSetupFixture?.fixture.route?.tenant_id ?? currentRoute?.tenant_id ?? "";
+    activeSetupFixture?.fixture.route?.tenant_id ??
+    currentRoute?.tenant_id ??
+    "";
   const expectationEnvironment =
     activeSetupFixture?.fixture.route?.environment ??
     currentRoute?.environment ??
@@ -2741,9 +2787,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
       ? '<p class="muted">当前运行态控制面为空（这不影响上方发布快照统计）。</p>'
       : "";
 
-  const hasObjectItems = Boolean(
-    stagedInstanceSnapshot.objects.length > 0,
-  );
+  const hasObjectItems = Boolean(stagedInstanceSnapshot.objects.length > 0);
   const hasRelationItems = Boolean(
     stagedInstanceSnapshot.relation_events.length > 0,
   );
@@ -2762,14 +2806,12 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     viewModel.control_audits?.ok && !hasAuditItems
       ? ""
       : `<section class="runtime-table-card"><h4>审计事件 Audits</h4><div class="table-container"><table class="data-table"><thead><tr><th>Event</th><th>Target</th><th>Operator</th><th>Created At</th></tr></thead><tbody>${auditRows}</tbody></table></div></section>`;
-  const objectTableSection =
-    !hasObjectItems
-      ? ""
-      : `<section class="runtime-table-card"><h4>客体台账 Objects</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div></section>`;
-  const relationTableSection =
-    !hasRelationItems
-      ? ""
-      : `<section class="runtime-table-card"><h4>关系边 Relations</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Scope</th><th>Updated</th></tr></thead><tbody>${relationRows}</tbody></table></div></section>`;
+  const objectTableSection = !hasObjectItems
+    ? ""
+    : `<section class="runtime-table-card"><h4>客体台账 Objects</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div></section>`;
+  const relationTableSection = !hasRelationItems
+    ? ""
+    : `<section class="runtime-table-card"><h4>关系边 Relations</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Scope</th><th>Updated</th></tr></thead><tbody>${relationRows}</tbody></table></div></section>`;
 
   const fixedRuntimeSection = modelRouteTableSection + auditTableSection;
   const objectRelationTableSection = objectTableSection + relationTableSection;
@@ -2791,7 +2833,11 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<label>命名空间 Namespace` +
     `<input type="text" name="namespace" value="${escapeHtml(namespace)}" placeholder="tenant_a.crm" />` +
     `</label>` +
-    renderScopedHiddenContextFields(viewModel, ["tab", "widget", "detail_mode"]) +
+    renderScopedHiddenContextFields(viewModel, [
+      "tab",
+      "widget",
+      "detail_mode",
+    ]) +
     `<input type="hidden" name="fixture_id" value="${escapeHtml(activeSetupFixtureId)}" />` +
     `<button type="submit" class="btn btn-primary">切换命名空间</button>` +
     `</form>`;
@@ -2989,7 +3035,7 @@ function renderComponentsIndexView(viewModel: ConsolePageViewModel): string {
     `<article class="card card-hover story-entry-card">` +
     `<h3>组件索引</h3>` +
     `<p class="muted">该页面用于查看可嵌入组件与对应链接，不属于控制面运行态数据。</p>` +
-    `<form class="filters toolbar" method="GET" action="/">` +
+    `<form class="filters toolbar" method="GET" action="/" data-control-incremental="true">` +
     hiddenContext +
     `<input type="hidden" name="tab" value="components" />` +
     `<button type="submit" class="btn btn-secondary">刷新组件索引</button>` +
@@ -3116,7 +3162,7 @@ function renderPublishListPanel(
     `<h3>发布请求</h3>` +
     `${renderPublishSummary(viewModel)}` +
     `</div>` +
-    `<form class="filters toolbar" method="GET" action="/">` +
+    `<form class="filters toolbar" method="GET" action="/" data-control-incremental="true">` +
     `<label>状态 Status` +
     `<select name="status">` +
     `<option value="">全部</option>` +
@@ -3192,7 +3238,9 @@ function buildPublishedPublishOptions(
   }));
 }
 
-function buildDecisionOptions(viewModel: ConsolePageViewModel): SelectOptionItem[] {
+function buildDecisionOptions(
+  viewModel: ConsolePageViewModel,
+): SelectOptionItem[] {
   const options = new Map<string, string>();
   const selectedDecisionId = viewModel.query.decision_id?.trim();
 
@@ -3246,12 +3294,13 @@ function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string {
     "tab",
     "widget",
     "detail_mode",
+    "profile",
   ]);
   return (
     `<article class="card card-hover story-entry-card">` +
     `<h3>从决策列表查看回放</h3>` +
     `<p class="muted">本页只围绕 decision trace 排查，不再混入发布/模拟筛选。</p>` +
-    `<form class="filters toolbar" method="GET" action="/">` +
+    `<form class="filters toolbar" method="GET" action="/" data-control-incremental="true">` +
     `<label class="field-wide">决策ID Decision ID` +
     `<select name="decision_id" class="input-id-wide" ${hasDecisionOptions ? "" : "disabled"}>` +
     renderSelectOptions({
@@ -3291,6 +3340,7 @@ function renderSimulationContextCard(viewModel: ConsolePageViewModel): string {
   ]);
   const generationHiddenFields = renderScopedHiddenContextFields(viewModel, [
     "status",
+    "tab",
     "widget",
     "detail_mode",
     "profile",
@@ -3313,7 +3363,7 @@ function renderSimulationContextCard(viewModel: ConsolePageViewModel): string {
       )
     : undefined;
   const generationForm = query.publish_id
-    ? `<form class="filters toolbar" method="POST" action="/actions/simulation/generate">` +
+    ? `<form class="filters toolbar" method="POST" action="/actions/simulation/generate" data-control-incremental="true">` +
       generationHiddenFields +
       `<input type="hidden" name="publish_id" value="${escapeHtml(query.publish_id)}" />` +
       `<button type="submit" class="btn btn-secondary">生成模拟报告</button>` +
@@ -3321,10 +3371,10 @@ function renderSimulationContextCard(viewModel: ConsolePageViewModel): string {
       `</form>`
     : `<p class="muted">选定 publish_id 后，才可以生成或刷新模拟报告。</p>`;
   return (
-    `<article class="card card-hover story-card story-card-accent story-card-workflow">` +
+    `<article class="card card-hover story-entry-card">` +
     `<h3>从已发布列表选择发布单</h3>` +
     `<p class="muted">先锁定一条 publish，再看摘要、排行和矩阵；不要把 decision 查询混在这里。</p>` +
-    `<form class="filters toolbar" method="GET" action="/">` +
+    `<form class="filters toolbar" method="GET" action="/" data-control-incremental="true">` +
     `<label>发布ID Publish ID` +
     `<select name="publish_id" ${hasPublishedPublishOptions ? "" : "disabled"}>` +
     renderSelectOptions({
@@ -3411,7 +3461,10 @@ function renderEmbedWidget(
   return renderControlPlaneOverview(viewModel);
 }
 
-function renderHeroMeta(viewModel: ConsolePageViewModel, activeTab: ConsoleTab): string {
+function renderHeroMeta(
+  viewModel: ConsolePageViewModel,
+  activeTab: ConsoleTab,
+): string {
   const { query } = viewModel;
   const tabLabel =
     TAB_ITEMS.find((item) => item.id === activeTab)?.label ?? "发布流程";
