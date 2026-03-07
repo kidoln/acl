@@ -6,6 +6,7 @@ import type {
   ControlCatalogListQuery,
   ControlObjectListQuery,
   ControlRelationListQuery,
+  DecisionListQuery,
   ModelRouteListQuery,
   PersistedControlAuditListResult,
   PersistedControlAuditRecord,
@@ -15,6 +16,7 @@ import type {
   PersistedControlObjectRecord,
   PersistedControlRelationListResult,
   PersistedControlRelationRecord,
+  PersistedDecisionListResult,
   PersistedDecisionRecord,
   PersistedGateRecord,
   PersistedLifecycleReportRecord,
@@ -237,6 +239,34 @@ export class PostgresPersistence implements AclPersistence {
       payload: payload as unknown as PersistedDecisionRecord['payload'],
       traces: Array.isArray(traces) ? traces : [],
     };
+  }
+
+  async listDecisions(query?: DecisionListQuery): Promise<PersistedDecisionListResult> {
+    const limit = normalizeLimit(query?.limit);
+    const offset = normalizeOffset(query?.offset);
+
+    const [listResult, countResult] = await Promise.all([
+      this.pool.query<PgRow>(
+        `select id, created_at
+         from acl_decision_records
+         order by created_at desc, id desc
+         limit $1
+         offset $2`,
+        [limit, offset],
+      ),
+      this.pool.query<PgRow>(
+        `select count(1)::int as total_count
+         from acl_decision_records`,
+      ),
+    ]);
+
+    const items = listResult.rows.map((row) => ({
+      decision_id: row.id,
+      created_at: new Date(row.created_at).toISOString(),
+    }));
+    const totalCount = Number(countResult.rows[0]?.total_count ?? 0);
+
+    return toPagedResult(items, totalCount, offset);
   }
 
   async saveLifecycleReport(record: PersistedLifecycleReportRecord): Promise<void> {

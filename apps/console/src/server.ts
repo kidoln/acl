@@ -26,6 +26,7 @@ import type {
   ExpectationRunReport,
   GateProfile,
   ModelRouteListResponse,
+  PublishRequestRecord,
   PublishWorkflowStatus,
 } from "./types";
 
@@ -452,6 +453,88 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     return null;
   }
   return value as Record<string, unknown>;
+}
+
+function getModelSnapshotFromPublishRecord(
+  record: PublishRequestRecord,
+): Record<string, unknown> | null {
+  const payload = asRecord(record.payload);
+  if (!payload) {
+    return null;
+  }
+
+  const snapshot = asRecord(payload.model_snapshot);
+  return snapshot;
+}
+
+function getModelIdentity(model: Record<string, unknown>): {
+  model_id: string;
+  tenant_id: string;
+} | null {
+  const meta = asRecord(model.model_meta);
+  if (!meta) {
+    return null;
+  }
+
+  const modelId = typeof meta.model_id === "string" ? meta.model_id.trim() : "";
+  const tenantId = typeof meta.tenant_id === "string" ? meta.tenant_id.trim() : "";
+  if (!modelId || !tenantId) {
+    return null;
+  }
+
+  return {
+    model_id: modelId,
+    tenant_id: tenantId,
+  };
+}
+
+async function findBaselinePublishIdForSimulation(
+  client: AclApiClient,
+  currentRecord: PublishRequestRecord,
+): Promise<string | undefined> {
+  const currentSnapshot = getModelSnapshotFromPublishRecord(currentRecord);
+  if (!currentSnapshot) {
+    return undefined;
+  }
+
+  const currentIdentity = getModelIdentity(currentSnapshot);
+  if (!currentIdentity) {
+    return undefined;
+  }
+
+  const publishedList = await client.listPublishRequests({
+    status: "published",
+    limit: 100,
+    offset: 0,
+  });
+  if (!publishedList.ok) {
+    return undefined;
+  }
+
+  for (const item of publishedList.data.items) {
+    if (item.publish_id === currentRecord.publish_id) {
+      continue;
+    }
+
+    const snapshot = getModelSnapshotFromPublishRecord(item);
+    if (!snapshot) {
+      continue;
+    }
+
+    const identity = getModelIdentity(snapshot);
+    if (!identity) {
+      continue;
+    }
+
+    if (
+      identity.model_id === currentIdentity.model_id &&
+      identity.tenant_id === currentIdentity.tenant_id
+    ) {
+      return item.publish_id;
+    }
+  }
+
+  return undefined;
 }
 
 function normalizeString(value: unknown): string | undefined {
@@ -946,9 +1029,19 @@ async function handleIndex(
   const namespace = query.namespace ?? "tenant_a.crm";
 
   const publishListPromise = client.listPublishRequests(query);
+  const publishedPublishListPromise = client.listPublishRequests({
+    ...query,
+    status: "published",
+    limit: 100,
+    offset: 0,
+  });
   const publishDetailPromise = query.publish_id
     ? client.getPublishRequest(query.publish_id)
     : undefined;
+  const decisionListPromise = client.listDecisions({
+    limit: 100,
+    offset: 0,
+  });
   const decisionDetailPromise = query.decision_id
     ? client.getDecision(query.decision_id)
     : undefined;
@@ -969,7 +1062,9 @@ async function handleIndex(
 
   const [
     publishList,
+    publishedPublishList,
     publishDetail,
+    decisionList,
     decisionDetail,
     simulationList,
     controlObjects,
@@ -978,7 +1073,9 @@ async function handleIndex(
     modelRoutes,
   ] = await Promise.all([
     publishListPromise,
+    publishedPublishListPromise,
     publishDetailPromise,
+    decisionListPromise,
     decisionDetailPromise,
     simulationListPromise,
     controlObjectsPromise,
@@ -999,7 +1096,9 @@ async function handleIndex(
   const html = renderConsolePage({
     query,
     publish_list: publishList,
+    published_publish_list: publishedPublishList,
     publish_detail: publishDetail,
+    decision_list: decisionList,
     decision_detail: decisionDetail,
     simulation_list: simulationList,
     simulation_detail: simulationDetail,
@@ -1244,6 +1343,105 @@ async function handlePublishSubmitAction(
       query: context,
       flashType: "success",
       flashMessage: `submit 成功: ${responsePublishId ?? "unknown"} (${responseStatus})`,
+    }),
+  );
+}
+
+async function handleSimulationGenerateAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  client: AclApiClient,
+): Promise<void> {
+  const form = await readFormBody(req);
+  const context = parseContextFromForm(form);
+
+  const publishId = form.get("publish_id")?.trim();
+  if (!publishId) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: "error",
+        flashMessage: "生成模拟参数缺失：publish_id 必填",
+      }),
+    );
+    return;
+  }
+
+  const publishRecord = await client.getPublishRequest(publishId);
+  if (!publishRecord.ok) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: {
+          ...context,
+          publish_id: publishId,
+          tab: "simulation",
+        },
+        flashType: "error",
+        flashMessage: `加载发布单失败: ${publishRecord.error}`,
+      }),
+    );
+    return;
+  }
+
+  const modelSnapshot = getModelSnapshotFromPublishRecord(publishRecord.data);
+  if (!modelSnapshot) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: {
+          ...context,
+          publish_id: publishId,
+          tab: "simulation",
+        },
+        flashType: "error",
+        flashMessage: "生成模拟失败：发布单缺少 model_snapshot",
+      }),
+    );
+    return;
+  }
+
+  const baselinePublishId = await findBaselinePublishIdForSimulation(
+    client,
+    publishRecord.data,
+  );
+  const result = await client.simulatePublish({
+    model: modelSnapshot,
+    publish_id: publishId,
+    profile: publishRecord.data.profile,
+    baseline_publish_id: baselinePublishId,
+  });
+
+  if (!result.ok) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: {
+          ...context,
+          publish_id: publishId,
+          tab: "simulation",
+        },
+        flashType: "error",
+        flashMessage: `生成模拟失败: ${result.error}`,
+      }),
+    );
+    return;
+  }
+
+  redirectTo(
+    res,
+    buildRedirectUrl({
+      query: {
+        ...context,
+        publish_id: publishId,
+        profile: result.data.profile,
+        tab: "simulation",
+        simulation_id: result.data.report_id,
+        cell_key: undefined,
+      },
+      flashType: "success",
+      flashMessage: `模拟报告已生成: ${result.data.report_id}${baselinePublishId ? `（基线 ${baselinePublishId}）` : "（无历史基线）"}`,
     }),
   );
 }
@@ -1886,6 +2084,11 @@ export async function startConsoleServer(
       try {
         if (inputUrl.pathname === "/actions/publish/submit") {
           await handlePublishSubmitAction(req, res, client);
+          return;
+        }
+
+        if (inputUrl.pathname === "/actions/simulation/generate") {
+          await handleSimulationGenerateAction(req, res, client);
           return;
         }
 

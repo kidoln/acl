@@ -60,20 +60,40 @@ const expectationJson = JSON.stringify({
 });
 
 describe("expectation runner", () => {
-  it("returns actionable guidance when route is missing before evaluation", async () => {
+  it("calls decision evaluate directly without route precheck", async () => {
     const client = {
-      listModelRoutes: vi.fn().mockResolvedValue({
+      evaluateDecision: vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         data: {
-          items: [],
-          total_count: 0,
-          has_more: false,
-          limit: 1,
-          offset: 0,
+          decision_id: "dec_001",
+          decision: {
+            final_effect: "allow",
+            reason: "matched",
+            matched_rules: ["infer_same_company_direct"],
+          },
+          traces: [
+            {
+              rule_id: "infer_same_company_direct",
+              status: "matched",
+            },
+          ],
+          relation_inference: {
+            enabled: true,
+            applied: true,
+            reason: null,
+            rules: [
+              {
+                id: "infer_same_company_direct",
+                matched: true,
+                subject_values: ["company:acme"],
+                object_values: ["company:acme"],
+                object_owner_ref: "user:alice",
+              },
+            ],
+          },
         },
       }),
-      evaluateDecision: vi.fn(),
     };
 
     const result = await runExpectationSimulation({
@@ -84,39 +104,17 @@ describe("expectation runner", () => {
       expectation_file_name: "01-same-company-derived.expected.json",
     });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
       return;
     }
-    expect(result.error).toContain("批量 Setup 只会写入对象与关系，不会自动绑定 route");
-    expect(result.error).toContain("Model Route Upsert");
-    expect(client.evaluateDecision).not.toHaveBeenCalled();
+    expect(result.report.fixture_id).toBe("01-same-company-derived");
+    expect(result.report.summary.passed_count).toBe(1);
+    expect(client.evaluateDecision).toHaveBeenCalledTimes(1);
   });
 
   it("rewrites routed evaluation errors into operator-friendly guidance", async () => {
     const client = {
-      listModelRoutes: vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        data: {
-          items: [
-            {
-              key: "tenant_a.crm::tenant_acme::prod",
-              namespace: "tenant_a.crm",
-              tenant_id: "tenant_acme",
-              environment: "prod",
-              model_id: "tenant_acme_same_company_visibility",
-              model_version: "2026.03.05",
-              operator: "console_operator",
-              updated_at: "2026-03-07T00:00:00.000Z",
-            },
-          ],
-          total_count: 1,
-          has_more: false,
-          limit: 1,
-          offset: 0,
-        },
-      }),
       evaluateDecision: vi.fn().mockResolvedValue({
         ok: false,
         status: 404,

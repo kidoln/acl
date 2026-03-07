@@ -8,6 +8,7 @@ import {
 } from "./setup-fixtures";
 import type {
   ApiResult,
+  ConsoleQuery,
   ConsoleTab,
   ConsoleWidget,
   ConsolePageViewModel,
@@ -59,12 +60,140 @@ const WIDGET_ITEMS: WidgetMeta[] = [
   },
 ];
 
+type QueryFieldName = keyof ConsoleQuery;
+
+const QUERY_FIELD_ORDER: QueryFieldName[] = [
+  "status",
+  "profile",
+  "tab",
+  "widget",
+  "detail_mode",
+  "fixture_id",
+  "expectation_run_id",
+  "limit",
+  "offset",
+  "publish_id",
+  "decision_id",
+  "simulation_id",
+  "namespace",
+  "cell_key",
+];
+
+function readQueryFieldValue(
+  query: ConsoleQuery,
+  name: QueryFieldName,
+): string | undefined {
+  const value = query[name];
+  if (value === undefined) {
+    return undefined;
+  }
+  return String(value);
+}
+
+function renderScopedHiddenContextFields(
+  viewModel: ConsolePageViewModel,
+  fieldNames: QueryFieldName[],
+): string {
+  return fieldNames
+    .map((name) => [name, readQueryFieldValue(viewModel.query, name)] as const)
+    .flatMap(([name, value]) => {
+      if (!value || value.length === 0) {
+        return [];
+      }
+
+      return [
+        `<input type="hidden" name="${name}" value="${escapeHtml(value)}" />`,
+      ];
+    })
+    .join("");
+}
+
+function buildScopedQueryHref(
+  viewModel: ConsolePageViewModel,
+  fieldNames: QueryFieldName[],
+  updates: Partial<Record<QueryFieldName, string | undefined>>,
+): string {
+  const params = new URLSearchParams();
+
+  fieldNames.forEach((name) => {
+    const value = readQueryFieldValue(viewModel.query, name);
+    if (value && value.length > 0) {
+      params.set(name, value);
+    }
+  });
+
+  Object.entries(updates).forEach(([name, value]) => {
+    if (!value || value.length === 0) {
+      params.delete(name);
+      return;
+    }
+    params.set(name, value);
+  });
+
+  const queryString = params.toString();
+  return queryString.length > 0 ? `/?${queryString}` : "/";
+}
+
+function getScopedFieldNamesForTab(tab: ConsoleTab): QueryFieldName[] {
+  if (tab === "workflow") {
+    return ["status", "profile", "detail_mode", "limit", "offset", "publish_id", "namespace"];
+  }
+
+  if (tab === "simulation") {
+    return ["profile", "detail_mode", "publish_id", "simulation_id", "namespace", "cell_key"];
+  }
+
+  if (tab === "relations") {
+    return ["detail_mode", "decision_id", "namespace"];
+  }
+
+  if (tab === "control") {
+    return ["detail_mode", "fixture_id", "expectation_run_id", "namespace"];
+  }
+
+  return ["namespace"];
+}
+
+function getScopedFieldNamesForWidget(
+  widget: ConsoleWidget,
+): QueryFieldName[] {
+  if (widget === "publish_list") {
+    return ["status", "profile", "detail_mode", "limit", "offset", "namespace"];
+  }
+
+  if (widget === "publish_detail") {
+    return ["detail_mode", "publish_id", "namespace"];
+  }
+
+  if (widget === "decision_detail") {
+    return ["detail_mode", "decision_id", "namespace"];
+  }
+
+  if (widget === "simulation") {
+    return ["profile", "detail_mode", "publish_id", "simulation_id", "namespace"];
+  }
+
+  if (widget === "matrix") {
+    return ["profile", "detail_mode", "publish_id", "simulation_id", "namespace", "cell_key"];
+  }
+
+  if (widget === "relation") {
+    return ["detail_mode", "decision_id", "namespace"];
+  }
+
+  return ["detail_mode", "fixture_id", "expectation_run_id", "namespace"];
+}
+
 function renderWidgetRows(viewModel: ConsolePageViewModel): string {
   return WIDGET_ITEMS.map((item) => {
-    const embedHref = buildQueryHref(viewModel, {
-      widget: item.id,
-      tab: undefined,
-    });
+    const embedHref = buildScopedQueryHref(
+      viewModel,
+      getScopedFieldNamesForWidget(item.id),
+      {
+        widget: item.id,
+        tab: undefined,
+      },
+    );
     return (
       `<tr>` +
       `<td>${escapeHtml(item.id)}</td>` +
@@ -104,33 +233,9 @@ function renderHiddenContextFields(
   viewModel: ConsolePageViewModel,
   omitNames: string[] = [],
 ): string {
-  const omitSet = new Set(omitNames);
-  const fields: Array<[string, string | number | undefined]> = [
-    ["status", viewModel.query.status],
-    ["profile", viewModel.query.profile],
-    ["tab", viewModel.query.tab],
-    ["widget", viewModel.query.widget],
-    ["detail_mode", viewModel.query.detail_mode],
-    ["fixture_id", viewModel.query.fixture_id],
-    ["expectation_run_id", viewModel.query.expectation_run_id],
-    ["limit", viewModel.query.limit],
-    ["offset", viewModel.query.offset],
-    ["decision_id", viewModel.query.decision_id],
-    ["simulation_id", viewModel.query.simulation_id],
-    ["namespace", viewModel.query.namespace],
-    ["cell_key", viewModel.query.cell_key],
-  ];
-
-  return fields
-    .filter(
-      ([name, value]) =>
-        !omitSet.has(name) && value !== undefined && String(value).length > 0,
-    )
-    .map(
-      ([name, value]) =>
-        `<input type=\"hidden\" name=\"${name}\" value=\"${escapeHtml(String(value))}\" />`,
-    )
-    .join("");
+  const omitSet = new Set<QueryFieldName>(omitNames as QueryFieldName[]);
+  const fieldNames = QUERY_FIELD_ORDER.filter((name) => !omitSet.has(name));
+  return renderScopedHiddenContextFields(viewModel, fieldNames);
 }
 
 function renderFlash(viewModel: ConsolePageViewModel): string {
@@ -189,9 +294,18 @@ function renderPublishRows(
     .map((item) => {
       const selectedClass =
         selectedId === item.publish_id ? "row-selected" : "";
-      const detailHref = buildQueryHref(viewModel, {
-        publish_id: item.publish_id,
-      });
+      const detailHref = buildScopedQueryHref(
+        viewModel,
+        ["status", "profile", "detail_mode", "limit", "offset", "namespace"],
+        {
+          tab: "workflow",
+          widget: undefined,
+          publish_id: item.publish_id,
+          decision_id: undefined,
+          simulation_id: undefined,
+          cell_key: undefined,
+        },
+      );
       const statusClass = `status-${item.status}`;
 
       return (
@@ -268,6 +382,56 @@ function renderActionPanel(
   return '<p class="muted">当前状态无需操作，可继续查看回放和审计详情。</p>';
 }
 
+function renderPublishJourneyCard(
+  record: PublishRequestRecord,
+  viewModel: ConsolePageViewModel,
+): string {
+  const simulationHref = buildScopedQueryHref(
+    viewModel,
+    ["profile", "detail_mode", "publish_id", "namespace", "tab", "widget"],
+    {
+      tab: "simulation",
+      widget: undefined,
+      publish_id: record.publish_id,
+      decision_id: undefined,
+      simulation_id: undefined,
+      cell_key: undefined,
+    },
+  );
+  const workflowHref = buildScopedQueryHref(
+    viewModel,
+    ["status", "profile", "detail_mode", "limit", "offset", "namespace", "tab"],
+    {
+      tab: "workflow",
+      publish_id: record.publish_id,
+      decision_id: undefined,
+      simulation_id: undefined,
+      cell_key: undefined,
+      widget: undefined,
+    },
+  );
+
+  const nextStepText =
+    record.status === "review_required"
+      ? "建议先去“影响模拟”确认风险，再回来做人工复核。"
+      : record.status === "approved"
+        ? "当前已满足激活前置条件，建议先复看一次影响模拟，再执行激活。"
+        : record.status === "published"
+          ? "当前发布已生效；如需排查线上争议，请切到“关系回放”查看 decision trace。"
+          : "先确认这条发布单状态，再决定是否进入模拟、复核或回退模型。";
+
+  return (
+    `<section class="story-card story-card-accent story-card-next">` +
+    `<h4>下一步建议</h4>` +
+    `<p class="muted">${escapeHtml(nextStepText)}</p>` +
+    `<div class="toolbar">` +
+    `<a class="btn btn-secondary" href="${simulationHref}">去做风险评估</a>` +
+    `<a class="btn btn-secondary" href="${workflowHref}">回到这条发布单</a>` +
+    `</div>` +
+    `</section>`
+  );
+}
+
 function renderRawJsonPanel(data: unknown): string {
   return `<section class="raw-json-panel"><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></section>`;
 }
@@ -303,7 +467,10 @@ function renderSwitchableJsonView(
   );
 }
 
-function renderPublishDetailVisual(record: PublishRequestRecord): string {
+function renderPublishDetailVisual(
+  record: PublishRequestRecord,
+  viewModel: ConsolePageViewModel,
+): string {
   const payload = asRecord(record.payload) ?? {};
   const gateResult = asRecord(payload.gate_result);
   const gateItems = Array.isArray(gateResult?.gates)
@@ -347,6 +514,7 @@ function renderPublishDetailVisual(record: PublishRequestRecord): string {
           .join("");
 
   return (
+    `${renderPublishJourneyCard(record, viewModel)}` +
     `<section class="decision-grid">` +
     `<div class="metric"><span>状态</span><strong>${escapeHtml(record.status)}</strong></div>` +
     `<div class="metric"><span>最终结果</span><strong>${escapeHtml(record.final_result)}</strong></div>` +
@@ -385,7 +553,7 @@ function renderPublishDetail(
   }
 
   const actionPanel = renderActionPanel(result, viewModel);
-  const visualContent = renderPublishDetailVisual(result.data);
+  const visualContent = renderPublishDetailVisual(result.data, viewModel);
   const rawContent = renderRawJsonPanel(result.data);
 
   return (
@@ -447,7 +615,7 @@ function renderDecisionDetail(
   result: ApiResult<DecisionRecordResponse> | undefined,
 ): string {
   if (!result) {
-    return '<div class="card card-hover"><h3>决策回放</h3><p class="muted">输入 decision_id 后可查看回放证据</p></div>';
+    return '<div class="card card-hover"><h3>决策回放</h3><p class="muted">选择 decision_id 后可查看回放证据</p></div>';
   }
 
   if (!result.ok) {
@@ -523,37 +691,11 @@ function buildQueryHref(
   viewModel: ConsolePageViewModel,
   updates: Record<string, string | undefined>,
 ): string {
-  const params = new URLSearchParams();
-  const baseEntries: Array<[string, string | undefined]> = [
-    ["status", viewModel.query.status],
-    ["profile", viewModel.query.profile],
-    ["tab", viewModel.query.tab],
-    ["widget", viewModel.query.widget],
-    ["detail_mode", viewModel.query.detail_mode],
-    ["fixture_id", viewModel.query.fixture_id],
-    ["expectation_run_id", viewModel.query.expectation_run_id],
-    ["limit", String(viewModel.query.limit)],
-    ["offset", String(viewModel.query.offset)],
-    ["publish_id", viewModel.query.publish_id],
-    ["decision_id", viewModel.query.decision_id],
-    ["simulation_id", viewModel.query.simulation_id],
-    ["namespace", viewModel.query.namespace],
-    ["cell_key", viewModel.query.cell_key],
-  ];
-  baseEntries.forEach(([key, value]) => {
-    if (value) {
-      params.set(key, value);
-    }
-  });
-  Object.entries(updates).forEach(([key, value]) => {
-    if (!value || value.length === 0) {
-      params.delete(key);
-      return;
-    }
-    params.set(key, value);
-  });
-  const queryString = params.toString();
-  return queryString.length > 0 ? `/?${queryString}` : "/";
+  return buildScopedQueryHref(
+    viewModel,
+    QUERY_FIELD_ORDER,
+    updates as Partial<Record<QueryFieldName, string | undefined>>,
+  );
 }
 
 function readFixtureFileContent(
@@ -835,9 +977,22 @@ function renderMatrixView(viewModel: ConsolePageViewModel): string {
               readPathString(cell, ["baseline_effect"]) !== "deny" &&
               readPathString(cell, ["draft_effect"]) === "deny",
           ).length;
-          const href = buildQueryHref(viewModel, {
-            cell_key: cellKey,
-          });
+          const href = buildScopedQueryHref(
+            viewModel,
+            [
+              "tab",
+              "widget",
+              "detail_mode",
+              "publish_id",
+              "simulation_id",
+              "namespace",
+              "profile",
+            ],
+            {
+              tab: viewModel.query.tab ?? "simulation",
+              cell_key: cellKey,
+            },
+          );
           const matchedRules = JSON.stringify(
             ((sample.matched_rules ?? sample.draft_matched_rules) as unknown) ??
               [],
@@ -896,7 +1051,7 @@ function renderRelationView(viewModel: ConsolePageViewModel): string {
               `<tr><td>${escapeHtml(readPathString(trace, ["rule_id"], "unknown"))}</td><td>${escapeHtml(readPathString(trace, ["status"], "unknown"))}</td><td>${escapeHtml(readPathString(trace, ["effect"], "unknown"))}</td><td>${escapeHtml(readPathString(trace, ["reason"], ""))}</td></tr>`,
           )
           .join("")
-    : '<tr><td colspan="4" class="muted">输入 decision_id 查看命中链路</td></tr>';
+    : '<tr><td colspan="4" class="muted">选择 decision_id 查看命中链路</td></tr>';
 
   return (
     `<article class="card card-hover">` +
@@ -991,14 +1146,14 @@ function renderSimulationView(viewModel: ConsolePageViewModel): string {
         )
         .join("") +
       `</select></label>` +
-      `<input type="hidden" name="publish_id" value="${escapeHtml(viewModel.query.publish_id ?? "")}" />` +
-      `<input type="hidden" name="decision_id" value="${escapeHtml(viewModel.query.decision_id ?? "")}" />` +
-      `<input type="hidden" name="status" value="${escapeHtml(viewModel.query.status ?? "")}" />` +
-      `<input type="hidden" name="profile" value="${escapeHtml(viewModel.query.profile ?? "")}" />` +
-      `<input type="hidden" name="detail_mode" value="${escapeHtml(viewModel.query.detail_mode ?? "")}" />` +
-      `<input type="hidden" name="namespace" value="${escapeHtml(viewModel.query.namespace ?? "")}" />` +
-      `<input type="hidden" name="tab" value="${escapeHtml(viewModel.query.tab ?? "")}" />` +
-      `<input type="hidden" name="widget" value="${escapeHtml(viewModel.query.widget ?? "")}" />` +
+      renderScopedHiddenContextFields(viewModel, [
+        "publish_id",
+        "profile",
+        "detail_mode",
+        "namespace",
+        "tab",
+        "widget",
+      ]) +
       `<button type="submit" class="btn btn-primary">切换报告</button>` +
       `</form>`
     : "";
@@ -2249,12 +2404,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<label>命名空间 Namespace` +
     `<input type="text" name="namespace" value="${escapeHtml(namespace)}" placeholder="tenant_a.crm" />` +
     `</label>` +
-    `<input type="hidden" name="publish_id" value="${escapeHtml(viewModel.query.publish_id ?? "")}" />` +
-    `<input type="hidden" name="decision_id" value="${escapeHtml(viewModel.query.decision_id ?? "")}" />` +
-    `<input type="hidden" name="simulation_id" value="${escapeHtml(viewModel.query.simulation_id ?? "")}" />` +
-    `<input type="hidden" name="tab" value="${escapeHtml(viewModel.query.tab ?? "")}" />` +
-    `<input type="hidden" name="widget" value="${escapeHtml(viewModel.query.widget ?? "")}" />` +
-    `<input type="hidden" name="detail_mode" value="${escapeHtml(viewModel.query.detail_mode ?? "")}" />` +
+    renderScopedHiddenContextFields(viewModel, ["tab", "widget", "detail_mode"]) +
     `<input type="hidden" name="fixture_id" value="${escapeHtml(activeSetupFixtureId)}" />` +
     `<button type="submit" class="btn btn-primary">切换命名空间</button>` +
     `</form>`;
@@ -2303,8 +2453,11 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     publishContextSection +
     runtimeRouteSection +
     defaultTemplateSection +
+    `${renderControlJourneyCard(namespace)}` +
     `<p class="muted metric-caption">上半区聚焦模型发布与发布快照；运行态工作区选择与 instance 维护放在下方单独卡片。</p>` +
     `<p class="muted metric-caption">说明：下方维护操作只写入控制面运行态数据，不会回写“策略模型提交”卡片中的 JSON。</p>` +
+    `<section class="control-lane">` +
+    `<div class="section-head section-head-lane"><h4>1. 提交模型并发起发布</h4><span class="muted">编辑模型草稿，生成 publish 请求，进入后续治理流程</span></div>` +
     `<section class="management-grid model-submit-grid">` +
     `<form class="action-form model-submit-form" method="POST" action="/actions/publish/submit" data-model-jsoneditor-form="true">` +
     `<h4>策略模型提交</h4>` +
@@ -2375,6 +2528,9 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<button type="submit" class="btn btn-primary">提交发布请求</button>` +
     `</form>` +
     `</section>` +
+    `</section>` +
+    `<section class="control-lane">` +
+    `<div class="section-head section-head-lane"><h4>2. 维护运行态对象与关系</h4><span class="muted">切换 namespace、预览 fixture、执行 setup，并维护 route/object/relation</span></div>` +
     `<section class="card card-hover instance-editor-card">` +
     `<h4>Instance 导入 / 维护 / 展示</h4>` +
     `<p class="muted">预置场景批量导入：可基于内置 fixture 或手工 JSON 一次性写入当前 namespace 的运行态数据；fixture 模式会自动发布同名 model 并绑定 route。</p>` +
@@ -2443,7 +2599,7 @@ function renderComponentsIndexView(viewModel: ConsolePageViewModel): string {
   const hiddenContext = renderHiddenContextFields(viewModel, ["tab"]);
 
   return (
-    `<article class="card card-hover">` +
+    `<article class="card card-hover story-entry-card">` +
     `<h3>组件索引</h3>` +
     `<p class="muted">该页面用于查看可嵌入组件与对应链接，不属于控制面运行态数据。</p>` +
     `<form class="filters toolbar" method="GET" action="/">` +
@@ -2543,10 +2699,14 @@ function renderTabNav(
 ): string {
   const links = TAB_ITEMS.map((item) => {
     const panelId = `tab-panel-${item.id}`;
-    const href = buildQueryHref(viewModel, {
-      tab: item.id,
-      widget: undefined,
-    });
+    const href = buildScopedQueryHref(
+      viewModel,
+      getScopedFieldNamesForTab(item.id),
+      {
+        tab: item.id,
+        widget: undefined,
+      },
+    );
     const activeClass = item.id === activeTab ? "active" : "";
     return `<a class="tab-link ${activeClass}" href="${href}" data-tab="${escapeHtml(item.id)}" role="tab" aria-selected="${item.id === activeTab ? "true" : "false"}" aria-controls="${panelId}">${escapeHtml(item.label)}</a>`;
   }).join("");
@@ -2593,14 +2753,14 @@ function renderPublishListPanel(
     `<label>偏移 Offset` +
     `<input type="number" min="0" name="offset" value="${query.offset}" />` +
     `</label>` +
-    `<input type="hidden" name="namespace" value="${escapeHtml(query.namespace ?? "tenant_a.crm")}" />` +
-    `<input type="hidden" name="fixture_id" value="${escapeHtml(query.fixture_id ?? "")}" />` +
-    `<input type="hidden" name="expectation_run_id" value="${escapeHtml(query.expectation_run_id ?? "")}" />` +
-    `<input type="hidden" name="decision_id" value="${escapeHtml(query.decision_id ?? "")}" />` +
-    `<input type="hidden" name="simulation_id" value="${escapeHtml(query.simulation_id ?? "")}" />` +
-    `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? "")}" />` +
-    `<input type="hidden" name="widget" value="${escapeHtml(query.widget ?? "")}" />` +
-    `<input type="hidden" name="detail_mode" value="${escapeHtml(query.detail_mode ?? "")}" />` +
+    renderScopedHiddenContextFields(viewModel, [
+      "namespace",
+      "fixture_id",
+      "expectation_run_id",
+      "tab",
+      "widget",
+      "detail_mode",
+    ]) +
     `<button type="submit" class="btn btn-primary">应用筛选</button>` +
     `</form>` +
     `${renderApiResultError(viewModel.publish_list)}` +
@@ -2615,60 +2775,220 @@ function renderPublishListPanel(
   );
 }
 
+interface SelectOptionItem {
+  value: string;
+  label: string;
+}
+
+function buildPublishedPublishOptions(
+  viewModel: ConsolePageViewModel,
+): SelectOptionItem[] {
+  const options = new Map<string, string>();
+  const selectedPublishId = viewModel.query.publish_id?.trim();
+
+  if (selectedPublishId) {
+    options.set(selectedPublishId, `${selectedPublishId} | 当前上下文`);
+  }
+
+  if (viewModel.published_publish_list?.ok) {
+    viewModel.published_publish_list.data.items.forEach((item) => {
+      options.set(
+        item.publish_id,
+        `${item.publish_id} | ${item.profile} | ${formatTime(item.updated_at)}`,
+      );
+    });
+  }
+
+  return Array.from(options.entries()).map(([value, label]) => ({
+    value,
+    label,
+  }));
+}
+
+function buildDecisionOptions(viewModel: ConsolePageViewModel): SelectOptionItem[] {
+  const options = new Map<string, string>();
+  const selectedDecisionId = viewModel.query.decision_id?.trim();
+
+  if (selectedDecisionId) {
+    options.set(selectedDecisionId, `${selectedDecisionId} | 当前上下文`);
+  }
+
+  if (viewModel.decision_list?.ok) {
+    viewModel.decision_list.data.items.forEach((item) => {
+      options.set(
+        item.decision_id,
+        `${item.decision_id} | ${formatTime(item.created_at)}`,
+      );
+    });
+  }
+
+  return Array.from(options.entries()).map(([value, label]) => ({
+    value,
+    label,
+  }));
+}
+
+function renderSelectOptions(input: {
+  items: SelectOptionItem[];
+  selectedValue?: string;
+  placeholder: string;
+}): string {
+  return (
+    `<option value="">${escapeHtml(input.placeholder)}</option>` +
+    input.items
+      .map(
+        (item) =>
+          `<option value="${escapeHtml(item.value)}" ${item.value === input.selectedValue ? "selected" : ""}>${escapeHtml(item.label)}</option>`,
+      )
+      .join("")
+  );
+}
+
 function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string {
   const { query } = viewModel;
+  const decisionOptions = buildDecisionOptions(viewModel);
+  const hasDecisionOptions = decisionOptions.length > 0;
+  const decisionHint = viewModel.decision_list
+    ? viewModel.decision_list.ok
+      ? hasDecisionOptions
+        ? "从列表选择 decision_id 后查看关系回放。"
+        : "暂无决策记录可供回放。"
+      : `决策列表加载失败：${viewModel.decision_list.error}`
+    : "正在加载决策列表。";
+  const hiddenFields = renderScopedHiddenContextFields(viewModel, [
+    "tab",
+    "widget",
+    "detail_mode",
+  ]);
   return (
-    `<article class="card card-hover">` +
-    `<h3>决策回放查询</h3>` +
+    `<article class="card card-hover story-entry-card">` +
+    `<h3>从决策列表查看回放</h3>` +
+    `<p class="muted">本页只围绕 decision trace 排查，不再混入发布/模拟筛选。</p>` +
     `<form class="filters toolbar" method="GET" action="/">` +
     `<label class="field-wide">决策ID Decision ID` +
-    `<input type="text" class="input-id-wide" name="decision_id" value="${escapeHtml(query.decision_id ?? "")}" placeholder="dec_xxx" />` +
+    `<select name="decision_id" class="input-id-wide" ${hasDecisionOptions ? "" : "disabled"}>` +
+    renderSelectOptions({
+      items: decisionOptions,
+      selectedValue: query.decision_id,
+      placeholder: "请选择决策 ID",
+    }) +
+    `</select>` +
     `</label>` +
-    `<input type="hidden" name="publish_id" value="${escapeHtml(query.publish_id ?? "")}" />` +
-    `<input type="hidden" name="status" value="${escapeHtml(query.status ?? "")}" />` +
-    `<input type="hidden" name="profile" value="${escapeHtml(query.profile ?? "")}" />` +
-    `<input type="hidden" name="namespace" value="${escapeHtml(query.namespace ?? "tenant_a.crm")}" />` +
-    `<input type="hidden" name="fixture_id" value="${escapeHtml(query.fixture_id ?? "")}" />` +
-    `<input type="hidden" name="expectation_run_id" value="${escapeHtml(query.expectation_run_id ?? "")}" />` +
-    `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? "")}" />` +
-    `<input type="hidden" name="widget" value="${escapeHtml(query.widget ?? "")}" />` +
-    `<input type="hidden" name="detail_mode" value="${escapeHtml(query.detail_mode ?? "")}" />` +
-    `<button type="submit" class="btn btn-primary">查询回放</button>` +
+    `<label>命名空间 Namespace` +
+    `<input type="text" name="namespace" value="${escapeHtml(query.namespace ?? "tenant_a.crm")}" placeholder="tenant_a.crm" />` +
+    `</label>` +
+    `<span class="muted">${escapeHtml(decisionHint)}</span>` +
+    hiddenFields +
+    `<button type="submit" class="btn btn-primary" ${hasDecisionOptions ? "" : "disabled"}>查看决策回放</button>` +
     `</form>` +
     `</article>`
   );
 }
 
-function renderContextQueryCard(viewModel: ConsolePageViewModel): string {
+function renderSimulationContextCard(viewModel: ConsolePageViewModel): string {
   const { query } = viewModel;
+  const publishedPublishOptions = buildPublishedPublishOptions(viewModel);
+  const hasPublishedPublishOptions = publishedPublishOptions.length > 0;
+  const publishHint = viewModel.published_publish_list
+    ? viewModel.published_publish_list.ok
+      ? hasPublishedPublishOptions
+        ? "从已发布列表选择 publish_id 后查看影响评估。"
+        : "暂无已发布记录可供模拟。"
+      : `已发布列表加载失败：${viewModel.published_publish_list.error}`
+    : "正在加载已发布列表。";
+  const hiddenFields = renderScopedHiddenContextFields(viewModel, [
+    "tab",
+    "widget",
+    "detail_mode",
+    "profile",
+  ]);
+  const generationHiddenFields = renderScopedHiddenContextFields(viewModel, [
+    "status",
+    "widget",
+    "detail_mode",
+    "profile",
+    "namespace",
+    "limit",
+    "offset",
+  ]);
+  const workflowHref = query.publish_id
+    ? buildScopedQueryHref(
+        viewModel,
+        ["status", "profile", "detail_mode", "limit", "offset", "namespace"],
+        {
+          tab: "workflow",
+          widget: undefined,
+          publish_id: query.publish_id,
+          decision_id: undefined,
+          simulation_id: undefined,
+          cell_key: undefined,
+        },
+      )
+    : undefined;
+  const generationForm = query.publish_id
+    ? `<form class="filters toolbar" method="POST" action="/actions/simulation/generate">` +
+      generationHiddenFields +
+      `<input type="hidden" name="publish_id" value="${escapeHtml(query.publish_id)}" />` +
+      `<button type="submit" class="btn btn-secondary">生成模拟报告</button>` +
+      `<span class="muted">默认优先对比同模型上一条已发布版本；没有历史版本时按空基线生成。</span>` +
+      `</form>`
+    : `<p class="muted">选定 publish_id 后，才可以生成或刷新模拟报告。</p>`;
   return (
-    `<article class="card card-hover">` +
-    `<h3>上下文筛选</h3>` +
+    `<article class="card card-hover story-card story-card-accent story-card-workflow">` +
+    `<h3>从已发布列表选择发布单</h3>` +
+    `<p class="muted">先锁定一条 publish，再看摘要、排行和矩阵；不要把 decision 查询混在这里。</p>` +
     `<form class="filters toolbar" method="GET" action="/">` +
     `<label>发布ID Publish ID` +
-    `<input type="text" name="publish_id" value="${escapeHtml(query.publish_id ?? "")}" placeholder="pub_xxx" />` +
-    `</label>` +
-    `<label>决策ID Decision ID` +
-    `<input type="text" name="decision_id" value="${escapeHtml(query.decision_id ?? "")}" placeholder="dec_xxx" />` +
-    `</label>` +
-    `<label>模拟ID Simulation ID` +
-    `<input type="text" name="simulation_id" value="${escapeHtml(query.simulation_id ?? "")}" placeholder="sim_xxx" />` +
+    `<select name="publish_id" ${hasPublishedPublishOptions ? "" : "disabled"}>` +
+    renderSelectOptions({
+      items: publishedPublishOptions,
+      selectedValue: query.publish_id,
+      placeholder: "请选择已发布的 Publish ID",
+    }) +
+    `</select>` +
     `</label>` +
     `<label>命名空间 Namespace` +
     `<input type="text" name="namespace" value="${escapeHtml(query.namespace ?? "tenant_a.crm")}" placeholder="tenant_a.crm" />` +
     `</label>` +
-    `<input type="hidden" name="status" value="${escapeHtml(query.status ?? "")}" />` +
-    `<input type="hidden" name="profile" value="${escapeHtml(query.profile ?? "")}" />` +
-    `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? "")}" />` +
-    `<input type="hidden" name="widget" value="${escapeHtml(query.widget ?? "")}" />` +
-    `<input type="hidden" name="detail_mode" value="${escapeHtml(query.detail_mode ?? "")}" />` +
-    `<input type="hidden" name="fixture_id" value="${escapeHtml(query.fixture_id ?? "")}" />` +
-    `<input type="hidden" name="expectation_run_id" value="${escapeHtml(query.expectation_run_id ?? "")}" />` +
-    `<input type="hidden" name="limit" value="${escapeHtml(String(query.limit))}" />` +
-    `<input type="hidden" name="offset" value="${escapeHtml(String(query.offset))}" />` +
-    `<button type="submit" class="btn btn-primary">应用上下文</button>` +
+    `<span class="muted">${escapeHtml(publishHint)}</span>` +
+    hiddenFields +
+    `<button type="submit" class="btn btn-primary" ${hasPublishedPublishOptions ? "" : "disabled"}>查看影响评估</button>` +
+    `${workflowHref ? `<a class="btn btn-secondary" href="${workflowHref}">返回发布流程</a>` : ""}` +
     `</form>` +
+    generationForm +
     `</article>`
+  );
+}
+
+function renderWorkflowGuideCard(viewModel: ConsolePageViewModel): string {
+  const selectedPublish = viewModel.query.publish_id;
+
+  return (
+    `<article class="card card-hover">` +
+    `<h3>你现在该怎么走</h3>` +
+    `<ol class="story-list">` +
+    `<li>左侧选择一条 publish 请求，右侧只看这条发布详情。</li>` +
+    `<li>确认门禁结果、模型快照和当前状态。</li>` +
+    `<li>需要风险判断时，显式进入“影响模拟”。</li>` +
+    `<li>确认无误后回到本页做复核或激活。</li>` +
+    `</ol>` +
+    `<p class="muted">${selectedPublish ? `当前已选中：${escapeHtml(selectedPublish)}` : "当前尚未选择 publish_id。"}</p>` +
+    `</article>`
+  );
+}
+
+function renderControlJourneyCard(namespace: string): string {
+  return (
+    `<section class="story-card story-card-accent story-card-control">` +
+    `<h4>控制面怎么用</h4>` +
+    `<ol class="story-list">` +
+    `<li>先锁定 namespace，确认当前运行态路由、对象和关系范围。</li>` +
+    `<li>上半区只处理模型草稿与发布请求提交。</li>` +
+    `<li>下半区只处理运行态 instance、route、object、relation 维护。</li>` +
+    `<li>需要验证效果时，回到“发布流程”或“影响模拟”继续治理闭环。</li>` +
+    `</ol>` +
+    `<p class="muted">当前控制面命名空间：${escapeHtml(namespace)}</p>` +
+    `</section>`
   );
 }
 
@@ -2690,34 +3010,65 @@ function renderEmbedWidget(
   }
 
   if (widget === "simulation") {
-    return `${renderContextQueryCard(viewModel)}${renderSimulationView(viewModel)}`;
+    return `${renderSimulationContextCard(viewModel)}${renderSimulationView(viewModel)}`;
   }
 
   if (widget === "matrix") {
-    return `${renderContextQueryCard(viewModel)}${renderMatrixView(viewModel)}`;
+    return `${renderSimulationContextCard(viewModel)}${renderMatrixView(viewModel)}`;
   }
 
   if (widget === "relation") {
-    return `${renderContextQueryCard(viewModel)}${renderRelationView(viewModel)}`;
+    return `${renderDecisionQueryCard(viewModel)}${renderDecisionDetail(viewModel.decision_detail)}${renderRelationView(viewModel)}`;
   }
 
   return renderControlPlaneOverview(viewModel);
 }
 
+function renderHeroMeta(viewModel: ConsolePageViewModel, activeTab: ConsoleTab): string {
+  const { query } = viewModel;
+  const tabLabel =
+    TAB_ITEMS.find((item) => item.id === activeTab)?.label ?? "发布流程";
+  const badges = [
+    `<span class="badge badge-info" data-tab-label="true">tab: ${escapeHtml(tabLabel)}</span>`,
+  ];
+
+  if (activeTab === "workflow") {
+    badges.push(
+      `<span class="badge badge-info">status: ${escapeHtml(query.status ?? "all")}</span>`,
+      `<span class="badge badge-neutral">profile: ${escapeHtml(query.profile ?? "all")}</span>`,
+      `<span class="badge badge-primary">publish: ${escapeHtml(query.publish_id ?? "未选中")}</span>`,
+      `<span class="badge badge-info">namespace: ${escapeHtml(query.namespace ?? "tenant_a.crm")}</span>`,
+    );
+  } else if (activeTab === "simulation") {
+    badges.push(
+      `<span class="badge badge-primary">publish: ${escapeHtml(query.publish_id ?? "未选择")}</span>`,
+      `<span class="badge badge-neutral">simulation: ${escapeHtml(query.simulation_id ?? "latest")}</span>`,
+      `<span class="badge badge-info">profile: ${escapeHtml(query.profile ?? "all")}</span>`,
+      `<span class="badge badge-info">namespace: ${escapeHtml(query.namespace ?? "tenant_a.crm")}</span>`,
+    );
+  } else if (activeTab === "relations") {
+    badges.push(
+      `<span class="badge badge-primary">decision: ${escapeHtml(query.decision_id ?? "未选择")}</span>`,
+      `<span class="badge badge-info">namespace: ${escapeHtml(query.namespace ?? "tenant_a.crm")}</span>`,
+    );
+  } else if (activeTab === "control") {
+    badges.push(
+      `<span class="badge badge-primary">namespace: ${escapeHtml(query.namespace ?? "tenant_a.crm")}</span>`,
+      `<span class="badge badge-neutral">fixture: ${escapeHtml(query.fixture_id ?? "未选择")}</span>`,
+      `<span class="badge badge-info">expectation: ${escapeHtml(query.expectation_run_id ?? "未运行")}</span>`,
+    );
+  } else {
+    badges.push(
+      `<span class="badge badge-primary">namespace: ${escapeHtml(query.namespace ?? "tenant_a.crm")}</span>`,
+    );
+  }
+
+  return `<div class="hero-meta">${badges.join("")}</div>`;
+}
+
 export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   const { query } = viewModel;
   const activeTab = resolveActiveTab(viewModel);
-  const statusLabel = query.status ?? "all";
-  const profileLabel = query.profile ?? "all";
-  const decisionLabel = query.decision_id
-    ? "已输入 decision_id"
-    : "未输入 decision_id";
-  const simulationLabel = query.simulation_id
-    ? "已锁定 simulation_id"
-    : "自动选择最新 simulation";
-  const namespaceLabel = query.namespace ?? "tenant_a.crm";
-  const tabLabel =
-    TAB_ITEMS.find((item) => item.id === activeTab)?.label ?? "发布流程";
   const prevOffset = Math.max(query.offset - query.limit, 0);
   const hasPrev = query.offset > 0;
   const nextOffset =
@@ -2780,9 +3131,9 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
     hasNext,
   );
   const decisionQueryCard = renderDecisionQueryCard(viewModel);
-  const workflowStack = `${renderPublishDetail(viewModel.publish_detail, viewModel)}${decisionQueryCard}${renderDecisionDetail(viewModel.decision_detail)}`;
-  const simulationStack = `${renderContextQueryCard(viewModel)}${renderSimulationView(viewModel)}${renderMatrixView(viewModel)}`;
-  const relationsStack = `${renderContextQueryCard(viewModel)}${decisionQueryCard}${renderDecisionDetail(viewModel.decision_detail)}${renderRelationView(viewModel)}`;
+  const workflowStack = `${renderPublishDetail(viewModel.publish_detail, viewModel)}${renderWorkflowGuideCard(viewModel)}`;
+  const simulationStack = `${renderSimulationContextCard(viewModel)}${renderSimulationView(viewModel)}${renderMatrixView(viewModel)}`;
+  const relationsStack = `${decisionQueryCard}${renderDecisionDetail(viewModel.decision_detail)}${renderRelationView(viewModel)}`;
   const controlStack = `${renderControlPlaneOverview(viewModel)}`;
   const componentsStack = `${renderComponentsIndexView(viewModel)}`;
 
@@ -2824,14 +3175,7 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
     : `<section class="hero animate-enter">` +
       `<div class="hero-top"><h1>ACL 治理控制台</h1><span class="hero-pill">Governance Console</span></div>` +
       `<p>发布流程治理 + 决策回放 + 控制面同步。API: ${escapeHtml(viewModel.api_base_url)}，生成时间: ${escapeHtml(formatTime(viewModel.generated_at))}</p>` +
-      `<div class="hero-meta">` +
-      `<span class="badge badge-info" data-tab-label="true">tab: ${escapeHtml(tabLabel)}</span>` +
-      `<span class="badge badge-info">status: ${escapeHtml(statusLabel)}</span>` +
-      `<span class="badge badge-neutral">profile: ${escapeHtml(profileLabel)}</span>` +
-      `<span class="badge badge-primary">${escapeHtml(decisionLabel)}</span>` +
-      `<span class="badge badge-neutral">${escapeHtml(simulationLabel)}</span>` +
-      `<span class="badge badge-info">namespace: ${escapeHtml(namespaceLabel)}</span>` +
-      `</div>` +
+      renderHeroMeta(viewModel, activeTab) +
       `</section>` +
       renderTabNav(viewModel, activeTab) +
       dashboardPanels;

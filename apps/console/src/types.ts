@@ -46,6 +46,18 @@ export interface DecisionRecordResponse {
   traces: Array<Record<string, unknown>>;
 }
 
+export interface DecisionListResponse {
+  items: Array<{
+    decision_id: string;
+    created_at: string;
+  }>;
+  total_count: number;
+  has_more: boolean;
+  next_offset?: number;
+  limit: number;
+  offset: number;
+}
+
 export interface DecisionEvaluateResponse {
   decision_id: string;
   persisted_at: string;
@@ -237,7 +249,9 @@ export interface ConsoleActionFlash {
 export interface ConsolePageViewModel {
   query: ConsoleQuery;
   publish_list: ApiResult<PublishRequestListResponse>;
+  published_publish_list?: ApiResult<PublishRequestListResponse>;
   publish_detail?: ApiResult<PublishRequestRecord>;
+  decision_list?: ApiResult<DecisionListResponse>;
   decision_detail?: ApiResult<DecisionRecordResponse>;
   simulation_list?: ApiResult<SimulationReportListResponse>;
   simulation_detail?: ApiResult<SimulationReportResponse>;

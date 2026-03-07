@@ -5,6 +5,7 @@ import type {
   ControlObjectListResponse,
   ControlRelationListResponse,
   DecisionEvaluateResponse,
+  DecisionListResponse,
   DecisionRecordResponse,
   ModelRouteListResponse,
   PublishRequestListResponse,
@@ -138,8 +139,28 @@ export class AclApiClient {
     return this.post<Record<string, unknown>>('/publish/submit', payload);
   }
 
+  async simulatePublish(payload: {
+    model: Record<string, unknown>;
+    publish_id?: string;
+    profile?: 'baseline' | 'strict_compliance';
+    baseline_publish_id?: string;
+  }): Promise<ApiResult<SimulationReportResponse>> {
+    return this.post<SimulationReportResponse>('/publish:simulate', payload);
+  }
+
   async getDecision(id: string): Promise<ApiResult<DecisionRecordResponse>> {
     return this.get<DecisionRecordResponse>(`/decisions/${encodeURIComponent(id)}`);
+  }
+
+  async listDecisions(query?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<ApiResult<DecisionListResponse>> {
+    const params = new URLSearchParams();
+    params.set('limit', String(query?.limit ?? 20));
+    params.set('offset', String(query?.offset ?? 0));
+
+    return this.get<DecisionListResponse>(`/decisions?${params.toString()}`);
   }
 
   async evaluateDecision(payload: {

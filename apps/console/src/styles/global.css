@@ -378,6 +378,55 @@ body {
   letter-spacing: 0.1px;
 }
 
+.story-card {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.story-card-accent {
+  padding: 16px 18px;
+  border-radius: var(--radius-lg);
+  border: 1px solid #cfe0ff;
+  background:
+    linear-gradient(135deg, rgba(237, 243, 255, 0.92), rgba(241, 250, 245, 0.9));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.story-card-next {
+  border-color: #c7d9ff;
+}
+
+.story-card-workflow {
+  border-color: #bfdbfe;
+}
+
+.story-card-control {
+  border-color: #bbf7d0;
+  background:
+    linear-gradient(135deg, rgba(240, 253, 244, 0.94), rgba(239, 246, 255, 0.9));
+}
+
+.story-card h4 {
+  margin: 0;
+}
+
+.story-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-body);
+}
+
+.story-list li + li {
+  margin-top: 6px;
+}
+
+.story-entry-card {
+  border-style: dashed;
+  border-color: #d8e4f5;
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.92), #ffffff);
+}
+
 .muted {
   color: var(--text-muted);
   font-size: 12px;
@@ -415,6 +464,17 @@ body {
   margin: 0;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.section-head-lane {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid #d9e3f0;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.94));
+}
+
+.section-head-lane h4 {
+  margin: 0;
 }
 
 .badge-row {
@@ -1569,6 +1629,20 @@ pre {
 
 .management-grid.model-submit-grid {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.control-lane {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.control-lane > .section-head {
+  margin-bottom: 0;
+}
+
+.control-lane > .section-head .muted {
+  font-size: 12px;
 }
 
 #tab-panel-control .decision-grid {

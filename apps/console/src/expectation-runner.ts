@@ -529,18 +529,6 @@ function buildSkippedCase(input: {
   };
 }
 
-function buildMissingRouteGuidance(input: {
-  namespace: string;
-  tenantId: string;
-  environment: string;
-}): string {
-  return (
-    `当前 namespace=${input.namespace} 下未找到 tenant_id=${input.tenantId} / environment=${input.environment} 的 model route。`
-    + '批量 Setup 只会写入对象与关系，不会自动绑定 route；'
-    + '请先在“高级运维 > Model Route Upsert”绑定已发布模型后，再执行 expectation 演练。'
-  );
-}
-
 function buildUnavailableRouteGuidance(input: {
   namespace: string;
   tenantId: string;
@@ -606,35 +594,10 @@ export async function runExpectationSimulation(
     executionPlan.decision_inputs.map((item) => [item.name, item]),
   );
 
+  const fixtureId = input.fixture_id ?? executionPlan.fixture_id;
   const tenantId = input.tenant_id ?? executionPlan.tenant_id;
   const environment = input.environment ?? executionPlan.environment;
   const cases: ExpectationRunCaseResult[] = [];
-  const hasModelRouteCases = expectedFixture.decision_expectations.some((item) => {
-    const matchedCase = setupByCase.get(item.name);
-    const mode = matchedCase?.mode ?? item.mode;
-    return mode === 'model_route';
-  });
-
-  if (hasModelRouteCases && tenantId && environment) {
-    const routeListResult = await input.client.listModelRoutes({
-      namespace: input.namespace,
-      tenant_id: tenantId,
-      environment,
-      limit: 1,
-      offset: 0,
-    });
-
-    if (routeListResult.ok && routeListResult.data.total_count === 0) {
-      return {
-        ok: false,
-        error: buildMissingRouteGuidance({
-          namespace: input.namespace,
-          tenantId,
-          environment,
-        }),
-      };
-    }
-  }
 
   for (const expectation of expectedFixture.decision_expectations) {
     const testCase = setupByCase.get(expectation.name);
@@ -739,7 +702,7 @@ export async function runExpectationSimulation(
     ok: true,
     report: {
       run_id: buildRunId(),
-      fixture_id: input.fixture_id,
+      fixture_id: fixtureId,
       namespace: input.namespace,
       tenant_id: tenantId,
       environment,

@@ -4,11 +4,13 @@ import type {
   ControlCatalogListQuery,
   ControlObjectListQuery,
   ControlRelationListQuery,
+  DecisionListQuery,
   ModelRouteListQuery,
   PersistedControlAuditListResult,
   PersistedControlAuditRecord,
   PersistedControlCatalogListResult,
   PersistedControlCatalogRecord,
+  PersistedDecisionListResult,
   PersistedControlObjectListResult,
   PersistedControlObjectRecord,
   PersistedControlRelationListResult,
@@ -111,6 +113,20 @@ export class InMemoryPersistence implements AclPersistence {
 
   async getDecision(decisionId: string): Promise<PersistedDecisionRecord | null> {
     return this.decisions.get(decisionId) ?? null;
+  }
+
+  async listDecisions(query?: DecisionListQuery): Promise<PersistedDecisionListResult> {
+    const limit = normalizeLimit(query?.limit);
+    const offset = normalizeOffset(query?.offset);
+
+    const filtered = Array.from(this.decisions.values())
+      .sort((left, right) => right.created_at.localeCompare(left.created_at))
+      .map((record) => ({
+        decision_id: record.decision_id,
+        created_at: record.created_at,
+      }));
+
+    return buildPagedResult(filtered, limit, offset);
   }
 
   async saveLifecycleReport(record: PersistedLifecycleReportRecord): Promise<void> {

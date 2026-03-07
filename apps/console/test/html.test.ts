@@ -51,6 +51,43 @@ describe("console html renderer", () => {
           offset: 0,
         },
       },
+      published_publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [
+            {
+              publish_id: "pub_1",
+              profile: "baseline",
+              status: "published",
+              final_result: "passed",
+              created_at: "2026-03-04T00:00:00.000Z",
+              updated_at: "2026-03-04T00:00:00.000Z",
+              payload: {},
+            },
+          ],
+          total_count: 1,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      decision_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [
+            {
+              decision_id: "dec_1",
+              created_at: "2026-03-04T00:00:00.000Z",
+            },
+          ],
+          total_count: 1,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
       publish_detail: {
         ok: true,
         status: 200,
@@ -185,6 +222,8 @@ describe("console html renderer", () => {
     expect(html).toContain("发布请求");
     expect(html).toContain("决策回放");
     expect(html).toContain("/actions/review");
+    expect(html).toContain("你现在该怎么走");
+    expect(html).toContain("去做风险评估");
     expect(html).toContain("最终效果");
     expect(html).toContain("review 成功");
     expect(html).toContain("system-notice system-notice-success");
@@ -239,6 +278,48 @@ describe("console html renderer", () => {
     const html = renderConsolePage(model);
     expect(html).toContain("/actions/activate");
     expect(html).toContain("执行激活");
+    expect(html).toContain("去做风险评估");
+  });
+
+  it("keeps publish row navigation in workflow tab", () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: "http://127.0.0.1:3010",
+      generated_at: "2026-03-04T00:00:00.000Z",
+      query: {
+        limit: 20,
+        offset: 0,
+        tab: "simulation",
+        publish_id: "pub_old",
+        simulation_id: "sim_1",
+        namespace: "tenant_a.crm",
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [
+            {
+              publish_id: "pub_target",
+              profile: "baseline",
+              status: "approved",
+              final_result: "passed",
+              created_at: "2026-03-04T00:00:00.000Z",
+              updated_at: "2026-03-04T00:00:00.000Z",
+              payload: {},
+            },
+          ],
+          total_count: 1,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+    };
+
+    const html = renderConsolePage(model);
+    expect(html).toContain(
+      '/?limit=20&offset=0&namespace=tenant_a.crm&tab=workflow&publish_id=pub_target',
+    );
   });
 
   it("renders simulation tab and widget mode", () => {
@@ -260,6 +341,27 @@ describe("console html renderer", () => {
         data: {
           items: [],
           total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      published_publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [
+            {
+              publish_id: "pub_1",
+              profile: "baseline",
+              status: "published",
+              final_result: "passed",
+              created_at: "2026-03-04T00:00:00.000Z",
+              updated_at: "2026-03-04T00:00:00.000Z",
+              payload: {},
+            },
+          ],
+          total_count: 1,
           has_more: false,
           limit: 20,
           offset: 0,
@@ -313,10 +415,78 @@ describe("console html renderer", () => {
     expect(html).toContain("ACL 嵌入视图");
     expect(html).toContain("Embeddable Widget");
     expect(html).toContain("影响面模拟视图");
+    expect(html).toContain("从已发布列表选择发布单");
+    expect(html).toContain('<select name="publish_id"');
+    expect(html).toContain('/actions/simulation/generate');
+    expect(html).toContain('生成模拟报告');
+    expect(html).toContain('默认优先对比同模型上一条已发布版本');
     expect(html).toContain("widget=simulation");
     expect(html).toContain("data-json-toggle");
-    expect(html).not.toContain("发布流程");
+    expect(html).not.toContain('role="tablist" aria-label="ACL 控制台一级标签"');
     expect(html).toContain("/assets/dashboard-tabs.js");
+  });
+
+  it("renders decision detail widget with replay-focused query card", () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: "http://127.0.0.1:3010",
+      generated_at: "2026-03-04T00:00:00.000Z",
+      query: {
+        limit: 20,
+        offset: 0,
+        widget: "decision_detail",
+        tab: "relations",
+        decision_id: "dec_9",
+        publish_id: "pub_9",
+        simulation_id: "sim_9",
+        namespace: "tenant_a.crm",
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      decision_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [
+            {
+              decision_id: "dec_9",
+              created_at: "2026-03-04T00:00:00.000Z",
+            },
+          ],
+          total_count: 1,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      decision_detail: {
+        ok: true,
+        status: 200,
+        data: {
+          decision_id: "dec_9",
+          created_at: "2026-03-04T00:00:00.000Z",
+          payload: {
+            final_effect: "allow",
+          },
+          traces: [],
+        },
+      },
+    };
+
+    const html = renderConsolePage(model);
+    expect(html).toContain("从决策列表查看回放");
+    expect(html).toContain('<select name="decision_id"');
+    expect(html).toContain('name="namespace" value="tenant_a.crm"');
+    expect(html).not.toContain('type="hidden" name="publish_id"');
+    expect(html).not.toContain('type="hidden" name="simulation_id"');
   });
 
   it("renders per-card visual and raw json blocks for publish and decision detail", () => {
@@ -468,6 +638,9 @@ describe("console html renderer", () => {
 
     const html = renderConsolePage(model);
     expect(html).toContain("控制面总览");
+    expect(html).toContain("控制面怎么用");
+    expect(html).toContain("1. 提交模型并发起发布");
+    expect(html).toContain("2. 维护运行态对象与关系");
     expect(html).toContain("/actions/publish/submit");
     expect(html).toContain('data-model-jsoneditor-form="true"');
     expect(html).not.toContain("/actions/control/catalog/register");
@@ -515,6 +688,195 @@ describe("console html renderer", () => {
     expect(html).toContain("Policy Rules 列表");
     expect(html).toContain("policy-rules-table");
     expect(html).toContain("规则编辑器");
+  });
+
+  it("keeps namespace switch focused on control context", () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: "http://127.0.0.1:3010",
+      generated_at: "2026-03-04T00:00:00.000Z",
+      query: {
+        limit: 20,
+        offset: 0,
+        tab: "control",
+        namespace: "tenant_a.crm",
+        publish_id: "pub_leak",
+        decision_id: "dec_leak",
+        simulation_id: "sim_leak",
+        fixture_id: "01-same-company-derived",
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+    };
+
+    const html = renderConsolePage(model);
+    const formStart = html.indexOf('data-control-namespace-form="true"');
+    const formEnd = html.indexOf("</form>", formStart);
+    const namespaceForm =
+      formStart >= 0 && formEnd > formStart
+        ? html.slice(formStart, formEnd)
+        : "";
+
+    expect(html).toContain('data-control-namespace-form="true"');
+    expect(namespaceForm).toContain('type="hidden" name="tab" value="control"');
+    expect(namespaceForm).toContain('type="hidden" name="fixture_id" value="01-same-company-derived"');
+    expect(namespaceForm).not.toContain('type="hidden" name="publish_id" value="pub_leak"');
+    expect(namespaceForm).not.toContain('type="hidden" name="decision_id" value="dec_leak"');
+    expect(namespaceForm).not.toContain('type="hidden" name="simulation_id" value="sim_leak"');
+  });
+
+  it("scopes tab navigation links by target tab", () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: "http://127.0.0.1:3010",
+      generated_at: "2026-03-04T00:00:00.000Z",
+      query: {
+        limit: 20,
+        offset: 0,
+        tab: "control",
+        namespace: "tenant_a.crm",
+        publish_id: "pub_nav",
+        decision_id: "dec_nav",
+        simulation_id: "sim_nav",
+        fixture_id: "01-same-company-derived",
+        expectation_run_id: "exp_nav",
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+    };
+
+    const html = renderConsolePage(model);
+    expect(html).toContain('href="/?limit=20&offset=0&publish_id=pub_nav&namespace=tenant_a.crm&tab=workflow"');
+    expect(html).toContain('href="/?publish_id=pub_nav&simulation_id=sim_nav&namespace=tenant_a.crm&tab=simulation"');
+    expect(html).toContain('href="/?decision_id=dec_nav&namespace=tenant_a.crm&tab=relations"');
+    expect(html).toContain('href="/?fixture_id=01-same-company-derived&expectation_run_id=exp_nav&namespace=tenant_a.crm&tab=control"');
+  });
+
+  it("scopes component embed links by widget", () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: "http://127.0.0.1:3010",
+      generated_at: "2026-03-04T00:00:00.000Z",
+      query: {
+        limit: 20,
+        offset: 0,
+        tab: "components",
+        namespace: "tenant_a.crm",
+        publish_id: "pub_embed",
+        decision_id: "dec_embed",
+        simulation_id: "sim_embed",
+        fixture_id: "01-same-company-derived",
+        expectation_run_id: "exp_embed",
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+    };
+
+    const html = renderConsolePage(model);
+    expect(html).toContain('/?publish_id=pub_embed&namespace=tenant_a.crm&widget=publish_detail');
+    expect(html).toContain('/?decision_id=dec_embed&namespace=tenant_a.crm&widget=decision_detail');
+    expect(html).toContain('/?publish_id=pub_embed&simulation_id=sim_embed&namespace=tenant_a.crm&widget=simulation');
+    expect(html).toContain('/?fixture_id=01-same-company-derived&expectation_run_id=exp_embed&namespace=tenant_a.crm&widget=control');
+  });
+
+  it("renders control hero badges without replay or simulation leakage", () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: "http://127.0.0.1:3010",
+      generated_at: "2026-03-04T00:00:00.000Z",
+      query: {
+        limit: 20,
+        offset: 0,
+        tab: "control",
+        namespace: "tenant_a.crm",
+        decision_id: "dec_hidden",
+        simulation_id: "sim_hidden",
+        fixture_id: "01-same-company-derived",
+        expectation_run_id: "exp_demo",
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+    };
+
+    const html = renderConsolePage(model);
+    const heroEnd = html.indexOf("</section>");
+    const hero = heroEnd > 0 ? html.slice(0, heroEnd) : html;
+    expect(hero).toContain("tab: 控制面维护");
+    expect(hero).toContain("namespace: tenant_a.crm");
+    expect(hero).toContain("fixture: 01-same-company-derived");
+    expect(hero).toContain("expectation: exp_demo");
+    expect(hero).not.toContain("已输入 decision_id");
+    expect(hero).not.toContain("已锁定 simulation_id");
+    expect(hero).not.toContain("decision: dec_hidden");
+    expect(hero).not.toContain("simulation: sim_hidden");
+  });
+
+  it("renders relations hero badges with decision-focused context", () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: "http://127.0.0.1:3010",
+      generated_at: "2026-03-04T00:00:00.000Z",
+      query: {
+        limit: 20,
+        offset: 0,
+        tab: "relations",
+        namespace: "tenant_a.crm",
+        decision_id: "dec_focus",
+        publish_id: "pub_hidden",
+        simulation_id: "sim_hidden",
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+    };
+
+    const html = renderConsolePage(model);
+    const heroEnd = html.indexOf("</section>");
+    const hero = heroEnd > 0 ? html.slice(0, heroEnd) : html;
+    expect(hero).toContain("tab: 关系回放");
+    expect(hero).toContain("decision: dec_focus");
+    expect(hero).toContain("namespace: tenant_a.crm");
+    expect(hero).not.toContain("publish: pub_hidden");
+    expect(hero).not.toContain("simulation: sim_hidden");
   });
 
   it("renders expectation run report with replay links", () => {

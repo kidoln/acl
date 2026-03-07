@@ -22,6 +22,18 @@ export interface PersistedDecisionRecord {
   traces: Array<Record<string, unknown>>;
 }
 
+export interface DecisionListQuery {
+  limit?: number;
+  offset?: number;
+}
+
+export interface PersistedDecisionListResult {
+  items: Array<Pick<PersistedDecisionRecord, 'decision_id' | 'created_at'>>;
+  total_count: number;
+  has_more: boolean;
+  next_offset?: number;
+}
+
 export interface PersistedLifecycleReportRecord {
   lifecycle_id: string;
   event_type: string;
@@ -218,6 +230,7 @@ export interface AclPersistence {
 
   saveDecision(record: PersistedDecisionRecord): Promise<void>;
   getDecision(decisionId: string): Promise<PersistedDecisionRecord | null>;
+  listDecisions(query?: DecisionListQuery): Promise<PersistedDecisionListResult>;
 
   saveLifecycleReport(record: PersistedLifecycleReportRecord): Promise<void>;
   getLifecycleReport(lifecycleId: string): Promise<PersistedLifecycleReportRecord | null>;

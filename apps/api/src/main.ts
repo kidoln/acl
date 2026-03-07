@@ -111,6 +111,11 @@ interface DecisionSearchBody {
   };
 }
 
+interface DecisionListQuerystring {
+  limit?: string;
+  offset?: string;
+}
+
 interface PublishGateCheckBody {
   model: unknown;
   profile?: GateProfile;
@@ -3503,6 +3508,30 @@ app.get<{ Params: IdParams }>('/decisions/:id', async (request, reply) => {
   }
 
   return reply.code(200).send(record);
+});
+
+app.get<{ Querystring: DecisionListQuerystring }>('/decisions', async (request, reply) => {
+  const limit = parseListNumber(request.query?.limit, 20);
+  const offset = parseListNumber(request.query?.offset, 0);
+
+  if (Number.isNaN(limit) || Number.isNaN(offset) || limit < 1 || limit > 100) {
+    return reply.code(400).send({
+      code: 'INVALID_REQUEST',
+      message: 'limit must be integer in [1, 100], offset must be integer >= 0',
+    });
+  }
+
+  const records = await persistence.listDecisions({ limit, offset });
+
+  return reply.code(200).send({
+    items: records.items,
+    total_count: records.total_count,
+    has_more: records.has_more,
+    next_offset: records.next_offset,
+    limit,
+    offset,
+    persistence_driver: persistenceDriver,
+  });
 });
 
 export async function startServer(port = 3010): Promise<void> {

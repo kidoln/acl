@@ -8,6 +8,20 @@
   };
 
   const VALID_TABS = Object.keys(TAB_LABEL_MAP);
+  const TAB_CLEAR_PARAMS = {
+    workflow: ["decision_id", "simulation_id", "cell_key"],
+    simulation: ["decision_id", "cell_key"],
+    relations: ["simulation_id", "cell_key"],
+    control: ["publish_id", "decision_id", "simulation_id", "cell_key"],
+    components: [
+      "publish_id",
+      "decision_id",
+      "simulation_id",
+      "cell_key",
+      "status",
+      "profile",
+    ],
+  };
 
   function normalizeTab(value) {
     return VALID_TABS.includes(value) ? value : "workflow";
@@ -603,6 +617,9 @@
       const url = new URL(window.location.href);
       url.searchParams.set("tab", picked);
       url.searchParams.delete("widget");
+      (TAB_CLEAR_PARAMS[picked] || []).forEach((key) => {
+        url.searchParams.delete(key);
+      });
       if (pushHistory) {
         window.history.pushState({ tab: picked }, "", url);
       } else {
