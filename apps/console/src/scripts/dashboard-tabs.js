@@ -3851,6 +3851,40 @@
       }
     };
 
+    const readReplayFocus = (editor) => {
+      const payloadField = editor.querySelector("[data-instance-graph-focus]");
+      if (!payloadField) {
+        return {
+          nodeIds: new Set(),
+          edgeKeys: new Set(),
+        };
+      }
+      const raw =
+        payloadField instanceof HTMLTextAreaElement
+          ? payloadField.value
+          : payloadField.textContent || "";
+      if (!raw || raw.trim().length === 0) {
+        return {
+          nodeIds: new Set(),
+          edgeKeys: new Set(),
+        };
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        const nodeIds = normalizeStringArray(parsed?.highlight_node_ids);
+        const edgeKeys = normalizeStringArray(parsed?.highlight_edge_keys);
+        return {
+          nodeIds: new Set(nodeIds),
+          edgeKeys: new Set(edgeKeys),
+        };
+      } catch {
+        return {
+          nodeIds: new Set(),
+          edgeKeys: new Set(),
+        };
+      }
+    };
+
     const updateSubjectDirectionButtons = (editor) => {
       const currentDirection = readSubjectTreeDirection(editor);
       const directionButtons = Array.from(
@@ -3882,6 +3916,7 @@
       const subjectTreeDirection = readSubjectTreeDirection(editor);
 
       const payload = readPayload(editor);
+      const replayFocus = readReplayFocus(editor);
       if (!payload || payload.nodes.length === 0) {
         clearManualNodePositions(editor);
         updateHideNodeButtonState(editor, new Set());
@@ -4444,7 +4479,17 @@
           nodeById.set(nodeId, node);
         }
       });
+      const buildEdgeKey = (edge) => {
+        const from = typeof edge?.from === "string" ? edge.from.trim() : "";
+        const to = typeof edge?.to === "string" ? edge.to.trim() : "";
+        const label = typeof edge?.label === "string" ? edge.label.trim() : "";
+        const dashed = edge?.dashed === true;
+        return `${from}::${to}::${label}::${dashed ? "d" : "s"}`;
+      };
       const instanceEdgeColor = (edge) => {
+        if (replayFocus.edgeKeys.has(buildEdgeKey(edge))) {
+          return "#f59e0b";
+        }
         if (edge.dashed === true) {
           return "#ad4f8f"; // owner_fallback 紫色虚线
         }
@@ -4465,6 +4510,7 @@
         const category =
           typeof node.category === "string" ? node.category : "subject";
         const isSelected = id.length > 0 && id === selectedNodeId;
+        const isReplayFocus = id.length > 0 && replayFocus.nodeIds.has(id);
         return {
           id,
           name: label,
@@ -4477,12 +4523,18 @@
           draggable: true,
           itemStyle: {
             color: instanceNodeColor(category),
-            borderColor: isSelected ? "#2563eb" : "#c5d3ec",
-            borderWidth: isSelected ? 2.5 : 1,
+            borderColor: isSelected
+              ? "#2563eb"
+              : isReplayFocus
+                ? "#f59e0b"
+                : "#c5d3ec",
+            borderWidth: isSelected ? 2.5 : isReplayFocus ? 2.2 : 1,
+            shadowBlur: isReplayFocus ? 14 : 0,
+            shadowColor: isReplayFocus ? "rgba(245, 158, 11, 0.28)" : "transparent",
           },
           label: {
             show: true,
-            color: "#1f2937",
+            color: isReplayFocus ? "#9a3412" : "#1f2937",
             fontSize:
               category === "subject"
                 ? subjectSymbolSize <= 24
@@ -4509,16 +4561,21 @@
           typeof edge.label === "string" ? edge.label : "related_to";
         const dashed = edge.dashed === true;
         const isSelfLoop = from === to;
+        const isReplayFocus = replayFocus.edgeKeys.has(buildEdgeKey(edge));
         return {
           source: from,
           target: to,
           value: label,
+          label: {
+            color: isReplayFocus ? "#9a3412" : "#425978",
+            fontWeight: isReplayFocus ? 700 : 500,
+          },
           lineStyle: {
             color: instanceEdgeColor(edge),
-            width: dashed ? 2 : 2.4,
+            width: isReplayFocus ? 3.6 : dashed ? 2 : 2.4,
             type: dashed ? "dashed" : "solid",
             curveness: isSelfLoop ? 0.5 : 0.15,
-            opacity: 0.92,
+            opacity: isReplayFocus ? 1 : 0.92,
           },
         };
       });

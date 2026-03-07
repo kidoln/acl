@@ -12,6 +12,7 @@ import type {
   ConsoleTab,
   ConsoleWidget,
   ConsolePageViewModel,
+  ControlObjectListResponse,
   DecisionRecordResponse,
   ExpectationRunCaseResult,
   ExpectationRunReport,
@@ -451,6 +452,15 @@ function renderModelEditorToggleSwitch(): string {
     `<button type="button" class="json-toggle-btn active" data-mode="visual" aria-pressed="true">表单</button>` +
     `<button type="button" class="json-toggle-btn" data-mode="graph" aria-pressed="false">Graph</button>` +
     `<button type="button" class="json-toggle-btn" data-mode="raw" aria-pressed="false">JSON</button>` +
+    `</div>`
+  );
+}
+
+function renderRelationReplayToggleSwitch(): string {
+  return (
+    `<div class="json-toggle" data-json-toggle role="tablist" aria-label="运行态关系视图切换">` +
+    `<button type="button" class="json-toggle-btn active" data-mode="visual" aria-pressed="true">表格</button>` +
+    `<button type="button" class="json-toggle-btn" data-mode="graph" aria-pressed="false">Graph</button>` +
     `</div>`
   );
 }
@@ -1031,13 +1041,43 @@ function renderMatrixView(viewModel: ConsolePageViewModel): string {
 }
 
 function renderRelationView(viewModel: ConsolePageViewModel): string {
+  const relationReplayFocus = buildRelationReplayFocusPayload(viewModel);
+  const runtimeRelationGraphPayloadJson = escapeHtml(
+    JSON.stringify(buildInstanceGraphPayload(viewModel)),
+  );
+  const runtimeRelationGraphFocusJson = escapeHtml(
+    JSON.stringify(relationReplayFocus),
+  );
+  const objectRows = viewModel.control_objects?.ok
+    ? renderRuntimeObjectRows(
+        viewModel.control_objects.data.items,
+        relationReplayFocus.object_id,
+        relationReplayFocus.object_owner_ref,
+      )
+    : '<tr><td colspan="6" class="muted">客体台账加载失败</td></tr>';
+  const objectCount = viewModel.control_objects?.ok
+    ? viewModel.control_objects.data.total_count
+    : 0;
+  const relationCount = viewModel.control_relations?.ok
+    ? viewModel.control_relations.data.total_count
+    : 0;
   const relationRows = viewModel.control_relations?.ok
     ? viewModel.control_relations.data.items.length === 0
       ? '<tr><td colspan="5" class="muted">关系事件为空</td></tr>'
       : viewModel.control_relations.data.items
           .map(
-            (item) =>
-              `<tr><td>${escapeHtml(item.from)}</td><td>${escapeHtml(item.relation_type)}</td><td>${escapeHtml(item.to)}</td><td>${escapeHtml(item.scope ?? "")}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`,
+            (item) => {
+              const edgeKey = buildInstanceGraphEdgeKey({
+                from: item.from,
+                to: item.to,
+                label: buildInstanceGraphEdgeLabel(item.relation_type, item.scope),
+                dashed: false,
+              });
+              const rowClass = relationReplayFocus.highlight_edge_keys.includes(edgeKey)
+                ? ' class="runtime-focus-row"'
+                : "";
+              return `<tr${rowClass}><td>${escapeHtml(item.from)}</td><td>${escapeHtml(item.relation_type)}</td><td>${escapeHtml(item.to)}</td><td>${escapeHtml(item.scope ?? "")}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`;
+            },
           )
           .join("")
     : '<tr><td colspan="5" class="muted">关系数据加载失败</td></tr>';
@@ -1053,11 +1093,46 @@ function renderRelationView(viewModel: ConsolePageViewModel): string {
           .join("")
     : '<tr><td colspan="4" class="muted">选择 decision_id 查看命中链路</td></tr>';
 
+  const relationReplaySummary = relationReplayFocus.decision_id
+    ? `<section class="decision-grid relation-replay-summary">` +
+      `<div class="metric"><span>decision_id</span><strong>${escapeHtml(relationReplayFocus.decision_id)}</strong></div>` +
+      `<div class="metric"><span>subject_id</span><strong>${escapeHtml(relationReplayFocus.subject_id ?? "-")}</strong></div>` +
+      `<div class="metric"><span>object_id</span><strong>${escapeHtml(relationReplayFocus.object_id ?? "-")}</strong></div>` +
+      `<div class="metric"><span>owner_ref</span><strong>${escapeHtml(relationReplayFocus.object_owner_ref ?? "-")}</strong></div>` +
+      `<div class="metric"><span>matched_rules</span><strong>${relationReplayFocus.matched_rule_ids.length}</strong></div>` +
+      `<div class="metric"><span>path_highlight</span><strong>${relationReplayFocus.path_found ? "已定位" : "仅节点"}</strong></div>` +
+      `</section>` +
+      `<p class="muted relation-replay-note">当前 Graph 会高亮本次回放的 subject / object / owner_ref，以及从 subject 指向 object（或 owner_ref）的运行态最短链路。</p>`
+    : `<p class="muted relation-replay-note">未选择 decision_id 时，上半区展示当前 namespace 的实际运行态 objects / relations；选择 decision 后 Graph 会高亮本次回放焦点。</p>`;
+
   return (
     `<article class="card card-hover">` +
-    `<h3>关系图视图</h3>` +
-    `<p class="muted">上半区展示控制面关系边，下半区展示决策 trace 链路。</p>` +
+    `<h3>运行态关系回放</h3>` +
+    `<p class="muted">上半区展示当前 namespace 已落库的运行态关系，可切换表格 / Graph；下半区展示决策 trace 链路。</p>` +
+    relationReplaySummary +
+    `<section class="relation-runtime-card" data-instance-editor data-subject-tree-direction="bottom-up">` +
+    `<textarea hidden data-instance-graph-payload>${runtimeRelationGraphPayloadJson}</textarea>` +
+    `<textarea hidden data-instance-graph-focus>${runtimeRelationGraphFocusJson}</textarea>` +
+    `<div class="model-editor-head">` +
+    `<p class="muted">运行态关系边 / Graph</p>` +
+    `<div class="model-editor-head-actions">${renderRelationReplayToggleSwitch()}</div>` +
+    `</div>` +
+    `<section class="json-switchable" data-json-switchable>` +
+    `<div class="json-view" data-json-view="visual">` +
+    `<div class="table-container"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div>` +
+    `<p class="muted relation-runtime-count">当前运行态：objects=${objectCount}，relations=${relationCount}</p>` +
     `<div class="table-container"><table class="data-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Scope</th><th>Updated</th></tr></thead><tbody>${relationRows}</tbody></table></div>` +
+    `</div>` +
+    `<div class="json-view" data-json-view="graph" hidden>` +
+    `<section class="model-graph" data-instance-graph data-subject-tree-direction="bottom-up">` +
+    `<p class="muted model-graph-placeholder">Graph 视图展示当前运行态 instance 的关系（control_relations + control_objects.owner_ref）；选中 decision 后会高亮回放焦点。</p>` +
+    `<div class="instance-graph-layout-bar"><span class="muted">Subject 树方向</span><div class="json-toggle" role="tablist" aria-label="运行态 Subject 树方向"><button type="button" class="json-toggle-btn active" data-instance-subject-direction-btn="bottom-up" aria-pressed="true">自下而上</button><button type="button" class="json-toggle-btn" data-instance-subject-direction-btn="top-down" aria-pressed="false">自上而下</button></div></div>` +
+    `<div class="model-graph-chart-wrap"><div class="instance-graph-actions"><button type="button" class="model-graph-node-hide" data-instance-hide-node title="先点击一个节点，再点击隐藏" disabled>隐藏节点</button><button type="button" class="model-graph-zoom-reset" title="重置缩放并恢复全部节点">重置</button></div><div class="model-graph-echart" data-instance-echart role="img" aria-label="运行态 Instance 关系图"></div></div>` +
+    `<p class="muted model-graph-legend">说明：Graph 基于当前控制面已存入的 objects / relations 构建；边标签为 relation_type（含 scope）；虚线代表 object.owner_ref 关系；橙色高亮表示当前 decision 回放焦点。</p>` +
+    `</section>` +
+    `</div>` +
+    `</section>` +
+    `</section>` +
     `<div class="table-container relation-trace"><table class="data-table"><thead><tr><th>Rule</th><th>Status</th><th>Effect</th><th>Reason</th></tr></thead><tbody>${traceRows}</tbody></table></div>` +
     `</article>`
   );
@@ -1654,6 +1729,18 @@ interface InstanceGraphPayload {
   };
 }
 
+interface RelationReplayFocusPayload {
+  decision_id?: string;
+  subject_id?: string;
+  object_id?: string;
+  object_owner_ref?: string;
+  matched_rule_ids: string[];
+  trace_rule_ids: string[];
+  highlight_node_ids: string[];
+  highlight_edge_keys: string[];
+  path_found: boolean;
+}
+
 interface SubjectLayoutModelMeta {
   typeCatalog: string[];
   typeEdges: Array<{
@@ -1764,6 +1851,306 @@ function collectSubjectLayoutModelMeta(
     typeCatalog,
     typeEdges,
   };
+}
+
+function buildInstanceGraphEdgeLabel(
+  relationType: string,
+  scope?: string,
+): string {
+  const normalizedRelationType = relationType.trim();
+  const normalizedScope = (scope ?? "").trim();
+  if (normalizedRelationType.length === 0) {
+    return "related_to";
+  }
+  return normalizedScope.length > 0
+    ? `${normalizedRelationType} [${normalizedScope}]`
+    : normalizedRelationType;
+}
+
+function buildInstanceGraphEdgeKey(input: {
+  from: string;
+  to: string;
+  label: string;
+  dashed: boolean;
+}): string {
+  return `${input.from.trim()}::${input.to.trim()}::${input.label.trim()}::${input.dashed ? "d" : "s"}`;
+}
+
+function collectRuntimeInstanceGraphEdges(
+  viewModel: ConsolePageViewModel,
+): Array<{
+  from: string;
+  to: string;
+  label: string;
+  dashed: boolean;
+}> {
+  const edges: Array<{
+    from: string;
+    to: string;
+    label: string;
+    dashed: boolean;
+  }> = [];
+
+  if (viewModel.control_relations?.ok) {
+    viewModel.control_relations.data.items.forEach((item) => {
+      const from = item.from.trim();
+      const to = item.to.trim();
+      if (from.length === 0 || to.length === 0) {
+        return;
+      }
+      edges.push({
+        from,
+        to,
+        label: buildInstanceGraphEdgeLabel(item.relation_type, item.scope),
+        dashed: false,
+      });
+    });
+  }
+
+  if (viewModel.control_objects?.ok) {
+    viewModel.control_objects.data.items.forEach((item) => {
+      const objectId = item.object_id.trim();
+      const ownerRef = item.owner_ref.trim();
+      if (objectId.length === 0 || ownerRef.length === 0) {
+        return;
+      }
+      edges.push({
+        from: ownerRef,
+        to: objectId,
+        label: "owner_ref",
+        dashed: true,
+      });
+    });
+  }
+
+  return edges;
+}
+
+function findShortestDirectedEdgePath(
+  edges: Array<{
+    from: string;
+    to: string;
+    label: string;
+    dashed: boolean;
+  }>,
+  startId: string,
+  targetId: string,
+): Array<{
+  from: string;
+  to: string;
+  label: string;
+  dashed: boolean;
+}> {
+  const normalizedStartId = startId.trim();
+  const normalizedTargetId = targetId.trim();
+  if (
+    normalizedStartId.length === 0 ||
+    normalizedTargetId.length === 0 ||
+    normalizedStartId === normalizedTargetId
+  ) {
+    return [];
+  }
+
+  const outgoingMap = new Map<
+    string,
+    Array<{
+      from: string;
+      to: string;
+      label: string;
+      dashed: boolean;
+    }>
+  >();
+  edges.forEach((edge) => {
+    const from = edge.from.trim();
+    const to = edge.to.trim();
+    if (from.length === 0 || to.length === 0) {
+      return;
+    }
+    const scoped = outgoingMap.get(from) ?? [];
+    scoped.push(edge);
+    outgoingMap.set(from, scoped);
+  });
+
+  const visited = new Set<string>([normalizedStartId]);
+  const queue: string[] = [normalizedStartId];
+  const previousEdgeByNode = new Map<
+    string,
+    {
+      from: string;
+      to: string;
+      label: string;
+      dashed: boolean;
+    }
+  >();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+    const outgoingEdges = outgoingMap.get(current) ?? [];
+    for (const edge of outgoingEdges) {
+      const next = edge.to.trim();
+      if (next.length === 0 || visited.has(next)) {
+        continue;
+      }
+      visited.add(next);
+      previousEdgeByNode.set(next, edge);
+      if (next === normalizedTargetId) {
+        const path: Array<{
+          from: string;
+          to: string;
+          label: string;
+          dashed: boolean;
+        }> = [];
+        let cursor = normalizedTargetId;
+        while (cursor !== normalizedStartId) {
+          const previousEdge = previousEdgeByNode.get(cursor);
+          if (!previousEdge) {
+            return [];
+          }
+          path.unshift(previousEdge);
+          cursor = previousEdge.from;
+        }
+        return path;
+      }
+      queue.push(next);
+    }
+  }
+
+  return [];
+}
+
+function buildRelationReplayFocusPayload(
+  viewModel: ConsolePageViewModel,
+): RelationReplayFocusPayload {
+  const empty: RelationReplayFocusPayload = {
+    matched_rule_ids: [],
+    trace_rule_ids: [],
+    highlight_node_ids: [],
+    highlight_edge_keys: [],
+    path_found: false,
+  };
+
+  if (!viewModel.decision_detail?.ok) {
+    return empty;
+  }
+
+  const payload = asRecord(viewModel.decision_detail.data.payload) ?? {};
+  const request = asRecord(payload.request) ?? {};
+  const subjectId = readPathString(request, ["subject_id"], "").trim();
+  const objectId = readPathString(request, ["object_id"], "").trim();
+  const matchedRuleIds = Array.isArray(payload.matched_rules)
+    ? payload.matched_rules.filter(
+        (item): item is string => typeof item === "string" && item.trim().length > 0,
+      )
+    : [];
+  const traceRuleIds = Array.isArray(viewModel.decision_detail.data.traces)
+    ? viewModel.decision_detail.data.traces
+        .map((item) => asRecord(item))
+        .filter((item): item is Record<string, unknown> => item !== null)
+        .map((item) => readPathString(item, ["rule_id"], "").trim())
+        .filter((item) => item.length > 0)
+    : [];
+
+  const objectRecord = viewModel.control_objects?.ok
+    ? viewModel.control_objects.data.items.find(
+        (item) => item.object_id.trim() === objectId,
+      )
+    : undefined;
+  const ownerRef = objectRecord?.owner_ref.trim() ?? "";
+  const graphEdges = collectRuntimeInstanceGraphEdges(viewModel);
+
+  const highlightNodeIds = new Set<string>();
+  if (subjectId.length > 0) {
+    highlightNodeIds.add(subjectId);
+  }
+  if (objectId.length > 0) {
+    highlightNodeIds.add(objectId);
+  }
+  if (ownerRef.length > 0) {
+    highlightNodeIds.add(ownerRef);
+  }
+
+  const highlightEdgeKeys = new Set<string>();
+  const pathToObject = findShortestDirectedEdgePath(graphEdges, subjectId, objectId);
+  let pathFound = false;
+  if (pathToObject.length > 0) {
+    pathFound = true;
+    pathToObject.forEach((edge) => {
+      highlightEdgeKeys.add(buildInstanceGraphEdgeKey(edge));
+      highlightNodeIds.add(edge.from);
+      highlightNodeIds.add(edge.to);
+    });
+  } else if (ownerRef.length > 0) {
+    const pathToOwner = findShortestDirectedEdgePath(graphEdges, subjectId, ownerRef);
+    if (pathToOwner.length > 0) {
+      pathFound = true;
+      pathToOwner.forEach((edge) => {
+        highlightEdgeKeys.add(buildInstanceGraphEdgeKey(edge));
+        highlightNodeIds.add(edge.from);
+        highlightNodeIds.add(edge.to);
+      });
+    }
+
+    const ownerEdgeKey = buildInstanceGraphEdgeKey({
+      from: ownerRef,
+      to: objectId,
+      label: "owner_ref",
+      dashed: true,
+    });
+    if (
+      graphEdges.some(
+        (edge) =>
+          buildInstanceGraphEdgeKey(edge) === ownerEdgeKey,
+      )
+    ) {
+      highlightEdgeKeys.add(ownerEdgeKey);
+      pathFound = true;
+    }
+  }
+
+  return {
+    decision_id: viewModel.decision_detail.data.decision_id,
+    subject_id: subjectId || undefined,
+    object_id: objectId || undefined,
+    object_owner_ref: ownerRef || undefined,
+    matched_rule_ids: Array.from(new Set(matchedRuleIds)),
+    trace_rule_ids: Array.from(new Set(traceRuleIds)),
+    highlight_node_ids: Array.from(highlightNodeIds),
+    highlight_edge_keys: Array.from(highlightEdgeKeys),
+    path_found: pathFound,
+  };
+}
+
+function renderRuntimeObjectRows(
+  objects: ControlObjectListResponse["items"],
+  focusObjectId?: string,
+  focusOwnerRef?: string,
+): string {
+  if (objects.length === 0) {
+    return '<tr><td colspan="6" class="muted">当前命名空间暂无客体数据</td></tr>';
+  }
+
+  return objects
+    .map((item) => {
+      const isFocusObject =
+        focusObjectId && item.object_id.trim() === focusObjectId.trim();
+      const isFocusOwner =
+        focusOwnerRef && item.owner_ref.trim() === focusOwnerRef.trim();
+      const rowClass = isFocusObject || isFocusOwner ? ' class="runtime-focus-row"' : "";
+      return (
+        `<tr${rowClass}>` +
+        `<td>${escapeHtml(item.object_id)}</td>` +
+        `<td>${escapeHtml(item.object_type)}</td>` +
+        `<td>${escapeHtml(item.sensitivity ?? "")}</td>` +
+        `<td>${escapeHtml(item.owner_ref ?? "")}</td>` +
+        `<td>${escapeHtml((item.labels ?? []).join(", "))}</td>` +
+        `<td>${escapeHtml(formatTime(item.updated_at))}</td>` +
+        `</tr>`
+      );
+    })
+    .join("");
 }
 
 function buildInstanceGraphPayload(
