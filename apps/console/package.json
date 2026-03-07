@@ -2,7 +2,7 @@
   "name": "@acl/console",
   "version": "0.1.0",
   "private": true,
-  "description": "ACL 治理控制台（阶段 1 占位骨架）",
+  "description": "ACL 控制台（阶段 1 占位骨架）",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

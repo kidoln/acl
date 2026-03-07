@@ -29,7 +29,7 @@
 .
 ├── apps/                      # 运行态入口
 │   ├── api/                   # 控制面与判权 API
-│   └── console/               # ACL 治理控制台
+│   └── console/               # ACL 控制台
 ├── packages/                  # 可复用领域能力
 │   ├── shared-types/          # 共享领域类型与配置模型
 │   ├── schema/                # JSON Schema 与基础结构校验

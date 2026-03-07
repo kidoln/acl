@@ -3526,7 +3526,7 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
 
   const pageTitle = query.widget
     ? `ACL 嵌入视图 - ${WIDGET_ITEMS.find((item) => item.id === query.widget)?.label ?? "Widget"}`
-    : "ACL 治理控制台";
+    : "ACL 控制台";
 
   const dashboardPanels =
     `<section class="tab-panels">` +
@@ -3560,7 +3560,7 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
       `</section>` +
       `<section class="stack stack-main animate-enter delay-100">${renderEmbedWidget(viewModel, query.widget, publishListPanel)}</section>`
     : `<section class="hero animate-enter">` +
-      `<div class="hero-top"><h1>ACL 治理控制台</h1><span class="hero-pill">Governance Console</span></div>` +
+      `<div class="hero-top"><h1>ACL 控制台</h1><span class="hero-pill">Governance Console</span></div>` +
       `<p>发布流程治理 + 决策回放 + 控制面同步。API: ${escapeHtml(viewModel.api_base_url)}，生成时间: ${escapeHtml(formatTime(viewModel.generated_at))}</p>` +
       renderHeroMeta(viewModel, activeTab) +
       `</section>` +

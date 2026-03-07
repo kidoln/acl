@@ -214,7 +214,7 @@ describe("console html renderer", () => {
     };
 
     const html = renderConsolePage(model);
-    expect(html).toContain("ACL 治理控制台");
+    expect(html).toContain("ACL 控制台");
     expect(html).toContain(
       '<link rel="stylesheet" href="/assets/global.css" />',
     );
