@@ -8,6 +8,14 @@
   };
 
   const VALID_TABS = Object.keys(TAB_LABEL_MAP);
+  const DASHBOARD_RUNTIME = {
+    syncActiveTabFromUrl: null,
+    applyMatrixDrawerLink: null,
+    syncMatrixDrawerFromUrl: null,
+    hydrateModelGraphs: null,
+    renderVisibleInstanceGraphs: null,
+    handleInstanceResize: null,
+  };
   const TAB_CLEAR_PARAMS = {
     workflow: ["decision_id", "simulation_id", "cell_key"],
     simulation: ["decision_id", "cell_key"],
@@ -197,9 +205,6 @@
       if (nextDoc.title && nextDoc.title.trim().length > 0) {
         document.title = nextDoc.title;
       }
-      if (changed) {
-        document.dispatchEvent(new CustomEvent("acl:control-partial-updated"));
-      }
       return changed;
     };
 
@@ -369,20 +374,23 @@
 
         const html = await response.text();
         const nextDoc = new DOMParser().parseFromString(html, "text/html");
-        if (!applyControlPartialUpdate(nextDoc)) {
+        const changed = applyControlPartialUpdate(nextDoc);
+        if (!changed) {
           usedNativeFallback = true;
           fallbackNativeSubmit(form);
           return;
         }
 
+        if (response.url && response.url.length > 0) {
+          window.history.replaceState(window.history.state, "", response.url);
+        }
+
+        document.dispatchEvent(new CustomEvent("acl:control-partial-updated"));
+
         if (anchorContext) {
           restoreAnchorContext(anchorContext);
         } else {
           restoreWindowScroll(scrollX, scrollY);
-        }
-
-        if (response.url && response.url.length > 0) {
-          window.history.replaceState(window.history.state, "", response.url);
         }
       } catch {
         usedNativeFallback = true;
@@ -592,15 +600,14 @@
       return;
     }
 
-    const links = Array.from(tabNav.querySelectorAll(".tab-link[data-tab]"));
-    const panels = Array.from(document.querySelectorAll("[data-tab-panel]"));
-    const tabBadge = document.querySelector("[data-tab-label]");
-    const tabInputs = Array.from(
-      document.querySelectorAll('input[name="tab"]'),
-    );
-
     const setActiveTab = (tab, pushHistory) => {
       const picked = normalizeTab(tab);
+      const links = Array.from(tabNav.querySelectorAll(".tab-link[data-tab]"));
+      const panels = Array.from(document.querySelectorAll("[data-tab-panel]"));
+      const tabBadge = document.querySelector("[data-tab-label]");
+      const tabInputs = Array.from(
+        document.querySelectorAll('input[name="tab"]'),
+      );
 
       links.forEach((node) => {
         const linkTab = node.getAttribute("data-tab") || "";
@@ -637,8 +644,17 @@
       }
     };
 
-    links.forEach((node) => {
-      node.addEventListener("click", (event) => {
+    if (tabNav.getAttribute("data-tab-nav-bound") !== "true") {
+      tabNav.setAttribute("data-tab-nav-bound", "true");
+      tabNav.addEventListener("click", (event) => {
+        const target = event.target;
+        const node =
+          target instanceof Element
+            ? target.closest(".tab-link[data-tab]")
+            : null;
+        if (!(node instanceof HTMLAnchorElement) || !tabNav.contains(node)) {
+          return;
+        }
         if (event.defaultPrevented) {
           return;
         }
@@ -652,39 +668,70 @@
         const targetTab = node.getAttribute("data-tab") || "workflow";
         setActiveTab(targetTab, true);
       });
-    });
+    }
 
-    window.addEventListener("popstate", () => {
+    DASHBOARD_RUNTIME.syncActiveTabFromUrl = () => {
       const tab =
         new URL(window.location.href).searchParams.get("tab") || "workflow";
       setActiveTab(tab, false);
-    });
+    };
 
-    const initTab =
-      new URL(window.location.href).searchParams.get("tab") || "workflow";
-    setActiveTab(initTab, false);
+    if (
+      document.body.getAttribute("data-dashboard-popstate-bound") !== "true"
+    ) {
+      document.body.setAttribute("data-dashboard-popstate-bound", "true");
+      window.addEventListener("popstate", () => {
+        if (typeof DASHBOARD_RUNTIME.syncActiveTabFromUrl === "function") {
+          DASHBOARD_RUNTIME.syncActiveTabFromUrl();
+        }
+        if (typeof DASHBOARD_RUNTIME.syncMatrixDrawerFromUrl === "function") {
+          DASHBOARD_RUNTIME.syncMatrixDrawerFromUrl();
+        }
+      });
+    }
+
+    DASHBOARD_RUNTIME.syncActiveTabFromUrl();
   }
 
   function initMatrixDrawer() {
-    const drawer = document.querySelector("[data-matrix-drawer]");
-    if (!drawer) {
-      return;
-    }
-
-    const links = Array.from(
-      document.querySelectorAll('.matrix-link[data-matrix-cell="true"]'),
-    );
-    if (links.length === 0) {
-      return;
-    }
-
-    const cellInputs = Array.from(
-      document.querySelectorAll('input[name="cell_key"]'),
-    );
     const DRAWER_EMPTY_HTML =
       '<p class="muted">点击矩阵单元格可打开详情抽屉。</p>';
 
+    const readMatrixState = () => {
+      const drawer = document.querySelector("[data-matrix-drawer]");
+      if (!(drawer instanceof HTMLElement)) {
+        return null;
+      }
+
+      return {
+        drawer,
+        links: Array.from(
+          document.querySelectorAll('.matrix-link[data-matrix-cell="true"]'),
+        ),
+        cellInputs: Array.from(
+          document.querySelectorAll('input[name="cell_key"]'),
+        ),
+      };
+    };
+
+    const clearActiveCell = () => {
+      const state = readMatrixState();
+      if (!state) {
+        return;
+      }
+      state.links.forEach((node) => node.classList.remove("active"));
+      state.cellInputs.forEach((input) => {
+        input.value = "";
+      });
+      state.drawer.innerHTML = DRAWER_EMPTY_HTML;
+    };
+
     const setActiveCell = (link, pushHistory) => {
+      const state = readMatrixState();
+      if (!state || !state.links.includes(link)) {
+        return;
+      }
+
       const cellKey = link.getAttribute("data-cell-key") || "";
       const draftEffect = link.getAttribute("data-draft-effect") || "";
       const baselineEffect = link.getAttribute("data-baseline-effect") || "";
@@ -698,12 +745,14 @@
         link.getAttribute("data-overridden-rules"),
       );
 
-      links.forEach((node) => node.classList.toggle("active", node === link));
-      cellInputs.forEach((input) => {
+      state.links.forEach((node) =>
+        node.classList.toggle("active", node === link),
+      );
+      state.cellInputs.forEach((input) => {
         input.value = cellKey;
       });
 
-      drawer.innerHTML =
+      state.drawer.innerHTML =
         `<h4>单元格详情抽屉</h4>` +
         `<p><strong>cell_key:</strong> ${escapeHtml(cellKey)}</p>` +
         `<p><strong>final_decision:</strong> ${escapeHtml(draftEffect)}</p>` +
@@ -727,8 +776,45 @@
       }
     };
 
-    links.forEach((node) => {
-      node.addEventListener("click", (event) => {
+    DASHBOARD_RUNTIME.applyMatrixDrawerLink = (link, pushHistory) => {
+      setActiveCell(link, pushHistory);
+    };
+
+    DASHBOARD_RUNTIME.syncMatrixDrawerFromUrl = () => {
+      const state = readMatrixState();
+      if (!state || state.links.length === 0) {
+        return;
+      }
+      const targetCellKey = new URL(window.location.href).searchParams.get(
+        "cell_key",
+      );
+      if (!targetCellKey) {
+        clearActiveCell();
+        return;
+      }
+      const targetLink = state.links.find(
+        (node) => (node.getAttribute("data-cell-key") || "") === targetCellKey,
+      );
+      if (!targetLink) {
+        clearActiveCell();
+        return;
+      }
+      setActiveCell(targetLink, false);
+    };
+
+    if (
+      document.body.getAttribute("data-matrix-drawer-click-bound") !== "true"
+    ) {
+      document.body.setAttribute("data-matrix-drawer-click-bound", "true");
+      document.addEventListener("click", (event) => {
+        const target = event.target;
+        const node =
+          target instanceof Element
+            ? target.closest('.matrix-link[data-matrix-cell="true"]')
+            : null;
+        if (!(node instanceof HTMLAnchorElement)) {
+          return;
+        }
         if (event.defaultPrevented) {
           return;
         }
@@ -739,41 +825,13 @@
           return;
         }
         event.preventDefault();
-        setActiveCell(node, true);
+        if (typeof DASHBOARD_RUNTIME.applyMatrixDrawerLink === "function") {
+          DASHBOARD_RUNTIME.applyMatrixDrawerLink(node, true);
+        }
       });
-    });
-
-    const queryCellKey = new URL(window.location.href).searchParams.get(
-      "cell_key",
-    );
-    const initialLink =
-      links.find(
-        (node) => (node.getAttribute("data-cell-key") || "") === queryCellKey,
-      ) || links.find((node) => node.classList.contains("active"));
-
-    if (initialLink) {
-      setActiveCell(initialLink, false);
     }
 
-    window.addEventListener("popstate", () => {
-      const targetCellKey = new URL(window.location.href).searchParams.get(
-        "cell_key",
-      );
-      if (!targetCellKey) {
-        links.forEach((node) => node.classList.remove("active"));
-        cellInputs.forEach((input) => {
-          input.value = "";
-        });
-        drawer.innerHTML = DRAWER_EMPTY_HTML;
-        return;
-      }
-      const targetLink = links.find(
-        (node) => (node.getAttribute("data-cell-key") || "") === targetCellKey,
-      );
-      if (targetLink) {
-        setActiveCell(targetLink, false);
-      }
-    });
+    DASHBOARD_RUNTIME.syncMatrixDrawerFromUrl();
   }
 
   function initJsonViewToggles() {
@@ -820,6 +878,13 @@
     };
 
     toggles.forEach((toggle) => {
+      if (!(toggle instanceof HTMLElement)) {
+        return;
+      }
+      if (toggle.getAttribute("data-json-toggle-bound") === "true") {
+        return;
+      }
+
       const scope =
         toggle.closest("[data-json-scope]") || toggle.closest(".card");
       if (!scope) {
@@ -844,6 +909,7 @@
         return;
       }
 
+      toggle.setAttribute("data-json-toggle-bound", "true");
       applyMode(switchable, buttons, "visual");
 
       buttons.forEach((button) => {
@@ -2388,17 +2454,11 @@
         model,
         relationGraphDomainConfig.subjectObject,
       );
-      const inferenceRuleCount = readInferenceRules(model).length;
       const relationSignatureIssues = [
         ...subjectDomain.issues,
         ...objectDomain.issues,
         ...subjectObjectDomain.issues,
       ];
-      const relationSignatureMismatchCount = relationSignatureIssues.length;
-      const signatureTupleTotal =
-        subjectDomain.signatureTupleCount +
-        objectDomain.signatureTupleCount +
-        subjectObjectDomain.signatureTupleCount;
       const combinedGraphTypeCatalogs = {
         subjectTypes: readCatalogItems(model, "subject_type_catalog", {
           normalize: (value) => value.toLowerCase(),
@@ -2466,10 +2526,59 @@
       scheduleHydrateGraphCharts(graphPanel);
     };
 
+    DASHBOARD_RUNTIME.hydrateModelGraphs = (targetSwitchableId) => {
+      const currentEditors = Array.from(
+        document.querySelectorAll("[data-model-editor]"),
+      );
+      currentEditors.forEach((editor) => {
+        if (!(editor instanceof HTMLElement)) {
+          return;
+        }
+        const graphPanel = editor.querySelector("[data-model-graph]");
+        const switchable = editor.querySelector("[data-json-switchable]");
+        if (!(graphPanel instanceof HTMLElement) || !switchable) {
+          return;
+        }
+        const currentId =
+          switchable.getAttribute("data-json-switchable-id") || "";
+        if (targetSwitchableId.length > 0 && currentId !== targetSwitchableId) {
+          return;
+        }
+        scheduleHydrateGraphCharts(graphPanel);
+      });
+    };
+
+    if (
+      document.body.getAttribute("data-model-graph-visible-bound") !== "true"
+    ) {
+      document.body.setAttribute("data-model-graph-visible-bound", "true");
+      document.addEventListener("acl:model-graph-visible", (event) => {
+        const targetSwitchableId =
+          event && event.detail && typeof event.detail.switchableId === "string"
+            ? event.detail.switchableId
+            : "";
+        if (typeof DASHBOARD_RUNTIME.hydrateModelGraphs === "function") {
+          DASHBOARD_RUNTIME.hydrateModelGraphs(targetSwitchableId);
+        }
+        if (
+          typeof DASHBOARD_RUNTIME.renderVisibleInstanceGraphs === "function"
+        ) {
+          DASHBOARD_RUNTIME.renderVisibleInstanceGraphs(targetSwitchableId);
+        }
+      });
+    }
+
     editors.forEach((editor) => {
+      if (
+        !(editor instanceof HTMLElement) ||
+        editor.getAttribute("data-model-editor-bound") === "true"
+      ) {
+        return;
+      }
+      editor.setAttribute("data-model-editor-bound", "true");
+
       const textarea = editor.querySelector("[data-model-json]");
       const graphPanel = editor.querySelector("[data-model-graph]");
-      const switchable = editor.querySelector("[data-json-switchable]");
       const templateSelect = editor.querySelector(
         "[data-model-template-select]",
       );
@@ -2755,22 +2864,6 @@
 
       textarea.addEventListener("input", syncGraph);
       syncToJson();
-
-      document.addEventListener("acl:model-graph-visible", (event) => {
-        if (!graphPanel || !switchable) {
-          return;
-        }
-        const targetId =
-          event.detail && typeof event.detail.switchableId === "string"
-            ? event.detail.switchableId
-            : "";
-        const currentId =
-          switchable.getAttribute("data-json-switchable-id") || "";
-        if (targetId.length > 0 && currentId !== targetId) {
-          return;
-        }
-        scheduleHydrateGraphCharts(graphPanel);
-      });
     });
   }
 
@@ -3573,7 +3666,7 @@
         });
       }
 
-      window.addEventListener("resize", () => {
+      DASHBOARD_RUNTIME.handleInstanceResize = () => {
         activeChartContainers.forEach((container) => {
           if (!document.body.contains(container)) {
             disposeChart(container);
@@ -3589,7 +3682,19 @@
             chart.resize();
           }
         });
-      });
+      };
+
+      if (
+        document.body.getAttribute("data-instance-editor-resize-bound") !==
+        "true"
+      ) {
+        document.body.setAttribute("data-instance-editor-resize-bound", "true");
+        window.addEventListener("resize", () => {
+          if (typeof DASHBOARD_RUNTIME.handleInstanceResize === "function") {
+            DASHBOARD_RUNTIME.handleInstanceResize();
+          }
+        });
+      }
     };
 
     const normalizeStringArray = (input) => {
@@ -4781,9 +4886,13 @@
     };
 
     editors.forEach((editor) => {
-      if (!(editor instanceof HTMLElement)) {
+      if (
+        !(editor instanceof HTMLElement) ||
+        editor.getAttribute("data-instance-editor-bound") === "true"
+      ) {
         return;
       }
+      editor.setAttribute("data-instance-editor-bound", "true");
       const graphPanel = editor.querySelector("[data-instance-graph]");
       const initialDirection = normalizeSubjectTreeDirection(
         graphPanel instanceof HTMLElement
@@ -4829,8 +4938,14 @@
       });
     });
 
-    const renderVisibleGraphs = (targetSwitchableId) => {
-      editors.forEach((editor) => {
+    DASHBOARD_RUNTIME.renderVisibleInstanceGraphs = (targetSwitchableId) => {
+      const currentEditors = Array.from(
+        document.querySelectorAll("[data-instance-editor]"),
+      );
+      currentEditors.forEach((editor) => {
+        if (!(editor instanceof HTMLElement)) {
+          return;
+        }
         const switchable = editor.querySelector("[data-json-switchable]");
         const graphView = switchable?.querySelector('[data-json-view="graph"]');
         if (!switchable || !graphView || graphView.hidden) {
@@ -4845,14 +4960,7 @@
       });
     };
 
-    renderVisibleGraphs("");
-    document.addEventListener("acl:model-graph-visible", (event) => {
-      const targetSwitchableId =
-        event && event.detail && typeof event.detail.switchableId === "string"
-          ? event.detail.switchableId
-          : "";
-      renderVisibleGraphs(targetSwitchableId);
-    });
+    DASHBOARD_RUNTIME.renderVisibleInstanceGraphs("");
   }
 
   function init() {
@@ -4868,8 +4976,10 @@
     initInstanceEditors();
     initPolicyRulesTable();
     document.addEventListener("acl:control-partial-updated", () => {
+      initTabNav();
       initMatrixDrawer();
       initJsonViewToggles();
+      initModelEditors();
       initInstanceJsonEditors();
       initInstanceEditors();
     });
