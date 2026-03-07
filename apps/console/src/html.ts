@@ -1448,6 +1448,30 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
   const modelRouteCount = viewModel.model_routes?.ok
     ? viewModel.model_routes.data.total_count
     : 0;
+  const routedTenantIds = viewModel.model_routes?.ok
+    ? Array.from(
+        new Set(
+          viewModel.model_routes.data.items
+            .map((item) => item.tenant_id)
+            .filter((item) => item.length > 0),
+        ),
+      )
+    : [];
+  const routedEnvironments = viewModel.model_routes?.ok
+    ? Array.from(
+        new Set(
+          viewModel.model_routes.data.items
+            .map((item) => item.environment)
+            .filter((item) => item.length > 0),
+        ),
+      )
+    : [];
+  const environmentLabel =
+    routedEnvironments.length === 0
+      ? "-"
+      : routedEnvironments.length === 1
+        ? routedEnvironments[0]
+        : routedEnvironments.join(", ");
   const hiddenContext = renderHiddenContextFields(viewModel);
   const hiddenWithoutNamespace = renderHiddenContextFields(viewModel, [
     "namespace",
@@ -1472,6 +1496,13 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     throw new Error("model template options are empty");
   }
   const defaultModel = defaultTemplateOption.model;
+  const currentTenantLabel =
+    routedTenantIds.length === 0
+      ? defaultModel.model_meta.tenant_id
+      : routedTenantIds.length === 1
+        ? routedTenantIds[0]
+        : `${routedTenantIds.length} tenants`;
+  const tenantSourceLabel = routedTenantIds.length === 0 ? "template" : "model routes";
   const defaultRule = defaultModel.policies.rules[0] ?? {};
   const defaultModelJson = escapeHtml(JSON.stringify(defaultModel, null, 2));
   const modelTemplateMap = Object.fromEntries(
@@ -1688,10 +1719,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
         `<p class="muted">当前命名空间暂无客体台账与关系边数据。</p>` +
         `<p class="muted">可先执行 setup 导入，或切换到 JSON 视图直接维护 instance 数据。</p>` +
         `</section>`;
-
-  return (
-    `<article class="card card-hover">` +
-    `<h3>控制面总览</h3>` +
+  const namespaceSwitchForm =
     `<form class="filters toolbar" method="GET" action="/" data-control-incremental="true" data-control-namespace-form="true">` +
     `<label>命名空间 Namespace` +
     `<input type="text" name="namespace" value="${escapeHtml(namespace)}" placeholder="tenant_a.crm" />` +
@@ -1703,8 +1731,8 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<input type="hidden" name="widget" value="${escapeHtml(viewModel.query.widget ?? "")}" />` +
     `<input type="hidden" name="detail_mode" value="${escapeHtml(viewModel.query.detail_mode ?? "")}" />` +
     `<button type="submit" class="btn btn-primary">切换命名空间</button>` +
-    `</form>` +
-    publishedMetricsSection +
+    `</form>`;
+  const runtimeSummarySection =
     `<section data-control-runtime-summary>` +
     `<p class="muted metric-caption">运行态控制面统计（subject 来自 relation 端点与 object.owner_ref 推断）</p>` +
     controlRuntimeHint +
@@ -1714,7 +1742,24 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<div class="metric"><span>relations</span><strong>${overviewMetrics.relations}</strong></div>` +
     `<div class="metric"><span>model routes</span><strong>${modelRouteCount}</strong></div>` +
     `</section>` +
+    `</section>`;
+  const tenantContextSection =
+    `<section>` +
+    `<p class="muted metric-caption">模型与租户上下文（用于理解当前发布与模型归属，不直接决定运行态工作区）</p>` +
+    `<section class="kv-grid">` +
+    `<div class="kv-item"><span>tenant</span><strong>${escapeHtml(currentTenantLabel)}</strong></div>` +
+    `<div class="kv-item"><span>tenant source</span><strong>${escapeHtml(tenantSourceLabel)}</strong></div>` +
+    `<div class="kv-item"><span>template model_id</span><strong>${escapeHtml(defaultModel.model_meta.model_id)}</strong></div>` +
+    `<div class="kv-item"><span>environments</span><strong>${escapeHtml(environmentLabel)}</strong></div>` +
     `</section>` +
+    `</section>`;
+
+  return (
+    `<article class="card card-hover">` +
+    `<h3>控制面总览</h3>` +
+    publishedMetricsSection +
+    tenantContextSection +
+    `<p class="muted metric-caption">上半区聚焦模型发布与发布快照；运行态工作区选择与 instance 维护放在下方单独卡片。</p>` +
     `<p class="muted metric-caption">说明：下方维护操作只写入控制面运行态数据，不会回写“策略模型提交”卡片中的 JSON。</p>` +
     `<section class="management-grid model-submit-grid">` +
     `<form class="action-form model-submit-form" method="POST" action="/actions/publish/submit" data-model-jsoneditor-form="true">` +
@@ -1789,6 +1834,8 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<section class="card card-hover instance-editor-card">` +
     `<h4>Instance 导入 / 维护 / 展示</h4>` +
     `<p class="muted">此卡片只维护运行态 instance 数据（model_route / object / relation），不会修改上方“策略模型提交”的 JSON。</p>` +
+    namespaceSwitchForm +
+    runtimeSummarySection +
     `<section class="model-editor" data-instance-editor>` +
     `<form class="action-form setup-fixture-form" method="POST" action="/actions/control/setup/apply" data-control-incremental="true" data-control-setup-form="true">` +
     `<h4>预置场景批量导入</h4>` +
