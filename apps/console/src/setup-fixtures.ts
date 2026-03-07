@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-interface SetupFixtureDisplayOverride {
+interface FixtureDisplayOverride {
   order: number;
   label: string;
 }
@@ -36,31 +36,41 @@ export interface SetupFixtureOption {
   description: string;
 }
 
+export interface ExpectationFixtureOption {
+  id: string;
+  file_name: string;
+  label: string;
+  description: string;
+}
+
 export interface LoadedSetupFixture {
   id: string;
   file_name: string;
   fixture: ControlSetupFixture;
 }
 
-const SETUP_FIXTURE_DISPLAY_OVERRIDES: Record<
-  string,
-  SetupFixtureDisplayOverride
-> = {
-  "01-same-company-derived.setup.json": {
+export interface LoadedModelFixture {
+  id: string;
+  file_name: string;
+  model: Record<string, unknown>;
+}
+
+const FIXTURE_DISPLAY_OVERRIDES: Record<string, FixtureDisplayOverride> = {
+  "01-same-company-derived": {
     order: 1,
-    label: "样例1：同公司派生关系 setup",
+    label: "样例1：同公司派生关系",
   },
-  "02-virtual-team-department-scope.setup.json": {
+  "02-virtual-team-department-scope": {
     order: 2,
-    label: "样例2：虚拟团队 + 部门范围 setup",
+    label: "样例2：虚拟团队 + 部门范围",
   },
-  "03-mixed-model-instance-hybrid.setup.json": {
+  "03-mixed-model-instance-hybrid": {
     order: 3,
-    label: "样例3：Model/Instance 混合 setup",
+    label: "样例3：Model/Instance 混合",
   },
-  "04-department-kb-permissions.setup.json": {
+  "04-department-kb-permissions": {
     order: 4,
-    label: "样例4：部门知识库权限 setup",
+    label: "样例4：部门知识库权限",
   },
 };
 
@@ -97,18 +107,21 @@ function resolveFixtureDirectory(): string {
   return path.resolve(__dirname, "../../api/test/fixtures");
 }
 
-function listSetupFixtureFiles(): string[] {
+function listFixtureFiles(
+  suffix: ".setup.json" | ".expected.json" | ".model.json",
+): string[] {
   const fixtureDir = resolveFixtureDirectory();
   return fs
     .readdirSync(fixtureDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".setup.json"))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(suffix))
     .map((entry) => entry.name)
     .sort((left, right) => {
+      const leftId = left.replace(suffix, "");
+      const rightId = right.replace(suffix, "");
       const leftOrder =
-        SETUP_FIXTURE_DISPLAY_OVERRIDES[left]?.order ?? Number.MAX_SAFE_INTEGER;
+        FIXTURE_DISPLAY_OVERRIDES[leftId]?.order ?? Number.MAX_SAFE_INTEGER;
       const rightOrder =
-        SETUP_FIXTURE_DISPLAY_OVERRIDES[right]?.order ??
-        Number.MAX_SAFE_INTEGER;
+        FIXTURE_DISPLAY_OVERRIDES[rightId]?.order ?? Number.MAX_SAFE_INTEGER;
       if (leftOrder !== rightOrder) {
         return leftOrder - rightOrder;
       }
@@ -213,8 +226,34 @@ function readSetupFixtureFile(fileName: string): ControlSetupFixture | null {
   }
 }
 
+function readModelFixtureFile(fileName: string): Record<string, unknown> | null {
+  const fixturePath = path.resolve(resolveFixtureDirectory(), fileName);
+  try {
+    const raw = fs.readFileSync(fixturePath, "utf-8");
+    const parsed = JSON.parse(raw) as unknown;
+    return asRecord(parsed);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "unknown parse error";
+    console.warn(
+      `[console] skip invalid model fixture: ${fixturePath} (${message})`,
+    );
+    return null;
+  }
+}
+
+function buildFixtureLabel(
+  fixtureId: string,
+  fallbackIndex: number,
+  suffixLabel: "setup" | "expectation",
+): string {
+  const baseLabel =
+    FIXTURE_DISPLAY_OVERRIDES[fixtureId]?.label ?? `样例${fallbackIndex}：${fixtureId}`;
+  return `${baseLabel} ${suffixLabel}`;
+}
+
 export function listSetupFixtureOptions(): SetupFixtureOption[] {
-  const fixtureFiles = listSetupFixtureFiles();
+  const fixtureFiles = listFixtureFiles(".setup.json");
   const options: SetupFixtureOption[] = [];
 
   fixtureFiles.forEach((fileName) => {
@@ -224,16 +263,14 @@ export function listSetupFixtureOptions(): SetupFixtureOption[] {
     }
 
     const id = fileName.replace(/\.setup\.json$/u, "");
-    const override = SETUP_FIXTURE_DISPLAY_OVERRIDES[fileName];
     const routeTenant = fixture.route?.tenant_id ?? "-";
     const routeEnvironment = fixture.route?.environment ?? "-";
     const fallbackIndex = options.length + 1;
-    const fallbackLabel = fixture.namespace_prefix ?? id;
 
     options.push({
       id,
       file_name: fileName,
-      label: override?.label ?? `样例${fallbackIndex}：${fallbackLabel}`,
+      label: buildFixtureLabel(id, fallbackIndex, "setup"),
       description:
         `来源 fixtures/${fileName}` +
         `；tenant=${routeTenant}` +
@@ -244,6 +281,20 @@ export function listSetupFixtureOptions(): SetupFixtureOption[] {
   });
 
   return options;
+}
+
+export function listExpectationFixtureOptions(): ExpectationFixtureOption[] {
+  const fixtureFiles = listFixtureFiles(".expected.json");
+
+  return fixtureFiles.map((fileName, index) => {
+    const id = fileName.replace(/\.expected\.json$/u, "");
+    return {
+      id,
+      file_name: fileName,
+      label: buildFixtureLabel(id, index + 1, "expectation"),
+      description: `来源 fixtures/${fileName}`,
+    };
+  });
 }
 
 export function loadSetupFixtureById(
@@ -269,5 +320,26 @@ export function loadSetupFixtureById(
     id: target.id,
     file_name: target.file_name,
     fixture,
+  };
+}
+
+export function loadModelFixtureById(
+  fixtureId: string,
+): LoadedModelFixture | null {
+  const trimmedId = fixtureId.trim();
+  if (trimmedId.length === 0 || !/^[a-zA-Z0-9._-]+$/u.test(trimmedId)) {
+    return null;
+  }
+
+  const fileName = `${trimmedId}.model.json`;
+  const model = readModelFixtureFile(fileName);
+  if (!model) {
+    return null;
+  }
+
+  return {
+    id: trimmedId,
+    file_name: fileName,
+    model,
   };
 }

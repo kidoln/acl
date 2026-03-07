@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  listExpectationFixtureOptions,
   listSetupFixtureOptions,
   loadSetupFixtureById,
   type ControlSetupFixture,
@@ -11,6 +12,8 @@ import type {
   ConsoleWidget,
   ConsolePageViewModel,
   DecisionRecordResponse,
+  ExpectationRunCaseResult,
+  ExpectationRunReport,
   PublishRequestListResponse,
   PublishRequestRecord,
 } from "./types";
@@ -109,6 +112,7 @@ function renderHiddenContextFields(
     ["widget", viewModel.query.widget],
     ["detail_mode", viewModel.query.detail_mode],
     ["fixture_id", viewModel.query.fixture_id],
+    ["expectation_run_id", viewModel.query.expectation_run_id],
     ["limit", viewModel.query.limit],
     ["offset", viewModel.query.offset],
     ["decision_id", viewModel.query.decision_id],
@@ -134,9 +138,22 @@ function renderFlash(viewModel: ConsolePageViewModel): string {
     return "";
   }
 
+  const isSuccess = viewModel.action_flash.type === "success";
+  const title = isSuccess ? "系统通知 · 操作成功" : "系统通知 · 操作失败";
+  const role = isSuccess ? "status" : "alert";
+  const live = isSuccess ? "polite" : "assertive";
+  const icon = isSuccess ? "✓" : "!";
+
   return (
-    `<section class=\"flash flash-${viewModel.action_flash.type}\">` +
-    `<p>${escapeHtml(viewModel.action_flash.message)}</p>` +
+    `<section class="system-notice-layer" aria-live="${live}" aria-atomic="true">` +
+    `<div class="system-notice system-notice-${viewModel.action_flash.type}" role="${role}">` +
+    `<div class="system-notice-icon" aria-hidden="true">${icon}</div>` +
+    `<div class="system-notice-body">` +
+    `<p class="system-notice-title">${title}</p>` +
+    `<p class="system-notice-message">${escapeHtml(viewModel.action_flash.message)}</p>` +
+    `</div>` +
+    `<button type="button" class="system-notice-close" aria-label="关闭通知" data-system-notice-close="true">×</button>` +
+    `</div>` +
     `</section>`
   );
 }
@@ -513,6 +530,8 @@ function buildQueryHref(
     ["tab", viewModel.query.tab],
     ["widget", viewModel.query.widget],
     ["detail_mode", viewModel.query.detail_mode],
+    ["fixture_id", viewModel.query.fixture_id],
+    ["expectation_run_id", viewModel.query.expectation_run_id],
     ["limit", String(viewModel.query.limit)],
     ["offset", String(viewModel.query.offset)],
     ["publish_id", viewModel.query.publish_id],
@@ -535,6 +554,222 @@ function buildQueryHref(
   });
   const queryString = params.toString();
   return queryString.length > 0 ? `/?${queryString}` : "/";
+}
+
+function readFixtureFileContent(
+  fixtureId: string,
+  suffix: ".expected.json" | ".setup.json" | ".model.json",
+): string {
+  if (fixtureId.trim().length === 0 || !/^[a-zA-Z0-9._-]+$/u.test(fixtureId)) {
+    return "";
+  }
+
+  try {
+    return fs.readFileSync(
+      path.resolve(__dirname, `../../api/test/fixtures/${fixtureId}${suffix}`),
+      "utf-8",
+    );
+  } catch {
+    return "";
+  }
+}
+
+function renderExpectationRunStatus(status: ExpectationRunCaseResult["status"]): string {
+  const statusClass =
+    status === "passed"
+      ? "status-approved"
+      : status === "failed"
+        ? "status-rejected"
+        : "status-blocked";
+  return `<span class="status-tag ${statusClass}">${escapeHtml(status)}</span>`;
+}
+
+function renderExpectationRunForm(
+  viewModel: ConsolePageViewModel,
+  input: {
+    namespace: string;
+    fixture_id: string;
+    fixture_select_options: string;
+    fixture_select_attr: string;
+    tenant_id: string;
+    environment: string;
+    default_expectation_json: string;
+  },
+): string {
+  const hiddenWithoutExpectationRun = renderHiddenContextFields(viewModel, [
+    "namespace",
+    "fixture_id",
+    "expectation_run_id",
+  ]);
+
+  const hiddenWithoutExpectationFixture = renderHiddenContextFields(viewModel, [
+    "namespace",
+    "fixture_id",
+  ]);
+
+  return (
+    `<section class="card card-hover" data-expectation-run-card>` +
+    `<h4>Expectation 决策演练 / 回放</h4>` +
+    `<p class="muted">先从目录下拉选择 expectation 文件；执行时会按同名 fixture 读取决策输入，并调用真实的 <code>decisions:evaluate</code>。</p>` +
+    `<form class="action-form setup-fixture-preview-form" method="GET" action="/" data-control-incremental="true" data-expectation-preview-form="true">` +
+    hiddenWithoutExpectationFixture +
+    `<div class="setup-fixture-preview-grid">` +
+    `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(input.namespace)}" required /></label>` +
+    `<label>Expectation<select name="fixture_id" id="expectation-fixture-id" ${input.fixture_select_attr}>${input.fixture_select_options}</select></label>` +
+    `</div>` +
+    `<p class="muted">选择即预载 expectation JSON；执行同名 fixture 的批量 Setup 时，系统会自动发布对应 model 并绑定 route。</p>` +
+    `</form>` +
+    `<form class="action-form" method="POST" action="/actions/control/expectations/run" data-control-incremental="true">` +
+    hiddenWithoutExpectationRun +
+    `<input type="hidden" name="namespace" value="${escapeHtml(input.namespace)}" />` +
+    `<input type="hidden" name="fixture_id" value="${escapeHtml(input.fixture_id)}" />` +
+    `<div class="setup-fixture-preview-grid">` +
+    `<label>tenant_id<input type="text" name="tenant_id" value="${escapeHtml(input.tenant_id)}" placeholder="tenant_acme" /></label>` +
+    `<label>environment<input type="text" name="environment" value="${escapeHtml(input.environment)}" placeholder="prod" /></label>` +
+    `</div>` +
+    `<section class="expectation-upload-grid">` +
+    `<label class="file-pick">Expectation 文件` +
+    `<input type="file" accept=".json,application/json" data-json-file-input data-json-file-target="expectation-json-textarea" data-json-file-name-target="expectation-file-name" data-json-file-fixture-target="expectation-fixture-id" />` +
+    `</label>` +
+    `<input type="hidden" name="expectation_file_name" value="${escapeHtml(input.fixture_id)}.expected.json" data-json-file-name id="expectation-file-name" />` +
+    `<label class="field-wide">Expectation JSON<textarea name="expectation_json" rows="14" required id="expectation-json-textarea" data-json-file-textarea>${escapeHtml(input.default_expectation_json)}</textarea></label>` +
+    `</section>` +
+    `<p class="muted">建议流程：直接执行同名 fixture 的批量 Setup（会自动绑定 route），再运行 expectation 演练；页面只模拟实际系统调用，不接受 inline_model 覆盖。</p>` +
+    `<button type="submit" class="btn btn-primary">执行 Expectation 演练</button>` +
+    `</form>` +
+    `</section>`
+  );
+}
+
+function renderExpectationRunReport(
+  viewModel: ConsolePageViewModel,
+  report: ExpectationRunReport | undefined,
+): string {
+  if (!report) {
+    return (
+      `<section class="card card-hover">` +
+      `<h4>Expectation 演练结果</h4>` +
+      `<p class="muted">尚未执行。执行后会在这里展示每个用例的真实 decision_id、断言结果，以及跳转到“关系回放”的入口。</p>` +
+      `</section>`
+    );
+  }
+
+  const rows =
+    report.cases.length === 0
+      ? '<tr><td colspan="8" class="muted">无可展示用例</td></tr>'
+      : report.cases
+          .map((item) => {
+            const replayHref = item.decision_id
+              ? buildQueryHref(viewModel, {
+                  tab: "relations",
+                  decision_id: item.decision_id,
+                  expectation_run_id: report.run_id,
+                })
+              : "";
+            const errors =
+              item.assertion_errors.length === 0
+                ? "-"
+                : item.assertion_errors.join("；");
+            return (
+              `<tr>` +
+              `<td>${escapeHtml(item.name)}</td>` +
+              `<td>${renderExpectationRunStatus(item.status)}</td>` +
+              `<td>${escapeHtml(item.mode)}</td>` +
+              `<td>${escapeHtml(item.expected_effect)}</td>` +
+              `<td>${escapeHtml(item.actual_effect ?? "-")}</td>` +
+              `<td>${item.decision_id && replayHref ? `<a href="${replayHref}">${escapeHtml(item.decision_id)}</a>` : "-"}</td>` +
+              `<td>${escapeHtml(item.reason ?? "-")}</td>` +
+              `<td>${escapeHtml(errors)}</td>` +
+              `</tr>`
+            );
+          })
+          .join("");
+
+  return (
+    `<section class="card card-hover">` +
+    `<div class="section-head">` +
+    `<div>` +
+    `<h4>Expectation 演练结果</h4>` +
+    `<p class="muted">run_id=${escapeHtml(report.run_id)} / namespace=${escapeHtml(report.namespace)} / 生成时间=${escapeHtml(formatTime(report.generated_at))}</p>` +
+    `</div>` +
+    `<div class="metric-inline-group">` +
+    `<span class="badge badge-neutral">setup=${escapeHtml(report.source.setup_source)}</span>` +
+    `<span class="badge badge-neutral">model=${escapeHtml(report.source.model_source)}</span>` +
+    `${report.source.expectation_file_name ? `<span class="badge badge-neutral">file=${escapeHtml(report.source.expectation_file_name)}</span>` : ""}` +
+    `</div>` +
+    `</div>` +
+    `<section class="decision-grid">` +
+    `<div class="metric"><span>total</span><strong>${report.summary.total_count}</strong></div>` +
+    `<div class="metric"><span>passed</span><strong>${report.summary.passed_count}</strong></div>` +
+    `<div class="metric"><span>failed</span><strong>${report.summary.failed_count}</strong></div>` +
+    `<div class="metric"><span>skipped</span><strong>${report.summary.skipped_count}</strong></div>` +
+    `</section>` +
+    `<div class="table-container">` +
+    `<table class="data-table">` +
+    `<thead><tr><th>Case</th><th>Status</th><th>Mode</th><th>Expected</th><th>Actual</th><th>Decision ID</th><th>Reason</th><th>Assertions</th></tr></thead>` +
+    `<tbody>${rows}</tbody>` +
+    `</table>` +
+    `</div>` +
+    `</section>`
+  );
+}
+
+function renderAdvancedOpsSection(
+  viewModel: ConsolePageViewModel,
+  input: {
+    namespace: string;
+    tenant_id: string;
+    environment: string;
+    publish_id?: string;
+    model_id?: string;
+    model_version?: string;
+  },
+): string {
+  const hiddenFields = renderHiddenContextFields(viewModel, ["namespace"]);
+
+  return (
+    `<section class="card card-hover advanced-ops-card">` +
+    `<h4>高级运维（可选）</h4>` +
+    `<p class="muted">用于对运行态 object / relation / model_route 做单条修正，不会反向修改上方策略模型 JSON。</p>` +
+    `<section class="management-grid">` +
+    `<form class="action-form" method="POST" action="/actions/control/object/upsert">` +
+    `<h5>单对象 Upsert</h5>` +
+    hiddenFields +
+    `<input type="hidden" name="namespace" value="${escapeHtml(input.namespace)}" />` +
+    `<label>Object ID<input type="text" name="object_id" placeholder="kb:wiki_core" required /></label>` +
+    `<label>Object Type<input type="text" name="object_type" placeholder="kb" required /></label>` +
+    `<label>Sensitivity<input type="text" name="sensitivity" placeholder="normal" /></label>` +
+    `<label>Owner Ref<input type="text" name="owner_ref" placeholder="user:alice" /></label>` +
+    `<label class="field-wide">Labels<textarea name="labels" rows="3" placeholder="finance\npii"></textarea></label>` +
+    `<button type="submit" class="btn btn-secondary">写入对象</button>` +
+    `</form>` +
+    `<form class="action-form" method="POST" action="/actions/control/relation/event">` +
+    `<h5>单关系 Event</h5>` +
+    hiddenFields +
+    `<input type="hidden" name="namespace" value="${escapeHtml(input.namespace)}" />` +
+    `<label>From<input type="text" name="from" placeholder="user:alice" required /></label>` +
+    `<label>To<input type="text" name="to" placeholder="department:rnd" required /></label>` +
+    `<label>Relation Type<input type="text" name="relation_type" placeholder="belongs_to_department" required /></label>` +
+    `<label>Operation<select name="operation"><option value="upsert">upsert</option><option value="delete">delete</option></select></label>` +
+    `<label>Scope<input type="text" name="scope" placeholder="kb.read" /></label>` +
+    `<label>Source<input type="text" name="source" placeholder="console_manual" /></label>` +
+    `<button type="submit" class="btn btn-secondary">写入关系</button>` +
+    `</form>` +
+    `<form class="action-form" method="POST" action="/actions/control/model-route/upsert">` +
+    `<h5>Model Route Upsert</h5>` +
+    hiddenFields +
+    `<input type="hidden" name="namespace" value="${escapeHtml(input.namespace)}" />` +
+    `<label>tenant_id<input type="text" name="tenant_id" value="${escapeHtml(input.tenant_id)}" required /></label>` +
+    `<label>environment<input type="text" name="environment" value="${escapeHtml(input.environment)}" required /></label>` +
+    `<label>model_id<input type="text" name="model_id" value="${escapeHtml(input.model_id ?? "")}" placeholder="tenant_a_authz_v1" required /></label>` +
+    `<label>model_version<input type="text" name="model_version" value="${escapeHtml(input.model_version ?? "")}" placeholder="2026.03.06" /></label>` +
+    `<label>publish_id<input type="text" name="publish_id" value="${escapeHtml(input.publish_id ?? "")}" placeholder="pub_xxx" /></label>` +
+    `<label>operator<input type="text" name="operator" value="console_operator" required /></label>` +
+    `<button type="submit" class="btn btn-secondary">写入 Route</button>` +
+    `</form>` +
+    `</section>` +
+    `</section>`
+  );
 }
 
 function renderMatrixDrawerContent(
@@ -1688,15 +1923,32 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     "fixture_id",
   ]);
   const setupFixtureOptions = listSetupFixtureOptions();
+  const expectationFixtureOptions = listExpectationFixtureOptions();
   const hasSetupFixtureOptions = setupFixtureOptions.length > 0;
+  const hasExpectationFixtureOptions = expectationFixtureOptions.length > 0;
   const activeSetupFixtureId =
-    viewModel.query.fixture_id ?? setupFixtureOptions[0]?.id ?? "";
+    viewModel.query.fixture_id ??
+    setupFixtureOptions[0]?.id ??
+    expectationFixtureOptions[0]?.id ??
+    "";
   const activeSetupFixtureOption = setupFixtureOptions.find(
     (option) => option.id === activeSetupFixtureId,
   );
   const activeSetupFixture = activeSetupFixtureId
     ? loadSetupFixtureById(activeSetupFixtureId)
     : null;
+  const currentRoute = viewModel.model_routes?.ok
+    ? viewModel.model_routes.data.items[0]
+    : undefined;
+  const expectationTenantId =
+    activeSetupFixture?.fixture.route?.tenant_id ?? currentRoute?.tenant_id ?? "";
+  const expectationEnvironment =
+    activeSetupFixture?.fixture.route?.environment ??
+    currentRoute?.environment ??
+    "";
+  const defaultExpectationJson = activeSetupFixtureId
+    ? readFixtureFileContent(activeSetupFixtureId, ".expected.json")
+    : "";
   const setupFixtureSelectOptions = hasSetupFixtureOptions
     ? setupFixtureOptions
         .map(
@@ -1705,7 +1957,18 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
         )
         .join("")
     : '<option value="">暂无可用 setup fixture</option>';
+  const expectationFixtureSelectOptions = hasExpectationFixtureOptions
+    ? expectationFixtureOptions
+        .map(
+          (option) =>
+            `<option value="${escapeHtml(option.id)}" ${option.id === activeSetupFixtureId ? "selected" : ""} title="${escapeHtml(option.description)}">${escapeHtml(option.label)}</option>`,
+        )
+        .join("")
+    : '<option value="">暂无可用 expectation fixture</option>';
   const setupFixtureSelectAttr = hasSetupFixtureOptions
+    ? "required"
+    : "disabled";
+  const expectationFixtureSelectAttr = hasExpectationFixtureOptions
     ? "required"
     : "disabled";
   const previewSetupSubmitAttr = hasSetupFixtureOptions ? "" : "disabled";
@@ -2006,6 +2269,33 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<div class="metric"><span>model routes</span><strong>${modelRouteCount}</strong></div>` +
     `</section>` +
     `</section>`;
+  const expectationRunSection =
+    `<section data-expectation-run-section>` +
+    renderExpectationRunForm(viewModel, {
+      namespace,
+      fixture_id: activeSetupFixtureId,
+      fixture_select_options: expectationFixtureSelectOptions,
+      fixture_select_attr: expectationFixtureSelectAttr,
+      tenant_id: expectationTenantId,
+      environment: expectationEnvironment,
+      default_expectation_json: defaultExpectationJson,
+    }) +
+    renderExpectationRunReport(viewModel, viewModel.expectation_run) +
+    `</section>`;
+  const advancedOpsSection = renderAdvancedOpsSection(viewModel, {
+    namespace,
+    tenant_id: expectationTenantId,
+    environment: expectationEnvironment,
+    publish_id: currentRoute?.publish_id,
+    model_id:
+      currentRoute?.model_id ??
+      defaultTemplateMeta?.model_id ??
+      defaultModel.model_meta.model_id,
+    model_version:
+      currentRoute?.model_version ??
+      defaultTemplateMeta?.version ??
+      defaultModel.model_meta.version,
+  });
   return (
     `<article class="card card-hover">` +
     `<h3>控制面总览</h3>` +
@@ -2087,6 +2377,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `</section>` +
     `<section class="card card-hover instance-editor-card">` +
     `<h4>Instance 导入 / 维护 / 展示</h4>` +
+    `<p class="muted">预置场景批量导入：可基于内置 fixture 或手工 JSON 一次性写入当前 namespace 的运行态数据；fixture 模式会自动发布同名 model 并绑定 route。</p>` +
     `<p class="muted">此卡片只维护运行态 instance 数据（model_route / object / relation），不会修改上方“策略模型提交”的 JSON。</p>` +
     namespaceSwitchForm +
     runtimeSummarySection +
@@ -2135,9 +2426,11 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<p class="muted model-editor-note">支持字段：namespace、objects、relation_events（可选 model_routes）。可基于当前预览微调后，再执行 setup。</p>` +
     `</div>` +
     `</section>` +
-    `<button type="submit" class="btn btn-primary" ${previewSetupSubmitAttr}>执行批量 Setup</button>` +
+    `<button type="submit" class="btn btn-primary" ${previewSetupSubmitAttr}>执行批量 Setup（自动绑定 Route）</button>` +
     `</form>` +
     `</section>` +
+    expectationRunSection +
+    advancedOpsSection +
     `</section>` +
     `</section>` +
     `</section>` +
@@ -2301,6 +2594,8 @@ function renderPublishListPanel(
     `<input type="number" min="0" name="offset" value="${query.offset}" />` +
     `</label>` +
     `<input type="hidden" name="namespace" value="${escapeHtml(query.namespace ?? "tenant_a.crm")}" />` +
+    `<input type="hidden" name="fixture_id" value="${escapeHtml(query.fixture_id ?? "")}" />` +
+    `<input type="hidden" name="expectation_run_id" value="${escapeHtml(query.expectation_run_id ?? "")}" />` +
     `<input type="hidden" name="decision_id" value="${escapeHtml(query.decision_id ?? "")}" />` +
     `<input type="hidden" name="simulation_id" value="${escapeHtml(query.simulation_id ?? "")}" />` +
     `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? "")}" />` +
@@ -2333,6 +2628,8 @@ function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string {
     `<input type="hidden" name="status" value="${escapeHtml(query.status ?? "")}" />` +
     `<input type="hidden" name="profile" value="${escapeHtml(query.profile ?? "")}" />` +
     `<input type="hidden" name="namespace" value="${escapeHtml(query.namespace ?? "tenant_a.crm")}" />` +
+    `<input type="hidden" name="fixture_id" value="${escapeHtml(query.fixture_id ?? "")}" />` +
+    `<input type="hidden" name="expectation_run_id" value="${escapeHtml(query.expectation_run_id ?? "")}" />` +
     `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? "")}" />` +
     `<input type="hidden" name="widget" value="${escapeHtml(query.widget ?? "")}" />` +
     `<input type="hidden" name="detail_mode" value="${escapeHtml(query.detail_mode ?? "")}" />` +
@@ -2365,6 +2662,8 @@ function renderContextQueryCard(viewModel: ConsolePageViewModel): string {
     `<input type="hidden" name="tab" value="${escapeHtml(query.tab ?? "")}" />` +
     `<input type="hidden" name="widget" value="${escapeHtml(query.widget ?? "")}" />` +
     `<input type="hidden" name="detail_mode" value="${escapeHtml(query.detail_mode ?? "")}" />` +
+    `<input type="hidden" name="fixture_id" value="${escapeHtml(query.fixture_id ?? "")}" />` +
+    `<input type="hidden" name="expectation_run_id" value="${escapeHtml(query.expectation_run_id ?? "")}" />` +
     `<input type="hidden" name="limit" value="${escapeHtml(String(query.limit))}" />` +
     `<input type="hidden" name="offset" value="${escapeHtml(String(query.offset))}" />` +
     `<button type="submit" class="btn btn-primary">应用上下文</button>` +
@@ -2446,6 +2745,12 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   if (query.detail_mode) {
     queryBase.set("detail_mode", query.detail_mode);
   }
+  if (query.fixture_id) {
+    queryBase.set("fixture_id", query.fixture_id);
+  }
+  if (query.expectation_run_id) {
+    queryBase.set("expectation_run_id", query.expectation_run_id);
+  }
   if (query.publish_id) {
     queryBase.set("publish_id", query.publish_id);
   }
@@ -2508,13 +2813,13 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
     '<script src="/assets/echarts.min.js" defer></script>';
   const tabScriptTag =
     '<script src="/assets/dashboard-tabs.js" defer></script>';
+  const systemNotice = renderFlash(viewModel);
 
   const body = query.widget
     ? `<section class="embed-head card animate-enter">` +
       `<div class="hero-top"><h1>${escapeHtml(pageTitle)}</h1><span class="hero-pill">Embeddable Widget</span></div>` +
       `<p>widget=${escapeHtml(query.widget)} / API: ${escapeHtml(viewModel.api_base_url)} / 时间: ${escapeHtml(formatTime(viewModel.generated_at))}</p>` +
       `</section>` +
-      `${renderFlash(viewModel)}` +
       `<section class="stack stack-main animate-enter delay-100">${renderEmbedWidget(viewModel, query.widget, publishListPanel)}</section>`
     : `<section class="hero animate-enter">` +
       `<div class="hero-top"><h1>ACL 治理控制台</h1><span class="hero-pill">Governance Console</span></div>` +
@@ -2529,7 +2834,6 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
       `</div>` +
       `</section>` +
       renderTabNav(viewModel, activeTab) +
-      renderFlash(viewModel) +
       dashboardPanels;
 
   return `<!doctype html>
@@ -2544,6 +2848,7 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   <main class="shell ${query.widget ? "embed-shell" : ""}">
     ${body}
   </main>
+  ${systemNotice}
   ${echartsScriptTag}
   ${tabScriptTag}
 </body>

@@ -58,6 +58,7 @@
     'form[data-control-namespace-form="true"]',
     'form[data-control-setup-form="true"]',
     'form[data-control-instance-json-form="true"]',
+    '[data-expectation-run-section]',
   ];
   const VANILLA_JSONEDITOR_MODULE_PATH = "/assets/vanilla-jsoneditor.js";
   let vanillaJsonEditorModulePromise = null;
@@ -91,27 +92,15 @@
       if (!currentNode || !nextNode) {
         return false;
       }
-      currentNode.replaceWith(nextNode);
+      currentNode.replaceWith(nextNode.cloneNode(true));
       return true;
     };
 
-    const findDirectChildByClass = (container, className) =>
-      Array.from(container.children).find(
-        (node) =>
-          node instanceof HTMLElement && node.classList.contains(className),
-      ) || null;
-
     const syncFlashSection = (nextDoc) => {
-      const currentMain = document.querySelector("main.shell");
-      const nextMain = nextDoc.querySelector("main.shell");
-      if (!(currentMain instanceof HTMLElement) || !(nextMain instanceof HTMLElement)) {
-        return false;
-      }
-
-      const currentFlash = findDirectChildByClass(currentMain, "flash");
-      const nextFlash = findDirectChildByClass(nextMain, "flash");
+      const currentFlash = document.querySelector(".system-notice-layer");
+      const nextFlash = nextDoc.querySelector(".system-notice-layer");
       if (currentFlash && nextFlash) {
-        currentFlash.replaceWith(nextFlash);
+        currentFlash.replaceWith(nextFlash.cloneNode(true));
         return true;
       }
       if (currentFlash && !nextFlash) {
@@ -119,17 +108,7 @@
         return true;
       }
       if (!currentFlash && nextFlash) {
-        const tabNav = findDirectChildByClass(currentMain, "tab-nav");
-        if (tabNav) {
-          tabNav.insertAdjacentElement("afterend", nextFlash);
-          return true;
-        }
-        const hero = findDirectChildByClass(currentMain, "hero");
-        if (hero) {
-          hero.insertAdjacentElement("afterend", nextFlash);
-          return true;
-        }
-        currentMain.prepend(nextFlash);
+        document.body.append(nextFlash.cloneNode(true));
         return true;
       }
       return false;
@@ -205,6 +184,67 @@
       return changed;
     };
 
+    const restoreWindowScroll = (x, y) => {
+      const targetX = Number.isFinite(x) ? x : 0;
+      const targetY = Number.isFinite(y) ? y : 0;
+
+      window.scrollTo({
+        left: targetX,
+        top: targetY,
+        behavior: "auto",
+      });
+
+      window.requestAnimationFrame(() => {
+        window.scrollTo({
+          left: targetX,
+          top: targetY,
+          behavior: "auto",
+        });
+      });
+    };
+
+    const readAnchorContext = (form) => {
+      if (!(form instanceof HTMLFormElement)) {
+        return null;
+      }
+
+      if (form.matches('form[data-expectation-preview-form="true"]')) {
+        const card = form.closest('[data-expectation-run-section]');
+        if (!(card instanceof HTMLElement)) {
+          return null;
+        }
+        return {
+          selector: '[data-expectation-run-section]',
+          top: card.getBoundingClientRect().top,
+        };
+      }
+
+      return null;
+    };
+
+    const restoreAnchorContext = (anchorContext) => {
+      if (!anchorContext) {
+        return;
+      }
+
+      const restore = () => {
+        const node = document.querySelector(anchorContext.selector);
+        if (!(node instanceof HTMLElement)) {
+          return;
+        }
+        const delta = node.getBoundingClientRect().top - anchorContext.top;
+        if (Math.abs(delta) > 1) {
+          window.scrollBy({ left: 0, top: delta, behavior: 'auto' });
+        }
+      };
+
+      restore();
+      window.requestAnimationFrame(() => {
+        restore();
+        window.requestAnimationFrame(restore);
+      });
+    };
+
     const toGetRequestUrl = (form) => {
       const actionUrl = new URL(
         form.getAttribute("action") || window.location.href,
@@ -270,6 +310,9 @@
       });
 
       let usedNativeFallback = false;
+      const scrollX = window.scrollX;
+      const scrollY = window.scrollY;
+      const anchorContext = readAnchorContext(form);
       try {
         const method = (form.getAttribute("method") || "GET")
           .trim()
@@ -313,6 +356,12 @@
           return;
         }
 
+        if (anchorContext) {
+          restoreAnchorContext(anchorContext);
+        } else {
+          restoreWindowScroll(scrollX, scrollY);
+        }
+
         if (response.url && response.url.length > 0) {
           window.history.replaceState(window.history.state, "", response.url);
         }
@@ -333,6 +382,101 @@
     });
   }
 
+  function initSystemNotices() {
+    if (document.body.getAttribute("data-system-notice-bound") === "true") {
+      return;
+    }
+    document.body.setAttribute("data-system-notice-bound", "true");
+
+    const NOTICE_SELECTOR = ".system-notice-layer";
+    const NOTICE_CLOSE_DELAY_MS = 4200;
+    const NOTICE_EXIT_DURATION_MS = 180;
+
+    const stripFlashQueryParams = () => {
+      const nextUrl = new URL(window.location.href);
+      let changed = false;
+      ["flash_type", "flash_message"].forEach((key) => {
+        if (!nextUrl.searchParams.has(key)) {
+          return;
+        }
+        nextUrl.searchParams.delete(key);
+        changed = true;
+      });
+      if (!changed) {
+        return;
+      }
+      const nextLocation = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
+      window.history.replaceState(window.history.state, "", nextLocation);
+    };
+
+    const clearDismissTimer = (layer) => {
+      const timerId = Number(layer.getAttribute("data-system-notice-timer-id") || "");
+      if (Number.isInteger(timerId) && timerId > 0) {
+        window.clearTimeout(timerId);
+      }
+      layer.removeAttribute("data-system-notice-timer-id");
+    };
+
+    const dismissNotice = (layer) => {
+      if (!(layer instanceof HTMLElement)) {
+        return;
+      }
+      clearDismissTimer(layer);
+      if (layer.getAttribute("data-system-notice-dismissed") === "true") {
+        return;
+      }
+      layer.setAttribute("data-system-notice-dismissed", "true");
+      layer.classList.add("is-leaving");
+      window.setTimeout(() => {
+        if (layer.isConnected) {
+          layer.remove();
+        }
+      }, NOTICE_EXIT_DURATION_MS);
+    };
+
+    const bindCloseButton = (layer) => {
+      const closeButton = layer.querySelector("[data-system-notice-close]");
+      if (!(closeButton instanceof HTMLButtonElement)) {
+        return;
+      }
+      if (closeButton.getAttribute("data-system-notice-close-bound") === "true") {
+        return;
+      }
+      closeButton.setAttribute("data-system-notice-close-bound", "true");
+      closeButton.addEventListener("click", () => {
+        dismissNotice(layer);
+      });
+    };
+
+    const activateNotice = () => {
+      const layer = document.querySelector(NOTICE_SELECTOR);
+      if (!(layer instanceof HTMLElement)) {
+        return;
+      }
+
+      if (layer.parentElement !== document.body) {
+        document.body.append(layer);
+      }
+
+      layer.classList.remove("is-leaving");
+      layer.removeAttribute("data-system-notice-dismissed");
+      bindCloseButton(layer);
+      clearDismissTimer(layer);
+
+      const timerId = window.setTimeout(() => {
+        dismissNotice(layer);
+      }, NOTICE_CLOSE_DELAY_MS);
+      layer.setAttribute("data-system-notice-timer-id", String(timerId));
+
+      window.requestAnimationFrame(() => {
+        stripFlashQueryParams();
+      });
+    };
+
+    activateNotice();
+    document.addEventListener("acl:control-partial-updated", activateNotice);
+  }
+
   function initSetupFixturePreviewForm() {
     if (
       document.body.getAttribute("data-control-setup-preview-bound") ===
@@ -349,16 +493,72 @@
       }
       if (
         !target.matches(
-          'form[data-control-setup-preview-form="true"] select[name="fixture_id"]',
+          'form[data-control-setup-preview-form="true"] select[name="fixture_id"], form[data-expectation-preview-form="true"] select[name="fixture_id"]',
         )
       ) {
         return;
       }
-      const form = target.closest('form[data-control-setup-preview-form="true"]');
+      const form = target.closest('form[data-control-setup-preview-form="true"], form[data-expectation-preview-form="true"]');
       if (!(form instanceof HTMLFormElement)) {
         return;
       }
       form.requestSubmit();
+    });
+  }
+
+  function initJsonFilePickers() {
+    if (document.body.getAttribute("data-json-file-picker-bound") === "true") {
+      return;
+    }
+    document.body.setAttribute("data-json-file-picker-bound", "true");
+
+    document.addEventListener("change", async (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) {
+        return;
+      }
+      if (!target.matches("input[type=file][data-json-file-input]")) {
+        return;
+      }
+
+      const [file] = Array.from(target.files || []);
+      if (!file) {
+        return;
+      }
+
+      const textareaId = target.getAttribute("data-json-file-target") || "";
+      const textarea = document.getElementById(textareaId);
+      if (!(textarea instanceof HTMLTextAreaElement)) {
+        return;
+      }
+
+      try {
+        textarea.value = await file.text();
+      } catch {
+        return;
+      }
+
+      const fileNameTargetId =
+        target.getAttribute("data-json-file-name-target") || "";
+      const fileNameTarget = document.getElementById(fileNameTargetId);
+      if (fileNameTarget instanceof HTMLInputElement) {
+        fileNameTarget.value = file.name;
+      }
+
+      const fixtureTargetId =
+        target.getAttribute("data-json-file-fixture-target") || "";
+      const fixtureTarget = document.getElementById(fixtureTargetId);
+      if (
+        fixtureTarget instanceof HTMLInputElement
+        || fixtureTarget instanceof HTMLSelectElement
+      ) {
+        const matched = file.name.match(/^(.*)\.expected\.json$/u);
+        if (matched && matched[1]) {
+          fixtureTarget.value = matched[1];
+        }
+      }
+
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
     });
   }
 
@@ -3729,7 +3929,30 @@
 
       bindResize();
       let chart = chartInstances.get(container);
+      const globalChart =
+        typeof echartsGlobal.getInstanceByDom === "function"
+          ? echartsGlobal.getInstanceByDom(container)
+          : null;
+      if (!chart && globalChart) {
+        chart = globalChart;
+        chartInstances.set(container, chart);
+      }
       if (chart && typeof chart.isDisposed === "function" && chart.isDisposed()) {
+        chartInstances.delete(container);
+        chart = null;
+      }
+      const chartDomRoot =
+        chart && typeof chart.getZr === "function"
+          ? chart.getZr()?.painter?._domRoot
+          : null;
+      if (
+        chart &&
+        chartDomRoot instanceof HTMLElement &&
+        !container.contains(chartDomRoot)
+      ) {
+        if (typeof chart.dispose === "function") {
+          chart.dispose();
+        }
         chartInstances.delete(container);
         chart = null;
       }
@@ -4478,7 +4701,9 @@
 
   function init() {
     initControlIncrementalRefresh();
+    initSystemNotices();
     initSetupFixturePreviewForm();
+    initJsonFilePickers();
     initTabNav();
     initMatrixDrawer();
     initJsonViewToggles();

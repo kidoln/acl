@@ -7,6 +7,12 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { AclApiClient } from "./acl-api-client";
+import {
+  loadExecutionPlanFromFixtureId,
+  runExpectationSimulation,
+  type AppliedExpectationExecutionPlan,
+} from "./expectation-runner";
+import { bootstrapFixtureRoute } from "./fixture-bootstrap";
 import { renderConsolePage } from "./html";
 import { loadSetupFixtureById } from "./setup-fixtures";
 import type {
@@ -17,6 +23,7 @@ import type {
   ControlObjectListResponse,
   ControlRelationListResponse,
   DetailMode,
+  ExpectationRunReport,
   GateProfile,
   ModelRouteListResponse,
   PublishWorkflowStatus,
@@ -52,6 +59,8 @@ const VALID_WIDGETS = new Set<ConsoleWidget>([
 const MAX_FORM_BODY_BYTES = 64 * 1024;
 const CONTROL_PAGE_SIZE = 100;
 const CONTROL_MAX_PAGES = 200;
+const expectationRunStore = new Map<string, ExpectationRunReport>();
+const namespaceExecutionPlanStore = new Map<string, AppliedExpectationExecutionPlan>();
 
 function splitCsvValues(value: string | null): string[] {
   if (!value) {
@@ -93,6 +102,7 @@ function parseQuery(inputUrl: URL): ConsoleQuery {
   const widgetRaw = inputUrl.searchParams.get("widget");
   const detailModeRaw = inputUrl.searchParams.get("detail_mode");
   const fixtureIdRaw = inputUrl.searchParams.get("fixture_id");
+  const expectationRunIdRaw = inputUrl.searchParams.get("expectation_run_id");
   const flashTypeRaw = inputUrl.searchParams.get("flash_type");
   const flashMessage = inputUrl.searchParams.get("flash_message")?.trim();
 
@@ -131,6 +141,10 @@ function parseQuery(inputUrl: URL): ConsoleQuery {
     widget,
     detail_mode: detailMode,
     fixture_id: fixtureId && fixtureId.length > 0 ? fixtureId : undefined,
+    expectation_run_id:
+      expectationRunIdRaw && expectationRunIdRaw.trim().length > 0
+        ? expectationRunIdRaw.trim()
+        : undefined,
     limit: parseInteger(inputUrl.searchParams.get("limit"), 20, 1, 100),
     offset: parseInteger(
       inputUrl.searchParams.get("offset"),
@@ -229,6 +243,9 @@ function buildRedirectUrl(input: {
   }
   if (query?.fixture_id) {
     params.set("fixture_id", query.fixture_id);
+  }
+  if (query?.expectation_run_id) {
+    params.set("expectation_run_id", query.expectation_run_id);
   }
   if (query?.limit && Number.isInteger(query.limit)) {
     params.set("limit", String(query.limit));
@@ -379,6 +396,7 @@ function parseContextFromForm(form: URLSearchParams): Partial<ConsoleQuery> {
   const widgetRaw = form.get("widget");
   const detailModeRaw = form.get("detail_mode");
   const fixtureId = form.get("fixture_id")?.trim();
+  const expectationRunId = form.get("expectation_run_id")?.trim();
 
   const status =
     statusRaw && VALID_STATUSES.has(statusRaw as PublishWorkflowStatus)
@@ -414,6 +432,10 @@ function parseContextFromForm(form: URLSearchParams): Partial<ConsoleQuery> {
     widget,
     detail_mode: detailMode,
     fixture_id: fixtureId && fixtureId.length > 0 ? fixtureId : undefined,
+    expectation_run_id:
+      expectationRunId && expectationRunId.length > 0
+        ? expectationRunId
+        : undefined,
     limit: parseInteger(form.get("limit"), 20, 1, 100),
     offset: parseInteger(form.get("offset"), 0, 0, Number.MAX_SAFE_INTEGER),
     publish_id: publishId && publishId.length > 0 ? publishId : undefined,
@@ -985,6 +1007,9 @@ async function handleIndex(
     control_relations: controlRelations,
     control_audits: controlAudits,
     model_routes: modelRoutes,
+    expectation_run: query.expectation_run_id
+      ? expectationRunStore.get(query.expectation_run_id)
+      : undefined,
     action_flash:
       query.flash_type && query.flash_message
         ? {
@@ -1449,6 +1474,15 @@ async function handleControlSetupFixtureApplyAction(
   }
 
   let parsedPayload: ParsedInstanceJsonPayload;
+  let autoRouteSummary:
+    | {
+        publish_id: string;
+        model_id: string;
+        model_version?: string;
+        tenant_id: string;
+        environment: string;
+      }
+    | undefined;
   if (instanceJson && instanceJson.length > 0) {
     const parsed = parseInstanceJsonPayload(instanceJson);
     if (!parsed.ok) {
@@ -1489,9 +1523,49 @@ async function handleControlSetupFixtureApplyAction(
       return;
     }
 
+    const route = loadedFixture.fixture.route;
+    if (!route) {
+      redirectTo(
+        res,
+        buildRedirectUrl({
+          query: context,
+          flashType: "error",
+          flashMessage: `fixture setup 缺少 route 定义，无法自动绑定: ${fixtureId}`,
+        }),
+      );
+      return;
+    }
+
+    const bootstrapResult = await bootstrapFixtureRoute({
+      client,
+      fixtureId,
+      namespace,
+      route,
+    });
+    if (!bootstrapResult.ok) {
+      redirectTo(
+        res,
+        buildRedirectUrl({
+          query: context,
+          flashType: "error",
+          flashMessage:
+            `fixture setup 自动发布失败（${bootstrapResult.step}）: ${bootstrapResult.error}`,
+        }),
+      );
+      return;
+    }
+
+    autoRouteSummary = {
+      publish_id: bootstrapResult.summary.publish_id,
+      model_id: bootstrapResult.summary.model_id,
+      model_version: bootstrapResult.summary.model_version,
+      tenant_id: bootstrapResult.summary.tenant_id,
+      environment: bootstrapResult.summary.environment,
+    };
+
     parsedPayload = {
       namespace,
-      model_routes: [],
+      model_routes: [bootstrapResult.route],
       objects: loadedFixture.fixture.objects.map((item) => ({
         object_id: item.object_id,
         object_type: item.object_type,
@@ -1528,6 +1602,17 @@ async function handleControlSetupFixtureApplyAction(
   }
 
   context.namespace = applyResult.targetNamespace;
+  const autoRouteMessage = autoRouteSummary
+    ? `；publish=${autoRouteSummary.publish_id}；route=${autoRouteSummary.tenant_id}/${autoRouteSummary.environment} -> ${autoRouteSummary.model_id}${autoRouteSummary.model_version ? `@${autoRouteSummary.model_version}` : ""}`
+    : "";
+  if (fixtureId && fixtureId.length > 0) {
+    const executionPlan = loadExecutionPlanFromFixtureId(fixtureId);
+    if (executionPlan) {
+      namespaceExecutionPlanStore.set(applyResult.targetNamespace, executionPlan);
+    }
+  } else {
+    namespaceExecutionPlanStore.delete(applyResult.targetNamespace);
+  }
   redirectTo(
     res,
     buildRedirectUrl({
@@ -1535,7 +1620,7 @@ async function handleControlSetupFixtureApplyAction(
       flashType: "success",
       flashMessage:
         `fixture setup 执行成功: ${fixtureId ?? "custom"}` +
-        `（routes=${applyResult.modelRouteCount}, objects=${applyResult.objectCount}, relations=${applyResult.relationCount}）`,
+        `（routes=${applyResult.modelRouteCount}, objects=${applyResult.objectCount}, relations=${applyResult.relationCount}${autoRouteMessage}）`,
     }),
   );
 }
@@ -1599,6 +1684,7 @@ async function handleControlInstanceJsonApplyAction(
   }
 
   context.namespace = applyResult.targetNamespace;
+  namespaceExecutionPlanStore.delete(applyResult.targetNamespace);
 
   redirectTo(
     res,
@@ -1608,6 +1694,80 @@ async function handleControlInstanceJsonApplyAction(
       flashMessage:
         "instance_json 更新成功" +
         `（routes=${applyResult.modelRouteCount}, objects=${applyResult.objectCount}, relations=${applyResult.relationCount}）`,
+    }),
+  );
+}
+
+async function handleExpectationRunAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  client: AclApiClient,
+): Promise<void> {
+  const form = await readFormBody(req);
+  const context = parseContextFromForm(form);
+
+  const namespace = form.get("namespace")?.trim();
+  const tenantId = form.get("tenant_id")?.trim();
+  const environment = form.get("environment")?.trim();
+  const fixtureId = form.get("fixture_id")?.trim();
+  const expectationJson = form.get("expectation_json")?.trim();
+  const expectationFileName = form.get("expectation_file_name")?.trim();
+
+  if (!namespace || !expectationJson) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: "error",
+        flashMessage:
+          "expectation 演练参数缺失：namespace/expectation_json 必填",
+      }),
+    );
+    return;
+  }
+
+  const result = await runExpectationSimulation({
+    client,
+    namespace,
+    tenant_id: tenantId && tenantId.length > 0 ? tenantId : undefined,
+    environment: environment && environment.length > 0 ? environment : undefined,
+    fixture_id: fixtureId && fixtureId.length > 0 ? fixtureId : undefined,
+    execution_plan: namespaceExecutionPlanStore.get(namespace),
+    expectation_json: expectationJson,
+    expectation_file_name:
+      expectationFileName && expectationFileName.length > 0
+        ? expectationFileName
+        : undefined,
+  });
+
+  context.namespace = namespace;
+  context.fixture_id = fixtureId && fixtureId.length > 0 ? fixtureId : context.fixture_id;
+
+  if (!result.ok) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: "error",
+        flashMessage: `expectation 演练失败: ${result.error}`,
+      }),
+    );
+    return;
+  }
+
+  expectationRunStore.set(result.report.run_id, result.report);
+  context.expectation_run_id = result.report.run_id;
+
+  redirectTo(
+    res,
+    buildRedirectUrl({
+      query: context,
+      flashType: result.report.summary.failed_count > 0 ? "error" : "success",
+      flashMessage:
+        `expectation 演练完成: run=${result.report.run_id}` +
+        `，passed=${result.report.summary.passed_count}` +
+        `，failed=${result.report.summary.failed_count}` +
+        `，skipped=${result.report.summary.skipped_count}`,
     }),
   );
 }
@@ -1751,6 +1911,11 @@ export async function startConsoleServer(
 
         if (inputUrl.pathname === "/actions/control/instance/json/apply") {
           await handleControlInstanceJsonApplyAction(req, res, client);
+          return;
+        }
+
+        if (inputUrl.pathname === "/actions/control/expectations/run") {
+          await handleExpectationRunAction(req, res, client);
           return;
         }
 

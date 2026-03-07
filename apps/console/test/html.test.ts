@@ -187,6 +187,9 @@ describe("console html renderer", () => {
     expect(html).toContain("/actions/review");
     expect(html).toContain("最终效果");
     expect(html).toContain("review 成功");
+    expect(html).toContain("system-notice system-notice-success");
+    expect(html).toContain("系统通知 · 操作成功");
+    expect(html).toContain('data-system-notice-close="true"');
     expect(html).toContain("tab-link active");
     expect(html).toContain("data-json-toggle");
     expect(html).toContain("data-json-switchable");
@@ -492,6 +495,13 @@ describe("console html renderer", () => {
     expect(html).toContain("<span>policy rules</span><strong>1</strong>");
     expect(html).toContain("高级运维（可选）");
     expect(html).toContain("不会反向修改上方策略模型 JSON");
+    expect(html).toContain("Expectation 决策演练 / 回放");
+    expect(html).toContain("/actions/control/expectations/run");
+    expect(html).toContain('data-expectation-preview-form="true"');
+    expect(html).toContain('data-expectation-run-card');
+    expect(html).toContain('data-expectation-run-section');
+    expect(html).toContain("样例1：同公司派生关系 expectation");
+    expect(html).toContain("Expectation JSON");
     expect(html).toContain(
       'id="tab-panel-control" role="tabpanel" aria-hidden="false"',
     );
@@ -505,6 +515,122 @@ describe("console html renderer", () => {
     expect(html).toContain("Policy Rules 列表");
     expect(html).toContain("policy-rules-table");
     expect(html).toContain("规则编辑器");
+  });
+
+  it("renders expectation run report with replay links", () => {
+    const model: ConsolePageViewModel = {
+      api_base_url: "http://127.0.0.1:3010",
+      generated_at: "2026-03-07T00:00:00.000Z",
+      query: {
+        limit: 20,
+        offset: 0,
+        tab: "control",
+        namespace: "tenant_acme.kb.same_company.demo",
+        fixture_id: "01-same-company-derived",
+        expectation_run_id: "exp_demo_1",
+      },
+      publish_list: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      control_objects: {
+        ok: true,
+        status: 200,
+        data: {
+          namespace: "tenant_acme.kb.same_company.demo",
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      control_relations: {
+        ok: true,
+        status: 200,
+        data: {
+          namespace: "tenant_acme.kb.same_company.demo",
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      control_audits: {
+        ok: true,
+        status: 200,
+        data: {
+          items: [],
+          total_count: 0,
+          has_more: false,
+          limit: 20,
+          offset: 0,
+        },
+      },
+      expectation_run: {
+        run_id: "exp_demo_1",
+        fixture_id: "01-same-company-derived",
+        namespace: "tenant_acme.kb.same_company.demo",
+        tenant_id: "tenant_acme",
+        environment: "prod",
+        generated_at: "2026-03-07T00:00:00.000Z",
+        summary: {
+          total_count: 2,
+          passed_count: 1,
+          failed_count: 1,
+          skipped_count: 0,
+        },
+        source: {
+          expectation_file_name: "01-same-company-derived.expected.json",
+          setup_source: "fixture",
+          model_source: "route",
+        },
+        cases: [
+          {
+            name: "case_allow",
+            mode: "model_route",
+            status: "passed",
+            expected_effect: "allow",
+            actual_effect: "allow",
+            decision_id: "dec_expect_1",
+            reason: "matched allow rule",
+            matched_rules: ["rule_1"],
+            trace_matched_rules: ["rule_1"],
+            relation_inference: {
+              enabled: true,
+              applied: true,
+            },
+            assertion_errors: [],
+          },
+          {
+            name: "case_deny",
+            mode: "model_route",
+            status: "failed",
+            expected_effect: "deny",
+            actual_effect: "allow",
+            reason: "unexpected allow",
+            assertion_errors: ["final_effect mismatch"],
+          },
+        ],
+      },
+    };
+
+    const html = renderConsolePage(model);
+    expect(html).toContain("Expectation 演练结果");
+    expect(html).toContain('data-expectation-run-section');
+    expect(html).toContain("run_id=exp_demo_1");
+    expect(html).toContain("dec_expect_1");
+    expect(html).toContain("tab=relations");
+    expect(html).toContain("expectation_run_id=exp_demo_1");
+    expect(html).toContain("final_effect mismatch");
   });
 
   it("renders component index tab with embed widget table", () => {

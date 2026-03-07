@@ -46,6 +46,48 @@ export interface DecisionRecordResponse {
   traces: Array<Record<string, unknown>>;
 }
 
+export interface DecisionEvaluateResponse {
+  decision_id: string;
+  persisted_at: string;
+  persistence_driver?: string;
+  resolved_model?: Record<string, unknown>;
+  resolved_route?: {
+    key: string;
+    namespace: string;
+    tenant_id: string;
+    environment: string;
+    model_id: string;
+    model_version?: string;
+    publish_id?: string;
+  };
+  decision: {
+    final_effect: string;
+    reason: string;
+    matched_rules: string[];
+    overridden_rules: string[];
+    request?: {
+      context?: Record<string, unknown>;
+    };
+  };
+  traces?: Array<{
+    rule_id: string;
+    status: 'matched' | 'not_matched' | 'indeterminate';
+  }>;
+  relation_inference?: {
+    enabled?: boolean;
+    applied?: boolean;
+    reason?: string;
+    namespace?: string;
+    rules?: Array<{
+      id: string;
+      matched: boolean;
+      subject_values?: string[];
+      object_values?: string[];
+      object_owner_ref?: string;
+    }>;
+  };
+}
+
 export interface SimulationReportResponse {
   report_id: string;
   generated_at: string;
@@ -175,6 +217,7 @@ export interface ConsoleQuery {
   widget?: ConsoleWidget;
   detail_mode?: DetailMode;
   fixture_id?: string;
+  expectation_run_id?: string;
   limit: number;
   offset: number;
   publish_id?: string;
@@ -202,7 +245,49 @@ export interface ConsolePageViewModel {
   control_relations?: ApiResult<ControlRelationListResponse>;
   control_audits?: ApiResult<ControlAuditListResponse>;
   model_routes?: ApiResult<ModelRouteListResponse>;
+  expectation_run?: ExpectationRunReport;
   action_flash?: ConsoleActionFlash;
   api_base_url: string;
   generated_at: string;
+}
+
+export type ExpectationRunMode = 'inline_model' | 'model_route';
+
+export interface ExpectationRunCaseResult {
+  name: string;
+  mode: ExpectationRunMode;
+  status: 'passed' | 'failed' | 'skipped';
+  expected_effect: string;
+  actual_effect?: string;
+  decision_id?: string;
+  reason?: string;
+  matched_rules?: string[];
+  trace_matched_rules?: string[];
+  relation_inference?: {
+    enabled?: boolean;
+    applied?: boolean;
+    reason?: string;
+  };
+  assertion_errors: string[];
+}
+
+export interface ExpectationRunReport {
+  run_id: string;
+  fixture_id?: string;
+  namespace: string;
+  tenant_id?: string;
+  environment?: string;
+  generated_at: string;
+  summary: {
+    total_count: number;
+    passed_count: number;
+    failed_count: number;
+    skipped_count: number;
+  };
+  source: {
+    expectation_file_name?: string;
+    setup_source: 'fixture' | 'uploaded';
+    model_source: 'route' | 'uploaded' | 'missing';
+  };
+  cases: ExpectationRunCaseResult[];
 }

@@ -4,6 +4,7 @@ import type {
   ControlAuditListResponse,
   ControlObjectListResponse,
   ControlRelationListResponse,
+  DecisionEvaluateResponse,
   DecisionRecordResponse,
   ModelRouteListResponse,
   PublishRequestListResponse,
@@ -139,6 +140,39 @@ export class AclApiClient {
 
   async getDecision(id: string): Promise<ApiResult<DecisionRecordResponse>> {
     return this.get<DecisionRecordResponse>(`/decisions/${encodeURIComponent(id)}`);
+  }
+
+  async evaluateDecision(payload: {
+    model?: Record<string, unknown>;
+    model_route?: {
+      namespace: string;
+      tenant_id: string;
+      environment: string;
+    };
+    input: {
+      action: string;
+      subject: {
+        id: string;
+        type?: string;
+        attributes?: Record<string, unknown>;
+      };
+      object: {
+        id: string;
+        type?: string;
+        sensitivity?: string;
+        attributes?: Record<string, unknown>;
+      };
+      context?: Record<string, unknown>;
+    };
+    options?: {
+      relation_inference?: {
+        enabled?: boolean;
+        namespace?: string;
+        max_relations_scan?: number;
+      };
+    };
+  }): Promise<ApiResult<DecisionEvaluateResponse>> {
+    return this.post<DecisionEvaluateResponse>('/decisions:evaluate', payload);
   }
 
   async listSimulationReports(query: {
