@@ -19,11 +19,23 @@ if [[ -z "$PERSISTENCE_DRIVER" ]]; then
   PERSISTENCE_DRIVER="memory"
 fi
 
-TSX_BIN="${ROOT_DIR}/node_modules/.bin/tsx"
+TSX_BIN=""
 
-if [[ ! -x "$TSX_BIN" ]]; then
-  echo "[start-dev] missing tsx at ${TSX_BIN}"
+for candidate in \
+  "${ROOT_DIR}/node_modules/.bin/tsx" \
+  "${ROOT_DIR}/node_modules/.pnpm/node_modules/.bin/tsx" \
+  "${ROOT_DIR}/apps/api/node_modules/.bin/tsx" \
+  "${ROOT_DIR}/apps/console/node_modules/.bin/tsx"; do
+  if [[ -x "$candidate" ]]; then
+    TSX_BIN="$candidate"
+    break
+  fi
+done
+
+if [[ -z "$TSX_BIN" ]]; then
+  echo "[start-dev] missing tsx executable"
   echo "[start-dev] run: corepack pnpm install"
+  echo "[start-dev] or:  npm exec --yes --package=pnpm@10.30.3 -- pnpm install --frozen-lockfile"
   exit 1
 fi
 
