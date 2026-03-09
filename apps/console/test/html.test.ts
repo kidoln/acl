@@ -673,6 +673,11 @@ describe("console html renderer", () => {
     expect(html).toContain('data-expectation-preview-form="true"');
     expect(html).toContain('data-expectation-run-card');
     expect(html).toContain('data-expectation-run-section');
+    expect(html).toContain('class="card card-hover expectation-run-card" data-expectation-run-card');
+    expect(html).toContain('class="stack expectation-run-stack" data-expectation-run-section');
+    expect(html).toContain('class="management-grid advanced-ops-grid"');
+    expect(html).toContain('class="action-form advanced-ops-form" method="POST" action="/actions/control/object/upsert"');
+    expect(html).toContain('name="labels" rows="4"');
     expect(html).toContain("样例1：同公司派生关系 expectation");
     expect(html).toContain("Expectation JSON");
     expect(html).toContain(

@@ -788,10 +788,10 @@ function renderExpectationRunForm(
   ]);
 
   return (
-    `<section class="card card-hover" data-expectation-run-card>` +
+    `<section class="card card-hover expectation-run-card" data-expectation-run-card>` +
     `<h4>Expectation 决策演练 / 回放</h4>` +
     `<p class="muted">先从目录下拉选择 expectation 文件；执行时会按同名 fixture 读取决策输入，并调用真实的 <code>decisions:evaluate</code>。</p>` +
-    `<form class="action-form setup-fixture-preview-form" method="GET" action="/" data-control-incremental="true" data-expectation-preview-form="true">` +
+    `<form class="action-form setup-fixture-preview-form expectation-run-preview-form" method="GET" action="/" data-control-incremental="true" data-expectation-preview-form="true">` +
     hiddenWithoutExpectationFixture +
     `<div class="setup-fixture-preview-grid">` +
     `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(input.namespace)}" required /></label>` +
@@ -799,7 +799,7 @@ function renderExpectationRunForm(
     `</div>` +
     `<p class="muted">选择即预载 expectation JSON；执行同名 fixture 的批量 Setup 时，系统会自动发布对应 model 并绑定 route。</p>` +
     `</form>` +
-    `<form class="action-form" method="POST" action="/actions/control/expectations/run" data-control-incremental="true">` +
+    `<form class="action-form expectation-run-form" method="POST" action="/actions/control/expectations/run" data-control-incremental="true">` +
     hiddenWithoutExpectationRun +
     `<input type="hidden" name="namespace" value="${escapeHtml(input.namespace)}" />` +
     `<input type="hidden" name="fixture_id" value="${escapeHtml(input.fixture_id)}" />` +
@@ -911,8 +911,8 @@ function renderAdvancedOpsSection(
     `<section class="card card-hover advanced-ops-card">` +
     `<h4>高级运维（可选）</h4>` +
     `<p class="muted">用于对运行态 object / relation / model_route 做单条修正，不会反向修改上方策略模型 JSON。</p>` +
-    `<section class="management-grid">` +
-    `<form class="action-form" method="POST" action="/actions/control/object/upsert">` +
+    `<section class="management-grid advanced-ops-grid">` +
+    `<form class="action-form advanced-ops-form" method="POST" action="/actions/control/object/upsert">` +
     `<h5>单对象 Upsert</h5>` +
     hiddenFields +
     `<input type="hidden" name="namespace" value="${escapeHtml(input.namespace)}" />` +
@@ -920,10 +920,10 @@ function renderAdvancedOpsSection(
     `<label>Object Type<input type="text" name="object_type" placeholder="kb" required /></label>` +
     `<label>Sensitivity<input type="text" name="sensitivity" placeholder="normal" /></label>` +
     `<label>Owner Ref<input type="text" name="owner_ref" placeholder="user:alice" /></label>` +
-    `<label class="field-wide">Labels<textarea name="labels" rows="3" placeholder="finance\npii"></textarea></label>` +
+    `<label class="field-wide">Labels<textarea name="labels" rows="4" placeholder="finance\npii"></textarea></label>` +
     `<button type="submit" class="btn btn-secondary">写入对象</button>` +
     `</form>` +
-    `<form class="action-form" method="POST" action="/actions/control/relation/event">` +
+    `<form class="action-form advanced-ops-form" method="POST" action="/actions/control/relation/event">` +
     `<h5>单关系 Event</h5>` +
     hiddenFields +
     `<input type="hidden" name="namespace" value="${escapeHtml(input.namespace)}" />` +
@@ -935,7 +935,7 @@ function renderAdvancedOpsSection(
     `<label>Source<input type="text" name="source" placeholder="console_manual" /></label>` +
     `<button type="submit" class="btn btn-secondary">写入关系</button>` +
     `</form>` +
-    `<form class="action-form" method="POST" action="/actions/control/model-route/upsert">` +
+    `<form class="action-form advanced-ops-form" method="POST" action="/actions/control/model-route/upsert">` +
     `<h5>Model Route Upsert</h5>` +
     hiddenFields +
     `<input type="hidden" name="namespace" value="${escapeHtml(input.namespace)}" />` +
@@ -2853,7 +2853,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `</section>` +
     `</section>`;
   const expectationRunSection =
-    `<section data-expectation-run-section>` +
+    `<section class="stack expectation-run-stack" data-expectation-run-section>` +
     renderExpectationRunForm(viewModel, {
       namespace,
       fixture_id: activeSetupFixtureId,
