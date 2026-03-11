@@ -3766,7 +3766,7 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   <link rel="stylesheet" href="/assets/global.css" />
 </head>
 <body>
-  <main class="shell ${query.widget ? "embed-shell" : ""}">
+  <main class="shell ${query.widget ? "embed-shell" : "console-shell"}">
     ${body}
   </main>
   ${systemNotice}
