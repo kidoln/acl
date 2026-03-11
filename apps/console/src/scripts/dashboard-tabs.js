@@ -189,9 +189,9 @@
       return true;
     };
 
-    const applyControlPartialUpdate = (nextDoc) => {
+    const applyControlPartialUpdate = (nextDoc, selectors) => {
       let changed = false;
-      CONTROL_INCREMENTAL_REPLACE_SELECTORS.forEach((selector) => {
+      selectors.forEach((selector) => {
         if (replaceBySelector(nextDoc, selector)) {
           changed = true;
         }
@@ -206,6 +206,16 @@
         document.title = nextDoc.title;
       }
       return changed;
+    };
+
+    const resolveIncrementalReplaceSelectors = (form) => {
+      const customTargets = parseCsvLines(
+        form.getAttribute("data-control-incremental-target") || "",
+      );
+      if (customTargets.length > 0) {
+        return customTargets;
+      }
+      return CONTROL_INCREMENTAL_REPLACE_SELECTORS;
     };
 
     const restoreWindowScroll = (x, y) => {
@@ -313,6 +323,9 @@
       if (!form.matches(CONTROL_INCREMENTAL_FORM_SELECTOR)) {
         return;
       }
+      if (event.defaultPrevented) {
+        return;
+      }
       if (form.getAttribute("data-control-incremental-bypass") === "true") {
         form.removeAttribute("data-control-incremental-bypass");
         return;
@@ -374,7 +387,10 @@
 
         const html = await response.text();
         const nextDoc = new DOMParser().parseFromString(html, "text/html");
-        const changed = applyControlPartialUpdate(nextDoc);
+        const changed = applyControlPartialUpdate(
+          nextDoc,
+          resolveIncrementalReplaceSelectors(form),
+        );
         if (!changed) {
           usedNativeFallback = true;
           fallbackNativeSubmit(form);

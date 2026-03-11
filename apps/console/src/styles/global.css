@@ -1347,6 +1347,17 @@ button:active {
   box-shadow: none;
 }
 
+.btn-inline {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.table-action {
+  display: inline-flex;
+  margin: 0;
+}
+
 a {
   color: var(--primary);
   text-decoration: none;
@@ -1511,6 +1522,40 @@ tbody tr:last-child td {
   color: var(--text-title);
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+.relation-replay-route .kv-item.route-default {
+  grid-column: 1 / -1;
+}
+
+.route-summary {
+  display: grid;
+  gap: 6px;
+}
+
+.route-line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.route-key {
+  min-width: 76px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.route-value {
+  color: var(--text-title);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.route-sub {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 .matrix-table th:first-child {

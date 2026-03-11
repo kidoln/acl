@@ -292,6 +292,13 @@ export class AclApiClient {
     return this.post<Record<string, unknown>>('/control/objects:upsert', payload);
   }
 
+  async deleteControlObjects(payload: {
+    namespace: string;
+    object_ids: string[];
+  }): Promise<ApiResult<Record<string, unknown>>> {
+    return this.post<Record<string, unknown>>('/control/objects:delete', payload);
+  }
+
   async syncControlRelations(payload: {
     namespace: string;
     events: Array<{

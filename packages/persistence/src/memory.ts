@@ -201,6 +201,10 @@ export class InMemoryPersistence implements AclPersistence {
     this.controlObjects.set(record.key, record);
   }
 
+  async deleteControlObject(namespace: string, objectId: string): Promise<boolean> {
+    return this.controlObjects.delete(`${namespace}::${objectId}`);
+  }
+
   async getControlObject(
     namespace: string,
     objectId: string,

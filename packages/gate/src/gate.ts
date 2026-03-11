@@ -552,5 +552,6 @@ export function runPublishGate(input: PublishGateInput): PublishGateResult {
     review_required: reviewRequired,
     tickets,
     metrics,
+    validation,
   };
 }

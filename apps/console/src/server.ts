@@ -1583,6 +1583,58 @@ async function handleControlObjectUpsertAction(
   );
 }
 
+async function handleControlObjectDeleteAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  client: AclApiClient,
+): Promise<void> {
+  const form = await readFormBody(req);
+  const context = parseContextFromForm(form);
+
+  const namespace = form.get("namespace")?.trim();
+  const objectId = form.get("object_id")?.trim();
+
+  if (!namespace || !objectId) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: "error",
+        flashMessage: "object delete 参数缺失：namespace/object_id 必填",
+      }),
+    );
+    return;
+  }
+
+  const result = await client.deleteControlObjects({
+    namespace,
+    object_ids: [objectId],
+  });
+
+  context.namespace = namespace;
+
+  if (!result.ok) {
+    redirectTo(
+      res,
+      buildRedirectUrl({
+        query: context,
+        flashType: "error",
+        flashMessage: `object 删除失败: ${result.error}`,
+      }),
+    );
+    return;
+  }
+
+  redirectTo(
+    res,
+    buildRedirectUrl({
+      query: context,
+      flashType: "success",
+      flashMessage: `object 删除成功: ${objectId}`,
+    }),
+  );
+}
+
 async function handleControlRelationEventAction(
   req: IncomingMessage,
   res: ServerResponse,
@@ -2187,6 +2239,11 @@ export async function startConsoleServer(
 
         if (inputUrl.pathname === "/actions/control/object/upsert") {
           await handleControlObjectUpsertAction(req, res, client);
+          return;
+        }
+
+        if (inputUrl.pathname === "/actions/control/object/delete") {
+          await handleControlObjectDeleteAction(req, res, client);
           return;
         }
 

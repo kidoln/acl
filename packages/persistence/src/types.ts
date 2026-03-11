@@ -246,6 +246,7 @@ export interface AclPersistence {
   listControlCatalogs(query?: ControlCatalogListQuery): Promise<PersistedControlCatalogListResult>;
 
   upsertControlObject(record: PersistedControlObjectRecord): Promise<void>;
+  deleteControlObject(namespace: string, objectId: string): Promise<boolean>;
   getControlObject(
     namespace: string,
     objectId: string,

@@ -79,6 +79,21 @@ function mockGateResult(finalResult: PublishGateResult['final_result']): Publish
         semantic_drift_count: 0,
       },
     },
+    validation: {
+      valid: true,
+      issues: [],
+      summary: {
+        total_issues: 0,
+        blocking_issues: 0,
+        by_layer: {
+          structure: 0,
+          schema: 0,
+          semantic: 0,
+          security: 0,
+          executability: 0,
+        },
+      },
+    },
   };
 }
 

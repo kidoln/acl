@@ -1,5 +1,5 @@
 import type { AuthzModelConfig } from '@acl/shared-types';
-import type { ValidatorOptions } from '@acl/validator';
+import type { ModelValidationResult, ValidatorOptions } from '@acl/validator';
 
 export type GateProfile = 'baseline' | 'strict_compliance';
 
@@ -95,4 +95,5 @@ export interface PublishGateResult {
   review_required: boolean;
   tickets: string[];
   metrics: GateMetrics;
+  validation: ModelValidationResult;
 }

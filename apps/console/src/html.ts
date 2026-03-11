@@ -509,6 +509,14 @@ function renderPublishDetailVisual(
 ): string {
   const payload = asRecord(record.payload) ?? {};
   const gateResult = asRecord(payload.gate_result);
+  const gateValidation = asRecord(gateResult?.validation);
+  const hasValidationPayload = gateValidation !== null;
+  const validationSummary = asRecord(gateValidation?.summary);
+  const validationIssues = Array.isArray(gateValidation?.issues)
+    ? gateValidation.issues.filter(
+        (item): item is Record<string, unknown> => asRecord(item) !== null,
+      )
+    : [];
   const gateItems = Array.isArray(gateResult?.gates)
     ? gateResult.gates.filter(
         (item): item is Record<string, unknown> => asRecord(item) !== null,
@@ -541,13 +549,45 @@ function renderPublishDetailVisual(
 
   const gateRows =
     failedGateItems.length === 0
-      ? '<tr><td colspan="4" class="muted">无失败门禁项</td></tr>'
+      ? '<tr><td colspan="5" class="muted">无失败门禁项</td></tr>'
       : failedGateItems
           .map(
             (item) =>
-              `<tr><td>${escapeHtml(readPathString(item, ["level"], "-"))}</td><td>${escapeHtml(readPathString(item, ["code"], "-"))}</td><td>${escapeHtml(readPathString(item, ["rule_id"], "-"))}</td><td>${escapeHtml(readPathString(item, ["decision"], "-"))}</td></tr>`,
+              `<tr><td>${escapeHtml(readPathString(item, ["level"], "-"))}</td><td>${escapeHtml(readPathString(item, ["code"], "-"))}</td><td>${escapeHtml(readPathString(item, ["rule_id"], "-"))}</td><td>${escapeHtml(readPathString(item, ["decision"], "-"))}</td><td>${escapeHtml(readPathString(item, ["detail"], "-"))}</td></tr>`,
           )
           .join("");
+
+  const validationIssueRows = !hasValidationPayload
+    ? '<tr><td colspan="6" class="muted">当前记录未包含校验详情</td></tr>'
+    : validationIssues.length === 0
+      ? '<tr><td colspan="6" class="muted">无校验问题</td></tr>'
+      : validationIssues
+          .map((issue) => {
+            const blocking = issue.blocking === true ? "是" : "否";
+            return (
+              `<tr>` +
+              `<td>${escapeHtml(readPathString(issue, ["code"], "-"))}</td>` +
+              `<td>${escapeHtml(readPathString(issue, ["layer"], "-"))}</td>` +
+              `<td>${escapeHtml(readPathString(issue, ["severity"], "-"))}</td>` +
+              `<td>${blocking}</td>` +
+              `<td>${escapeHtml(readPathString(issue, ["path"], "-"))}</td>` +
+              `<td>${escapeHtml(readPathString(issue, ["message"], "-"))}</td>` +
+              `</tr>`
+            );
+          })
+          .join("");
+
+  const validationSummarySection =
+    validationSummary && hasValidationPayload
+      ? `<section class="decision-grid">` +
+        `<div class="metric"><span>校验总数</span><strong>${readPathNumber(validationSummary, ["total_issues"])}</strong></div>` +
+        `<div class="metric"><span>阻断问题</span><strong>${readPathNumber(validationSummary, ["blocking_issues"])}</strong></div>` +
+        `<div class="metric"><span>结构层</span><strong>${readPathNumber(validationSummary, ["by_layer", "structure"])}</strong></div>` +
+        `<div class="metric"><span>Schema层</span><strong>${readPathNumber(validationSummary, ["by_layer", "schema"])}</strong></div>` +
+        `<div class="metric"><span>语义层</span><strong>${readPathNumber(validationSummary, ["by_layer", "semantic"])}</strong></div>` +
+        `<div class="metric"><span>安全层</span><strong>${readPathNumber(validationSummary, ["by_layer", "security"])}</strong></div>` +
+        `</section>`
+      : "";
 
   return (
     `${renderPublishJourneyCard(record, viewModel)}` +
@@ -569,10 +609,21 @@ function renderPublishDetailVisual(
     `</section>` +
     `<div class="table-container">` +
     `<table class="data-table">` +
-    `<thead><tr><th>Level</th><th>Code</th><th>Rule ID</th><th>Decision</th></tr></thead>` +
+    `<thead><tr><th>Level</th><th>Code</th><th>Rule ID</th><th>Decision</th><th>Detail</th></tr></thead>` +
     `<tbody>${gateRows}</tbody>` +
     `</table>` +
     `</div>`
+    + `<section>` +
+    `<h4>校验详情</h4>` +
+    `<p class="muted">发布被 block 时请优先查看阻断问题，包含字段路径与错误原因。</p>` +
+    validationSummarySection +
+    `<div class="table-container">` +
+    `<table class="data-table">` +
+    `<thead><tr><th>Code</th><th>Layer</th><th>Severity</th><th>Blocking</th><th>Path</th><th>Message</th></tr></thead>` +
+    `<tbody>${validationIssueRows}</tbody>` +
+    `</table>` +
+    `</div>` +
+    `</section>`
   );
 }
 
@@ -1069,6 +1120,10 @@ function renderMatrixView(viewModel: ConsolePageViewModel): string {
 }
 
 function renderRelationView(viewModel: ConsolePageViewModel): string {
+  const namespace = viewModel.query.namespace ?? "tenant_a.crm";
+  const hiddenContext = renderHiddenContextFields(viewModel, ["namespace"]);
+  const runtimeRouteOverview = collectRuntimeRouteOverview(viewModel);
+  const latestRoute = runtimeRouteOverview.route_items[0];
   const relationReplayFocus = buildRelationReplayFocusPayload(viewModel);
   const runtimeRelationGraphPayloadJson = escapeHtml(
     JSON.stringify(buildInstanceGraphPayload(viewModel)),
@@ -1077,12 +1132,13 @@ function renderRelationView(viewModel: ConsolePageViewModel): string {
     JSON.stringify(relationReplayFocus),
   );
   const objectRows = viewModel.control_objects?.ok
-    ? renderRuntimeObjectRows(
-        viewModel.control_objects.data.items,
-        relationReplayFocus.object_id,
-        relationReplayFocus.object_owner_ref,
-      )
-    : '<tr><td colspan="6" class="muted">客体台账加载失败</td></tr>';
+    ? renderRuntimeObjectRows(viewModel.control_objects.data.items, {
+        namespace,
+        hiddenFields: hiddenContext,
+        focusObjectId: relationReplayFocus.object_id,
+        focusOwnerRef: relationReplayFocus.object_owner_ref,
+      })
+    : '<tr><td colspan="7" class="muted">客体台账加载失败</td></tr>';
   const objectCount = viewModel.control_objects?.ok
     ? viewModel.control_objects.data.total_count
     : 0;
@@ -1091,7 +1147,7 @@ function renderRelationView(viewModel: ConsolePageViewModel): string {
     : 0;
   const relationRows = viewModel.control_relations?.ok
     ? viewModel.control_relations.data.items.length === 0
-      ? '<tr><td colspan="5" class="muted">关系事件为空</td></tr>'
+      ? '<tr><td colspan="6" class="muted">关系事件为空</td></tr>'
       : viewModel.control_relations.data.items
           .map((item) => {
             const edgeKey = buildInstanceGraphEdgeKey({
@@ -1108,10 +1164,32 @@ function renderRelationView(viewModel: ConsolePageViewModel): string {
             )
               ? ' class="runtime-focus-row"'
               : "";
-            return `<tr${rowClass}><td>${escapeHtml(item.from)}</td><td>${escapeHtml(item.relation_type)}</td><td>${escapeHtml(item.to)}</td><td>${escapeHtml(item.scope ?? "")}</td><td>${escapeHtml(formatTime(item.updated_at))}</td></tr>`;
+            const deleteForm =
+              `<form class="table-action" method="POST" action="/actions/control/relation/event" data-control-incremental="true" data-control-incremental-target="[data-relation-replay-card]" onsubmit="return confirm('确认删除该关系？')">` +
+              hiddenContext +
+              `<input type="hidden" name="namespace" value="${escapeHtml(namespace)}" />` +
+              `<input type="hidden" name="from" value="${escapeHtml(item.from)}" />` +
+              `<input type="hidden" name="to" value="${escapeHtml(item.to)}" />` +
+              `<input type="hidden" name="relation_type" value="${escapeHtml(item.relation_type)}" />` +
+              `<input type="hidden" name="operation" value="delete" />` +
+              (item.scope
+                ? `<input type="hidden" name="scope" value="${escapeHtml(item.scope)}" />`
+                : "") +
+              `<button type="submit" class="btn btn-secondary btn-inline">删除</button>` +
+              `</form>`;
+            return (
+              `<tr${rowClass}>` +
+              `<td>${escapeHtml(item.from)}</td>` +
+              `<td>${escapeHtml(item.relation_type)}</td>` +
+              `<td>${escapeHtml(item.to)}</td>` +
+              `<td>${escapeHtml(item.scope ?? "")}</td>` +
+              `<td>${escapeHtml(formatTime(item.updated_at))}</td>` +
+              `<td>${deleteForm}</td>` +
+              `</tr>`
+            );
           })
           .join("")
-    : '<tr><td colspan="5" class="muted">关系数据加载失败</td></tr>';
+    : '<tr><td colspan="6" class="muted">关系数据加载失败</td></tr>';
 
   const traceRows = viewModel.decision_detail?.ok
     ? viewModel.decision_detail.data.traces.length === 0
@@ -1136,11 +1214,24 @@ function renderRelationView(viewModel: ConsolePageViewModel): string {
       `<p class="muted relation-replay-note">当前 Graph 会高亮本次回放的 subject / object / owner_ref，以及从 subject 指向 object（或 owner_ref）的运行态最短链路。</p>`
     : `<p class="muted relation-replay-note">未选择 decision_id 时，上半区展示当前 namespace 的实际运行态 objects / relations；选择 decision 后 Graph 会高亮本次回放焦点。</p>`;
 
+  const runtimeRouteSummary =
+    runtimeRouteOverview.route_items.length > 0
+      ? `<section class="kv-grid relation-replay-route">` +
+        `<div class="kv-item"><span>namespace</span><strong>${escapeHtml(namespace)}</strong></div>` +
+        `<div class="kv-item"><span>route count</span><strong>${runtimeRouteOverview.route_count}</strong></div>` +
+        `<div class="kv-item route-default"><span>默认路由</span>${renderDefaultRouteSummary(
+          latestRoute,
+        )}</div>` +
+        `</section>` +
+        `<p class="muted relation-replay-note">路由按更新时间排序展示；实际命中由请求中的 tenant/environment 决定。</p>`
+      : `<p class="muted relation-replay-note">当前 namespace 尚未配置 model_route，运行态不会自动切换到已发布模型。</p>`;
+
   return (
     `<article class="card card-hover">` +
     `<h3>运行态关系回放</h3>` +
     `<p class="muted">上半区展示当前 namespace 已落库的运行态关系，可切换表格 / Graph；下半区展示决策 trace 链路。</p>` +
     relationReplaySummary +
+    runtimeRouteSummary +
     `<section class="relation-runtime-card" data-instance-editor data-subject-tree-direction="bottom-up">` +
     `<textarea hidden data-instance-graph-payload>${runtimeRelationGraphPayloadJson}</textarea>` +
     `<textarea hidden data-instance-graph-focus>${runtimeRelationGraphFocusJson}</textarea>` +
@@ -1150,9 +1241,9 @@ function renderRelationView(viewModel: ConsolePageViewModel): string {
     `</div>` +
     `<section class="json-switchable" data-json-switchable>` +
     `<div class="json-view" data-json-view="visual">` +
-    `<div class="table-container"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div>` +
+    `<div class="table-container"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th><th>操作</th></tr></thead><tbody>${objectRows}</tbody></table></div>` +
     `<p class="muted relation-runtime-count">当前运行态：objects=${objectCount}，relations=${relationCount}</p>` +
-    `<div class="table-container"><table class="data-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Scope</th><th>Updated</th></tr></thead><tbody>${relationRows}</tbody></table></div>` +
+    `<div class="table-container"><table class="data-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Scope</th><th>Updated</th><th>操作</th></tr></thead><tbody>${relationRows}</tbody></table></div>` +
     `</div>` +
     `<div class="json-view" data-json-view="graph" hidden>` +
     `<section class="model-graph" data-instance-graph data-subject-tree-direction="bottom-up">` +
@@ -2170,21 +2261,34 @@ function buildRelationReplayFocusPayload(
 
 function renderRuntimeObjectRows(
   objects: ControlObjectListResponse["items"],
-  focusObjectId?: string,
-  focusOwnerRef?: string,
+  input: {
+    namespace: string;
+    hiddenFields: string;
+    focusObjectId?: string;
+    focusOwnerRef?: string;
+  },
 ): string {
   if (objects.length === 0) {
-    return '<tr><td colspan="6" class="muted">当前命名空间暂无客体数据</td></tr>';
+    return '<tr><td colspan="7" class="muted">当前命名空间暂无客体数据</td></tr>';
   }
 
   return objects
     .map((item) => {
       const isFocusObject =
-        focusObjectId && item.object_id.trim() === focusObjectId.trim();
+        input.focusObjectId &&
+        item.object_id.trim() === input.focusObjectId.trim();
       const isFocusOwner =
-        focusOwnerRef && item.owner_ref.trim() === focusOwnerRef.trim();
+        input.focusOwnerRef &&
+        item.owner_ref.trim() === input.focusOwnerRef.trim();
       const rowClass =
         isFocusObject || isFocusOwner ? ' class="runtime-focus-row"' : "";
+      const deleteForm =
+        `<form class="table-action" method="POST" action="/actions/control/object/delete" data-control-incremental="true" data-control-incremental-target="[data-relation-replay-card]" onsubmit="return confirm('确认删除该对象？')">` +
+        input.hiddenFields +
+        `<input type="hidden" name="namespace" value="${escapeHtml(input.namespace)}" />` +
+        `<input type="hidden" name="object_id" value="${escapeHtml(item.object_id)}" />` +
+        `<button type="submit" class="btn btn-secondary btn-inline">删除</button>` +
+        `</form>`;
       return (
         `<tr${rowClass}>` +
         `<td>${escapeHtml(item.object_id)}</td>` +
@@ -2193,6 +2297,7 @@ function renderRuntimeObjectRows(
         `<td>${escapeHtml(item.owner_ref ?? "")}</td>` +
         `<td>${escapeHtml((item.labels ?? []).join(", "))}</td>` +
         `<td>${escapeHtml(formatTime(item.updated_at))}</td>` +
+        `<td>${deleteForm}</td>` +
         `</tr>`
       );
     })
@@ -2880,7 +2985,7 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
       defaultModel.model_meta.version,
   });
   return (
-    `<article class="card card-hover">` +
+    `<article class="card card-hover" data-relation-replay-card>` +
     `<h3>控制面总览</h3>` +
     publishedMetricsSection +
     publishContextSection +
@@ -3318,6 +3423,38 @@ function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string {
     `<button type="submit" class="btn btn-primary" ${hasDecisionOptions ? "" : "disabled"}>查看决策回放</button>` +
     `</form>` +
     `</article>`
+  );
+}
+
+function renderDefaultRouteSummary(
+  route?: RuntimeRouteOverview["route_items"][number],
+): string {
+  if (!route) {
+    return (
+      `<div class="route-summary">` +
+      `<div class="route-line"><span class="route-key">route</span><strong class="route-value">-</strong></div>` +
+      `</div>`
+    );
+  }
+
+  const tenantEnv = `${route.tenant_id}/${route.environment}`;
+  const modelVersion = route.model_version || "-";
+  const publishId = route.publish_id || "-";
+
+  return (
+    `<div class="route-summary">` +
+    `<div class="route-line"><span class="route-key">tenant/env</span><strong class="route-value">${escapeHtml(
+      tenantEnv,
+    )}</strong></div>` +
+    `<div class="route-line"><span class="route-key">model</span><strong class="route-value">${escapeHtml(
+      route.model_id,
+    )}<span class="route-sub">@${escapeHtml(
+      modelVersion,
+    )}</span></strong></div>` +
+    `<div class="route-line"><span class="route-key">publish</span><strong class="route-value">${escapeHtml(
+      publishId,
+    )}</strong></div>` +
+    `</div>`
   );
 }
 

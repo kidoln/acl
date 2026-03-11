@@ -183,6 +183,11 @@ interface ControlObjectUpsertBody {
   }>;
 }
 
+interface ControlObjectDeleteBody {
+  namespace: string;
+  object_ids: string[];
+}
+
 interface ControlObjectListQuery {
   namespace?: string;
   object_type?: string;
@@ -1747,6 +1752,69 @@ app.post<{ Body: ControlObjectUpsertBody }>('/control/objects:upsert', async (re
     });
   }
 });
+
+if (!app.hasRoute({ method: 'POST', url: '/control/objects:delete' })) {
+  app.post<{ Body: ControlObjectDeleteBody }>(
+    '/control/objects:delete',
+    async (request, reply) => {
+      const { namespace, object_ids: objectIds } = request.body ?? {};
+
+      if (!isNonEmptyString(namespace) || !Array.isArray(objectIds) || objectIds.length === 0) {
+        return reply.code(400).send({
+          code: 'INVALID_REQUEST',
+          message: 'namespace and non-empty object_ids are required',
+        });
+      }
+
+      let deletedCount = 0;
+
+      try {
+        for (const objectId of objectIds) {
+          if (!isNonEmptyString(objectId)) {
+            return reply.code(400).send({
+              code: 'INVALID_REQUEST',
+              message: 'each object_id must be a non-empty string',
+            });
+          }
+          const deleted = await persistence.deleteControlObject(namespace, objectId);
+          if (deleted) {
+            deletedCount += 1;
+          }
+        }
+
+        const total = await persistence.listControlObjects({
+          namespace,
+          limit: 1,
+          offset: 0,
+        });
+
+        await saveControlAudit({
+          event_type: 'control.object.deleted',
+          target: namespace,
+          namespace,
+          operator: 'system',
+          payload: {
+            batch_size: objectIds.length,
+            deleted_count: deletedCount,
+          },
+        });
+
+        return reply.code(200).send({
+          namespace,
+          deleted_count: deletedCount,
+          total_count: total.total_count,
+          persistence_driver: persistenceDriver,
+        });
+      } catch (error) {
+        app.log.error({ err: error, namespace }, 'delete control objects failed');
+        return reply.code(500).send({
+          code: 'PERSISTENCE_FAILED',
+          message: 'delete control objects failed',
+        });
+      }
+    },
+  );
+}
 
 app.get<{ Querystring: ControlObjectListQuery }>('/control/objects', async (request, reply) => {
   const namespace = request.query?.namespace?.trim();

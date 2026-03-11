@@ -520,6 +520,16 @@ export class PostgresPersistence implements AclPersistence {
     );
   }
 
+  async deleteControlObject(namespace: string, objectId: string): Promise<boolean> {
+    const key = `${namespace}::${objectId}`;
+    const id = withPrefix(CONTROL_OBJECT_ID_PREFIX, key);
+    const result = await this.pool.query(
+      `delete from acl_validation_records where id = $1`,
+      [id],
+    );
+    return result.rowCount > 0;
+  }
+
   async getControlObject(
     namespace: string,
     objectId: string,
