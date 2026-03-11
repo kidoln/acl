@@ -6,14 +6,15 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json && mkdir -p dist/styles dist/scripts && cp src/styles/global.css dist/styles/global.css && cp src/scripts/dashboard-tabs.js dist/scripts/dashboard-tabs.js",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/styles dist/scripts && cp src/styles/global.css dist/styles/global.css && cp src/scripts/dashboard-tabs.js dist/scripts/dashboard-tabs.js && cp src/scripts/console-app.js dist/scripts/console-app.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "echarts": "^6.0.0",
-    "vanilla-jsoneditor": "^3.11.0"
+    "vanilla-jsoneditor": "^3.11.0",
+    "vue": "^3.5.21"
   },
   "devDependencies": {
     "tsx": "^4.20.6"

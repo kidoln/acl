@@ -105,6 +105,9 @@ export interface SimulationReportResponse {
   generated_at: string;
   publish_id: string;
   profile: GateProfile;
+  baseline_model_id?: string;
+  draft_model_id?: string;
+  baseline_publish_id?: string;
   summary: {
     delta_allow_subject_count: number;
     delta_deny_subject_count: number;
@@ -114,15 +117,56 @@ export interface SimulationReportResponse {
     indeterminate_rate_estimation: number;
     mandatory_obligations_pass_rate: number;
     publish_recommendation: string;
+    reason?: string;
   };
-  top_impacted_subjects: Array<Record<string, unknown>>;
-  top_impacted_objects: Array<Record<string, unknown>>;
-  action_change_matrix: Array<Record<string, unknown>>;
+  top_impacted_subjects: Array<{
+    subject_id: string;
+    changed_count: number;
+    allow_gain_count: number;
+    deny_gain_count: number;
+    actions: string[];
+  }>;
+  top_impacted_objects: Array<{
+    object_id: string;
+    changed_count: number;
+    high_sensitivity_changes: number;
+    actions: string[];
+  }>;
+  action_change_matrix: Array<{
+    action: string;
+    changed_count: number;
+    allow_to_deny: number;
+    deny_to_allow: number;
+    not_applicable_to_allow: number;
+    not_applicable_to_deny: number;
+    indeterminate_to_allow: number;
+    indeterminate_to_deny: number;
+  }>;
   matrix_cells: Array<Record<string, unknown>>;
-  scenarios?: Record<string, unknown>;
-  risk_details?: Record<string, unknown>;
+  scenarios?: {
+    total_subject_count: number;
+    total_object_count: number;
+    total_action_count: number;
+    evaluated_count: number;
+    truncated: boolean;
+  };
+  risk_details?: {
+    high_sensitivity_impacted_objects?: string[];
+    baseline_indeterminate_rate_estimation?: number;
+  };
+  evidence_samples?: Array<Record<string, unknown>>;
   gate_result?: Record<string, unknown>;
   baseline_gate_result?: Record<string, unknown>;
+  subject_change_rank?: Array<{
+    subject_id: string;
+    total_changed: number;
+    max_risk_score: number;
+  }>;
+  object_change_rank?: Array<{
+    object_id: string;
+    total_changed: number;
+    sensitivity: string;
+  }>;
 }
 
 export interface SimulationReportListResponse {

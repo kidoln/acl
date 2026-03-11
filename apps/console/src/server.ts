@@ -323,6 +323,56 @@ async function loadDashboardTabsScript(): Promise<string> {
   );
 }
 
+async function loadConsoleAppScript(): Promise<string> {
+  const fileCandidates = [
+    resolve(__dirname, "scripts/console-app.js"),
+    resolve(__dirname, "../src/scripts/console-app.js"),
+  ];
+
+  for (const filePath of fileCandidates) {
+    try {
+      return await readFile(filePath, "utf-8");
+    } catch (error) {
+      const errorCode = (error as NodeJS.ErrnoException).code;
+      if (errorCode !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error(
+    `console app script not found, checked: ${fileCandidates.join(", ")}`,
+  );
+}
+
+async function loadVueScript(): Promise<string> {
+  const fileCandidates = [
+    resolve(__dirname, "../node_modules/vue/dist/vue.global.prod.js"),
+    resolve(process.cwd(), "node_modules/vue/dist/vue.global.prod.js"),
+    resolve(__dirname, "../node_modules/vue/dist/vue.global.js"),
+    resolve(process.cwd(), "node_modules/vue/dist/vue.global.js"),
+    resolve(__dirname, "vendor/vue.global.prod.js"),
+    resolve(__dirname, "../src/vendor/vue.global.prod.js"),
+    resolve(__dirname, "vendor/vue.global.js"),
+    resolve(__dirname, "../src/vendor/vue.global.js"),
+  ];
+
+  for (const filePath of fileCandidates) {
+    try {
+      return await readFile(filePath, "utf-8");
+    } catch (error) {
+      const errorCode = (error as NodeJS.ErrnoException).code;
+      if (errorCode !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error(
+    `vue script not found, checked: ${fileCandidates.join(", ")}`,
+  );
+}
+
 async function loadEchartsScript(): Promise<string> {
   const fileCandidates = [
     resolve(__dirname, "../node_modules/echarts/dist/echarts.min.js"),
@@ -2161,6 +2211,36 @@ export async function startConsoleServer(
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "load script failed";
+          sendJson(res, 500, {
+            code: "INTERNAL_ERROR",
+            message,
+          });
+        }
+        return;
+      }
+
+      if (inputUrl.pathname === "/assets/console-app.js") {
+        try {
+          const script = await loadConsoleAppScript();
+          sendJs(res, script);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "load console app failed";
+          sendJson(res, 500, {
+            code: "INTERNAL_ERROR",
+            message,
+          });
+        }
+        return;
+      }
+
+      if (inputUrl.pathname === "/assets/vue.global.prod.js") {
+        try {
+          const script = await loadVueScript();
+          sendJs(res, script);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "load vue failed";
           sendJson(res, 500, {
             code: "INTERNAL_ERROR",
             message,

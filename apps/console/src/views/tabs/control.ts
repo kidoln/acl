@@ -40,7 +40,13 @@ import {
 } from "../graph";
 
 interface ModelTemplate {
-  model_meta: Record<string, unknown>;
+  model_meta: {
+    model_id: string;
+    tenant_id: string;
+    version: string;
+    status?: string;
+    combining_algorithm?: string;
+  };
   catalogs: {
     action_catalog: string[];
     subject_type_catalog: string[];

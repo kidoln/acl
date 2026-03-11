@@ -4,7 +4,6 @@ import {
   WIDGET_ITEMS,
   buildScopedQueryHref,
   escapeHtml,
-  formatTime,
   getScopedFieldNamesForTab,
   renderFlash,
 } from "./shared";
@@ -27,74 +26,36 @@ import {
 } from "./tabs/relations";
 import { renderControlPlaneOverview } from "./tabs/control";
 
+interface ConsoleTabLink {
+  id: ConsoleTab;
+  label: string;
+  href: string;
+}
+
+interface ConsolePanelsPayload {
+  workflow: string;
+  simulation: string;
+  relations: string;
+  control: string;
+  components: string;
+}
+
+interface ConsolePagePayload {
+  pageTitle: string;
+  isEmbed: boolean;
+  activeTab: ConsoleTab;
+  tabItems: typeof TAB_ITEMS;
+  tabLinks: ConsoleTabLink[];
+  query: ConsolePageViewModel["query"];
+  apiBaseUrl: string;
+  generatedAt: string;
+  panels: ConsolePanelsPayload;
+  embedWidgetHtml: string;
+  systemNoticeHtml: string;
+}
+
 function resolveActiveTab(viewModel: ConsolePageViewModel): ConsoleTab {
   return viewModel.query.tab ?? "workflow";
-}
-
-function renderTabNav(
-  viewModel: ConsolePageViewModel,
-  activeTab: ConsoleTab,
-): string {
-  const links = TAB_ITEMS.map((item) => {
-    const panelId = `tab-panel-${item.id}`;
-    const href = buildScopedQueryHref(
-      viewModel,
-      getScopedFieldNamesForTab(item.id),
-      {
-        tab: item.id,
-        widget: undefined,
-      },
-    );
-    const activeClass = item.id === activeTab ? "active" : "";
-    return `<a class="tab-link ${activeClass}" href="${href}" data-tab="${escapeHtml(item.id)}" role="tab" aria-selected="${item.id === activeTab ? "true" : "false"}" aria-controls="${panelId}">${escapeHtml(item.label)}</a>`;
-  }).join("");
-
-  return `<nav class="tab-nav animate-enter delay-100" role="tablist" aria-label="ACL 控制台一级标签">${links}</nav>`;
-}
-
-function renderHeroMeta(
-  viewModel: ConsolePageViewModel,
-  activeTab: ConsoleTab,
-): string {
-  const { query } = viewModel;
-  const tabLabel =
-    TAB_ITEMS.find((item) => item.id === activeTab)?.label ?? "发布流程";
-  const badges = [
-    `<span class="badge badge-info" data-tab-label="true">tab: ${escapeHtml(tabLabel)}</span>`,
-  ];
-
-  if (activeTab === "workflow") {
-    badges.push(
-      `<span class="badge badge-info">status: ${escapeHtml(query.status ?? "all")}</span>`,
-      `<span class="badge badge-neutral">profile: ${escapeHtml(query.profile ?? "all")}</span>`,
-      `<span class="badge badge-primary">publish: ${escapeHtml(query.publish_id ?? "未选中")}</span>`,
-      `<span class="badge badge-info">namespace: ${escapeHtml(query.namespace ?? "tenant_a.crm")}</span>`,
-    );
-  } else if (activeTab === "simulation") {
-    badges.push(
-      `<span class="badge badge-primary">publish: ${escapeHtml(query.publish_id ?? "未选择")}</span>`,
-      `<span class="badge badge-neutral">simulation: ${escapeHtml(query.simulation_id ?? "latest")}</span>`,
-      `<span class="badge badge-info">profile: ${escapeHtml(query.profile ?? "all")}</span>`,
-      `<span class="badge badge-info">namespace: ${escapeHtml(query.namespace ?? "tenant_a.crm")}</span>`,
-    );
-  } else if (activeTab === "relations") {
-    badges.push(
-      `<span class="badge badge-primary">decision: ${escapeHtml(query.decision_id ?? "未选择")}</span>`,
-      `<span class="badge badge-info">namespace: ${escapeHtml(query.namespace ?? "tenant_a.crm")}</span>`,
-    );
-  } else if (activeTab === "control") {
-    badges.push(
-      `<span class="badge badge-primary">namespace: ${escapeHtml(query.namespace ?? "tenant_a.crm")}</span>`,
-      `<span class="badge badge-neutral">fixture: ${escapeHtml(query.fixture_id ?? "未选择")}</span>`,
-      `<span class="badge badge-info">expectation: ${escapeHtml(query.expectation_run_id ?? "未运行")}</span>`,
-    );
-  } else {
-    badges.push(
-      `<span class="badge badge-primary">namespace: ${escapeHtml(query.namespace ?? "tenant_a.crm")}</span>`,
-    );
-  }
-
-  return `<div class="hero-meta">${badges.join("")}</div>`;
 }
 
 function renderEmbedWidget(
@@ -203,44 +164,58 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
     ? `ACL 嵌入视图 - ${WIDGET_ITEMS.find((item) => item.id === query.widget)?.label ?? "Widget"}`
     : "ACL 控制台";
 
-  const dashboardPanels =
-    `<section class="tab-panels">` +
-    `<section class="tab-panel ${activeTab === "workflow" ? "active" : ""}" data-tab-panel="workflow" id="tab-panel-workflow" role="tabpanel" aria-hidden="${activeTab === "workflow" ? "false" : "true"}">` +
-    `<section class="grid">${publishListPanel}<section class="stack animate-enter delay-200">${workflowStack}</section></section>` +
-    `</section>` +
-    `<section class="tab-panel ${activeTab === "simulation" ? "active" : ""}" data-tab-panel="simulation" id="tab-panel-simulation" role="tabpanel" aria-hidden="${activeTab === "simulation" ? "false" : "true"}">` +
-    `<section class="stack stack-main animate-enter delay-200">${simulationStack}</section>` +
-    `</section>` +
-    `<section class="tab-panel ${activeTab === "relations" ? "active" : ""}" data-tab-panel="relations" id="tab-panel-relations" role="tabpanel" aria-hidden="${activeTab === "relations" ? "false" : "true"}">` +
-    `<section class="stack stack-main animate-enter delay-200">${relationsStack}</section>` +
-    `</section>` +
-    `<section class="tab-panel ${activeTab === "control" ? "active" : ""}" data-tab-panel="control" id="tab-panel-control" role="tabpanel" aria-hidden="${activeTab === "control" ? "false" : "true"}">` +
-    `<section class="stack stack-main animate-enter delay-200">${controlStack}</section>` +
-    `</section>` +
-    `<section class="tab-panel ${activeTab === "components" ? "active" : ""}" data-tab-panel="components" id="tab-panel-components" role="tabpanel" aria-hidden="${activeTab === "components" ? "false" : "true"}">` +
-    `<section class="stack stack-main animate-enter delay-200">${componentsStack}</section>` +
-    `</section>` +
-    `</section>`;
+  const tabLinks = TAB_ITEMS.map((item) => ({
+    id: item.id,
+    label: item.label,
+    href: buildScopedQueryHref(
+      viewModel,
+      getScopedFieldNamesForTab(item.id),
+      {
+        tab: item.id,
+        widget: undefined,
+      },
+    ),
+  }));
 
+  const panels: ConsolePanelsPayload = {
+    workflow:
+      `${publishListPanel}` +
+      `<section class="stack animate-enter delay-200">${workflowStack}</section>`,
+    simulation: simulationStack,
+    relations: relationsStack,
+    control: controlStack,
+    components: componentsStack,
+  };
+
+  const payload: ConsolePagePayload = {
+    pageTitle,
+    isEmbed: Boolean(query.widget),
+    activeTab,
+    tabItems: TAB_ITEMS,
+    tabLinks,
+    query,
+    apiBaseUrl: viewModel.api_base_url,
+    generatedAt: viewModel.generated_at,
+    panels,
+    embedWidgetHtml: query.widget
+      ? renderEmbedWidget(viewModel, query.widget, publishListPanel)
+      : "",
+    systemNoticeHtml: renderFlash(viewModel),
+  };
+
+  const payloadJson = JSON.stringify(payload).replace(/</g, "\\u003c");
+
+  const vueScriptTag =
+    '<script src="/assets/vue.global.prod.js" defer></script>';
+  const appScriptTag =
+    '<script src="/assets/console-app.js" defer></script>';
   const echartsScriptTag =
     '<script src="/assets/echarts.min.js" defer></script>';
   const tabScriptTag =
     '<script src="/assets/dashboard-tabs.js" defer></script>';
-  const systemNotice = renderFlash(viewModel);
 
-  const body = query.widget
-    ? `<section class="embed-head card animate-enter">` +
-      `<div class="hero-top"><h1>${escapeHtml(pageTitle)}</h1><span class="hero-pill">Embeddable Widget</span></div>` +
-      `<p>widget=${escapeHtml(query.widget)} / API: ${escapeHtml(viewModel.api_base_url)} / 时间: ${escapeHtml(formatTime(viewModel.generated_at))}</p>` +
-      `</section>` +
-      `<section class="stack stack-main animate-enter delay-100">${renderEmbedWidget(viewModel, query.widget, publishListPanel)}</section>`
-    : `<section class="hero animate-enter">` +
-      `<div class="hero-top"><h1>ACL 控制台</h1><span class="hero-pill">Governance Console</span></div>` +
-      `<p>发布流程治理 + 决策回放 + 控制面同步。API: ${escapeHtml(viewModel.api_base_url)}，生成时间: ${escapeHtml(formatTime(viewModel.generated_at))}</p>` +
-      renderHeroMeta(viewModel, activeTab) +
-      `</section>` +
-      renderTabNav(viewModel, activeTab) +
-      dashboardPanels;
+  const body = `<div id="app"></div>` +
+    `<script type="application/json" id="acl-console-payload">${payloadJson}</script>`;
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -251,10 +226,9 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   <link rel="stylesheet" href="/assets/global.css" />
 </head>
 <body>
-  <main class="shell ${query.widget ? "embed-shell" : "console-shell"}">
-    ${body}
-  </main>
-  ${systemNotice}
+  ${body}
+  ${vueScriptTag}
+  ${appScriptTag}
   ${echartsScriptTag}
   ${tabScriptTag}
 </body>

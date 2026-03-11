@@ -129,32 +129,79 @@ export function renderSimulationView(viewModel: ConsolePageViewModel): string {
   const report = viewModel.simulation_detail.data;
   const summary = report.summary;
   const recommendation = summary.publish_recommendation;
+  const summaryReason = summary.reason ?? "-";
+  const baselineDisplay =
+    report.baseline_model_id ?? report.baseline_publish_id ?? "-";
   const actionRows =
     report.action_change_matrix.length === 0
       ? '<tr><td colspan="7" class="muted">暂无动作变化</td></tr>'
       : report.action_change_matrix
-          .map(
-            (item) =>
-              `<tr><td>${escapeHtml(item.action)}</td><td>${item.total_changed}</td><td>${item.allow_to_deny}</td><td>${item.deny_to_allow}</td><td>${item.na_to_allow}</td><td>${item.na_to_deny}</td><td>${item.indeterminate_delta}</td></tr>`,
-          )
+          .map((item) => {
+            const indeterminateDelta =
+              item.indeterminate_to_allow + item.indeterminate_to_deny;
+            return (
+              `<tr><td>${escapeHtml(item.action)}</td>` +
+              `<td>${item.changed_count}</td>` +
+              `<td>${item.allow_to_deny}</td>` +
+              `<td>${item.deny_to_allow}</td>` +
+              `<td>${item.not_applicable_to_allow}</td>` +
+              `<td>${item.not_applicable_to_deny}</td>` +
+              `<td>${indeterminateDelta}</td></tr>`
+            );
+          })
           .join("");
+  const subjectRank =
+    report.subject_change_rank ??
+    report.top_impacted_subjects.map((item) => ({
+      subject_id: item.subject_id,
+      total_changed: item.changed_count,
+      max_risk_score: item.allow_gain_count + item.deny_gain_count,
+      allow_gain_count: item.allow_gain_count,
+      deny_gain_count: item.deny_gain_count,
+    }));
   const subjectRows =
-    report.subject_change_rank.length === 0
+    subjectRank.length === 0
       ? '<tr><td colspan="3" class="muted">暂无主体变化排行</td></tr>'
-      : report.subject_change_rank
-          .map(
-            (item) =>
-              `<tr><td>${escapeHtml(item.subject_id)}</td><td>${item.total_changed}</td><td>${item.max_risk_score}</td></tr>`,
-          )
+      : subjectRank
+          .map((item) => {
+            const allowGain =
+              "allow_gain_count" in item ? item.allow_gain_count : undefined;
+            const denyGain =
+              "deny_gain_count" in item ? item.deny_gain_count : undefined;
+            const gainLabel =
+              allowGain !== undefined && denyGain !== undefined
+                ? `+A${allowGain} / +D${denyGain}`
+                : String(item.max_risk_score);
+            return (
+              `<tr><td>${escapeHtml(item.subject_id)}</td>` +
+              `<td>${item.total_changed}</td>` +
+              `<td>${gainLabel}</td></tr>`
+            );
+          })
           .join("");
+  const objectRank =
+    report.object_change_rank ??
+    report.top_impacted_objects.map((item) => ({
+      object_id: item.object_id,
+      total_changed: item.changed_count,
+      sensitivity: String(item.high_sensitivity_changes),
+      high_sensitivity_changes: item.high_sensitivity_changes,
+    }));
   const objectRows =
-    report.object_change_rank.length === 0
+    objectRank.length === 0
       ? '<tr><td colspan="3" class="muted">暂无客体变化排行</td></tr>'
-      : report.object_change_rank
-          .map(
-            (item) =>
-              `<tr><td>${escapeHtml(item.object_id)}</td><td>${item.total_changed}</td><td>${escapeHtml(item.sensitivity)}</td></tr>`,
-          )
+      : objectRank
+          .map((item) => {
+            const highSensitivity =
+              "high_sensitivity_changes" in item
+                ? item.high_sensitivity_changes
+                : item.sensitivity;
+            return (
+              `<tr><td>${escapeHtml(item.object_id)}</td>` +
+              `<td>${item.total_changed}</td>` +
+              `<td>${escapeHtml(String(highSensitivity))}</td></tr>`
+            );
+          })
           .join("");
 
   return (
@@ -162,22 +209,22 @@ export function renderSimulationView(viewModel: ConsolePageViewModel): string {
     `<h3>影响面模拟视图</h3>` +
     `<section class="decision-grid">` +
     `<div class="metric"><span>publish</span><strong>${escapeHtml(report.publish_id)}</strong></div>` +
-    `<div class="metric"><span>baseline</span><strong>${escapeHtml(report.baseline_publish_id ?? "-")}</strong></div>` +
+    `<div class="metric"><span>baseline</span><strong>${escapeHtml(baselineDisplay)}</strong></div>` +
     `<div class="metric"><span>recommend</span><strong>${escapeHtml(recommendation)}</strong></div>` +
     `<div class="metric"><span>generated</span><strong>${escapeHtml(formatTime(report.generated_at))}</strong></div>` +
     `</section>` +
-    `<p class="muted">${escapeHtml(summary.reason ?? "-")}</p>` +
+    `<p class="muted">${escapeHtml(summaryReason)}</p>` +
     `<section class="table-card">` +
     `<h4>动作影响矩阵</h4>` +
     `<div class="table-container"><table class="data-table"><thead><tr><th>Action</th><th>Changed</th><th>Allow→Deny</th><th>Deny→Allow</th><th>NA→Allow</th><th>NA→Deny</th><th>Indeterminate Δ</th></tr></thead><tbody>${actionRows}</tbody></table></div>` +
     `</section>` +
     `<section class="table-card">` +
     `<h4>主体影响排行</h4>` +
-    `<div class="table-container"><table class="data-table"><thead><tr><th>Top Impacted Subjects</th><th>Changed</th><th>Max Risk</th></tr></thead><tbody>${subjectRows}</tbody></table></div>` +
+    `<div class="table-container"><table class="data-table"><thead><tr><th>Top Impacted Subjects</th><th>Changed</th><th>Gain</th></tr></thead><tbody>${subjectRows}</tbody></table></div>` +
     `</section>` +
     `<section class="table-card">` +
     `<h4>客体影响排行</h4>` +
-    `<div class="table-container"><table class="data-table"><thead><tr><th>Top Impacted Objects</th><th>Changed</th><th>Sensitivity</th></tr></thead><tbody>${objectRows}</tbody></table></div>` +
+    `<div class="table-container"><table class="data-table"><thead><tr><th>Top Impacted Objects</th><th>Changed</th><th>High Sensitivity</th></tr></thead><tbody>${objectRows}</tbody></table></div>` +
     `</section>` +
     `</article>`
   );
