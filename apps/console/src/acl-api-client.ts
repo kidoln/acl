@@ -2,6 +2,7 @@ import type {
   ApiResult,
   ConsoleQuery,
   ControlAuditListResponse,
+  ControlNamespaceListResponse,
   ControlObjectListResponse,
   ControlRelationListResponse,
   DecisionEvaluateResponse,
@@ -254,6 +255,10 @@ export class AclApiClient {
       params.set('namespace', query.namespace);
     }
     return this.get<ControlAuditListResponse>(`/control/audits?${params.toString()}`);
+  }
+
+  async listControlNamespaces(): Promise<ApiResult<ControlNamespaceListResponse>> {
+    return this.get<ControlNamespaceListResponse>('/control/namespaces');
   }
 
   async listModelRoutes(query: {

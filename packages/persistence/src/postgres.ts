@@ -12,6 +12,7 @@ import type {
   PersistedControlAuditRecord,
   PersistedControlCatalogListResult,
   PersistedControlCatalogRecord,
+  PersistedControlNamespaceListResult,
   PersistedControlObjectListResult,
   PersistedControlObjectRecord,
   PersistedControlRelationListResult,
@@ -43,6 +44,7 @@ interface PgRow {
   status?: string;
   event_type?: string;
   target?: string;
+  namespace?: string | null;
   created_at: Date | string;
   updated_at?: Date | string;
   payload: string | object;
@@ -159,7 +161,7 @@ export class PostgresPersistence implements AclPersistence {
       [validationId],
     );
 
-    if (result.rowCount === 0) {
+    if (!result.rowCount) {
       return null;
     }
 
@@ -189,7 +191,7 @@ export class PostgresPersistence implements AclPersistence {
       [publishId],
     );
 
-    if (result.rowCount === 0) {
+    if (!result.rowCount) {
       return null;
     }
 
@@ -225,7 +227,7 @@ export class PostgresPersistence implements AclPersistence {
       [decisionId],
     );
 
-    if (result.rowCount === 0) {
+    if (!result.rowCount) {
       return null;
     }
 
@@ -292,7 +294,7 @@ export class PostgresPersistence implements AclPersistence {
       [lifecycleId],
     );
 
-    if (result.rowCount === 0) {
+    if (!result.rowCount) {
       return null;
     }
 
@@ -331,7 +333,7 @@ export class PostgresPersistence implements AclPersistence {
       [publishId],
     );
 
-    if (result.rowCount === 0) {
+    if (!result.rowCount) {
       return null;
     }
 
@@ -407,7 +409,7 @@ export class PostgresPersistence implements AclPersistence {
       [id],
     );
 
-    if (result.rowCount === 0) {
+    if (!result.rowCount) {
       return null;
     }
 
@@ -527,7 +529,7 @@ export class PostgresPersistence implements AclPersistence {
       `delete from acl_validation_records where id = $1`,
       [id],
     );
-    return result.rowCount > 0;
+    return Number(result.rowCount ?? 0) > 0;
   }
 
   async getControlObject(
@@ -543,7 +545,7 @@ export class PostgresPersistence implements AclPersistence {
       [id],
     );
 
-    if (result.rowCount === 0) {
+    if (!result.rowCount) {
       return null;
     }
 
@@ -746,7 +748,7 @@ export class PostgresPersistence implements AclPersistence {
       [reportId, `${SIMULATION_MODEL_PREFIX}%`],
     );
 
-    if (result.rowCount === 0) {
+    if (!result.rowCount) {
       return null;
     }
 
@@ -935,7 +937,7 @@ export class PostgresPersistence implements AclPersistence {
       [id],
     );
 
-    if (result.rowCount === 0) {
+    if (!result.rowCount) {
       return null;
     }
 
@@ -1032,5 +1034,30 @@ export class PostgresPersistence implements AclPersistence {
 
     const totalCount = Number(countResult.rows[0]?.total_count ?? 0);
     return toPagedResult(items, totalCount, offset);
+  }
+
+  async listControlNamespaces(): Promise<PersistedControlNamespaceListResult> {
+    const result = await this.pool.query<PgRow>(
+      `select distinct payload ->> 'namespace' as namespace
+       from acl_validation_records
+       where model_id like $1
+          or model_id like $2
+          or model_id like $3
+       order by namespace asc`,
+      [
+        `${CONTROL_OBJECT_MODEL_PREFIX}%`,
+        `${CONTROL_RELATION_MODEL_PREFIX}%`,
+        `${MODEL_ROUTE_MODEL_PREFIX}%`,
+      ],
+    );
+
+    const items = result.rows
+      .map((row) => row.namespace)
+      .filter((namespace): namespace is string => typeof namespace === 'string' && namespace.length > 0);
+
+    return {
+      items,
+      total_count: items.length,
+    };
   }
 }

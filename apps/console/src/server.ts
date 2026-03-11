@@ -1123,6 +1123,7 @@ async function handleIndex(
     limit: 20,
     offset: 0,
   });
+  const controlNamespacesPromise = client.listControlNamespaces();
   const controlObjectsPromise = listAllControlObjects(client, namespace);
   const controlRelationsPromise = listAllControlRelations(client, namespace);
   const controlAuditsPromise = client.listControlAudits({
@@ -1139,6 +1140,7 @@ async function handleIndex(
     decisionList,
     decisionDetail,
     simulationList,
+    controlNamespaces,
     controlObjects,
     controlRelations,
     controlAudits,
@@ -1150,6 +1152,7 @@ async function handleIndex(
     decisionListPromise,
     decisionDetailPromise,
     simulationListPromise,
+    controlNamespacesPromise,
     controlObjectsPromise,
     controlRelationsPromise,
     controlAuditsPromise,
@@ -1174,6 +1177,7 @@ async function handleIndex(
     decision_detail: decisionDetail,
     simulation_list: simulationList,
     simulation_detail: simulationDetail,
+    control_namespaces: controlNamespaces,
     control_objects: controlObjects,
     control_relations: controlRelations,
     control_audits: controlAudits,

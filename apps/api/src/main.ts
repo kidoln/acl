@@ -2006,6 +2006,14 @@ app.get<{ Querystring: ControlAuditListQuery }>('/control/audits', async (reques
   });
 });
 
+app.get('/control/namespaces', async (_request, reply) => {
+  const namespaces = await persistence.listControlNamespaces();
+  return reply.code(200).send({
+    ...namespaces,
+    persistence_driver: persistenceDriver,
+  });
+});
+
 app.post<{ Body: ModelRouteUpsertBody }>('/control/model-routes:upsert', async (request, reply) => {
   const { namespace, routes } = request.body ?? {};
 

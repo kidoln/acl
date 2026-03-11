@@ -221,6 +221,11 @@ export interface PersistedModelRouteListResult {
   next_offset?: number;
 }
 
+export interface PersistedControlNamespaceListResult {
+  items: string[];
+  total_count: number;
+}
+
 export interface AclPersistence {
   saveValidation(record: PersistedValidationRecord): Promise<void>;
   getValidation(validationId: string): Promise<PersistedValidationRecord | null>;
@@ -267,4 +272,6 @@ export interface AclPersistence {
   upsertModelRoute(record: PersistedModelRouteRecord): Promise<void>;
   getModelRoute(key: string): Promise<PersistedModelRouteRecord | null>;
   listModelRoutes(query?: ModelRouteListQuery): Promise<PersistedModelRouteListResult>;
+
+  listControlNamespaces(): Promise<PersistedControlNamespaceListResult>;
 }

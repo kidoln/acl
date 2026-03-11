@@ -191,6 +191,11 @@ export interface ControlAuditListResponse {
   offset: number;
 }
 
+export interface ControlNamespaceListResponse {
+  items: string[];
+  total_count: number;
+}
+
 export interface ModelRouteListResponse {
   items: Array<{
     key: string;
@@ -258,6 +263,7 @@ export interface ConsolePageViewModel {
   control_objects?: ApiResult<ControlObjectListResponse>;
   control_relations?: ApiResult<ControlRelationListResponse>;
   control_audits?: ApiResult<ControlAuditListResponse>;
+  control_namespaces?: ApiResult<ControlNamespaceListResponse>;
   model_routes?: ApiResult<ModelRouteListResponse>;
   expectation_run?: ExpectationRunReport;
   action_flash?: ConsoleActionFlash;

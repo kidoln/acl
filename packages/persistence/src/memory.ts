@@ -10,6 +10,7 @@ import type {
   PersistedControlAuditRecord,
   PersistedControlCatalogListResult,
   PersistedControlCatalogRecord,
+  PersistedControlNamespaceListResult,
   PersistedDecisionListResult,
   PersistedControlObjectListResult,
   PersistedControlObjectRecord,
@@ -359,5 +360,34 @@ export class InMemoryPersistence implements AclPersistence {
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
 
     return buildPagedResult(filtered, limit, offset);
+  }
+
+  async listControlNamespaces(): Promise<PersistedControlNamespaceListResult> {
+    const namespaces = new Set<string>();
+
+    this.controlObjects.forEach((record) => {
+      if (record.namespace) {
+        namespaces.add(record.namespace);
+      }
+    });
+    this.controlRelations.forEach((record) => {
+      if (record.namespace) {
+        namespaces.add(record.namespace);
+      }
+    });
+    this.modelRoutes.forEach((record) => {
+      if (record.namespace) {
+        namespaces.add(record.namespace);
+      }
+    });
+
+    const items = Array.from(namespaces).sort((left, right) =>
+      left.localeCompare(right),
+    );
+
+    return {
+      items,
+      total_count: items.length,
+    };
   }
 }

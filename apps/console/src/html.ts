@@ -845,7 +845,13 @@ function renderExpectationRunForm(
     `<form class="action-form setup-fixture-preview-form expectation-run-preview-form" method="GET" action="/" data-control-incremental="true" data-expectation-preview-form="true">` +
     hiddenWithoutExpectationFixture +
     `<div class="setup-fixture-preview-grid">` +
-    `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(input.namespace)}" required /></label>` +
+    `<label>命名空间 Namespace${renderNamespaceInputWithDatalist({
+      viewModel,
+      selectedValue: input.namespace,
+      placeholder: "tenant_a.crm",
+      required: true,
+      datalistId: "namespace-options-expectation",
+    })}</label>` +
     `<label>Expectation<select name="fixture_id" id="expectation-fixture-id" ${input.fixture_select_attr}>${input.fixture_select_options}</select></label>` +
     `</div>` +
     `<p class="muted">选择即预载 expectation JSON；执行同名 fixture 的批量 Setup 时，系统会自动发布对应 model 并绑定 route。</p>` +
@@ -2936,7 +2942,12 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
   const namespaceSwitchForm =
     `<form class="filters toolbar" method="GET" action="/" data-control-incremental="true" data-control-namespace-form="true">` +
     `<label>命名空间 Namespace` +
-    `<input type="text" name="namespace" value="${escapeHtml(namespace)}" placeholder="tenant_a.crm" />` +
+    renderNamespaceInputWithDatalist({
+      viewModel,
+      selectedValue: namespace,
+      placeholder: "tenant_a.crm",
+      datalistId: "namespace-options-control-switch",
+    }) +
     `</label>` +
     renderScopedHiddenContextFields(viewModel, [
       "tab",
@@ -3080,7 +3091,13 @@ function renderControlPlaneOverview(viewModel: ConsolePageViewModel): string {
     `<h4>预置场景选择</h4>` +
     hiddenWithoutNamespace +
     `<div class="setup-fixture-preview-grid">` +
-    `<label>命名空间 Namespace<input type="text" name="namespace" value="${escapeHtml(namespace)}" required /></label>` +
+    `<label>命名空间 Namespace${renderNamespaceInputWithDatalist({
+      viewModel,
+      selectedValue: namespace,
+      placeholder: "tenant_a.crm",
+      required: true,
+      datalistId: "namespace-options-setup-preview",
+    })}</label>` +
     `<label>预置 Instance<select name="fixture_id" ${setupFixtureSelectAttr}>${setupFixtureSelectOptions}</select></label>` +
     `</div>` +
     `<p class="muted">选择即预览，下方“客体台账 / 关系边视图”和 JSON 会立即切换；可先修改，再执行 setup。</p>` +
@@ -3368,6 +3385,114 @@ function buildDecisionOptions(
   }));
 }
 
+function buildNamespaceOptions(
+  viewModel: ConsolePageViewModel,
+  selectedNamespace?: string,
+): SelectOptionItem[] {
+  const options = new Map<string, string>();
+  const activeNamespace =
+    selectedNamespace?.trim() ?? viewModel.query.namespace?.trim();
+
+  if (activeNamespace) {
+    options.set(activeNamespace, `${activeNamespace} | 当前上下文`);
+  }
+
+  if (viewModel.control_namespaces?.ok) {
+    viewModel.control_namespaces.data.items.forEach((namespace) => {
+      if (namespace && !options.has(namespace)) {
+        options.set(namespace, namespace);
+      }
+    });
+  }
+
+  return Array.from(options.entries()).map(([value, label]) => ({
+    value,
+    label,
+  }));
+}
+
+function buildNamespaceValues(
+  viewModel: ConsolePageViewModel,
+  selectedNamespace?: string,
+): string[] {
+  const values = new Set<string>();
+  const activeNamespace =
+    selectedNamespace?.trim() ?? viewModel.query.namespace?.trim();
+
+  if (activeNamespace) {
+    values.add(activeNamespace);
+  }
+
+  if (viewModel.control_namespaces?.ok) {
+    viewModel.control_namespaces.data.items.forEach((namespace) => {
+      if (namespace) {
+        values.add(namespace);
+      }
+    });
+  }
+
+  return Array.from(values);
+}
+
+function hasRuntimeNamespaceOptions(viewModel: ConsolePageViewModel): boolean {
+  return Boolean(
+    viewModel.control_namespaces?.ok &&
+      viewModel.control_namespaces.data.items.length > 0,
+  );
+}
+
+function renderNamespaceInputWithDatalist(input: {
+  viewModel: ConsolePageViewModel;
+  selectedValue?: string;
+  placeholder: string;
+  required?: boolean;
+  datalistId: string;
+}): string {
+  const values = buildNamespaceValues(input.viewModel, input.selectedValue);
+  const requiredAttr = input.required ? "required" : "";
+
+  if (values.length === 0) {
+    return `<input type="text" name="namespace" value="${escapeHtml(input.selectedValue ?? "tenant_a.crm")}" placeholder="${escapeHtml(input.placeholder)}" ${requiredAttr} />`;
+  }
+
+  return (
+    `<input type="text" name="namespace" value="${escapeHtml(input.selectedValue ?? "")}" list="${escapeHtml(input.datalistId)}" placeholder="${escapeHtml(input.placeholder)}" ${requiredAttr} />` +
+    `<datalist id="${escapeHtml(input.datalistId)}">` +
+    values
+      .map((value) => `<option value="${escapeHtml(value)}"></option>`)
+      .join("") +
+    `</datalist>`
+  );
+}
+
+function renderNamespaceSelectOrInput(input: {
+  viewModel: ConsolePageViewModel;
+  selectedValue?: string;
+  placeholder: string;
+  required?: boolean;
+}): string {
+  const useSelect = hasRuntimeNamespaceOptions(input.viewModel);
+  const requiredAttr = input.required ? "required" : "";
+
+  if (useSelect) {
+    const namespaceOptions = buildNamespaceOptions(
+      input.viewModel,
+      input.selectedValue,
+    );
+    return (
+      `<select name="namespace" ${requiredAttr}>` +
+      renderSelectOptions({
+        items: namespaceOptions,
+        selectedValue: input.selectedValue,
+        placeholder: "请选择命名空间",
+      }) +
+      `</select>`
+    );
+  }
+
+  return `<input type="text" name="namespace" value="${escapeHtml(input.selectedValue ?? "tenant_a.crm")}" placeholder="${escapeHtml(input.placeholder)}" ${requiredAttr} />`;
+}
+
 function renderSelectOptions(input: {
   items: SelectOptionItem[];
   selectedValue?: string;
@@ -3388,6 +3513,7 @@ function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string {
   const { query } = viewModel;
   const decisionOptions = buildDecisionOptions(viewModel);
   const hasDecisionOptions = decisionOptions.length > 0;
+  const hasNamespaceOptions = hasRuntimeNamespaceOptions(viewModel);
   const decisionHint = viewModel.decision_list
     ? viewModel.decision_list.ok
       ? hasDecisionOptions
@@ -3395,6 +3521,12 @@ function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string {
         : "暂无决策记录可供回放。"
       : `决策列表加载失败：${viewModel.decision_list.error}`
     : "正在加载决策列表。";
+  const namespaceHint =
+    viewModel.control_namespaces && !viewModel.control_namespaces.ok
+      ? `命名空间列表加载失败：${viewModel.control_namespaces.error}`
+      : hasNamespaceOptions
+        ? "命名空间来自运行态实例索引。"
+        : "暂无运行态命名空间可选，可手动输入。";
   const hiddenFields = renderScopedHiddenContextFields(viewModel, [
     "tab",
     "widget",
@@ -3416,11 +3548,45 @@ function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string {
     `</select>` +
     `</label>` +
     `<label>命名空间 Namespace` +
-    `<input type="text" name="namespace" value="${escapeHtml(query.namespace ?? "tenant_a.crm")}" placeholder="tenant_a.crm" />` +
+    renderNamespaceSelectOrInput({
+      viewModel,
+      selectedValue: query.namespace,
+      placeholder: "tenant_a.crm",
+    }) +
     `</label>` +
-    `<span class="muted">${escapeHtml(decisionHint)}</span>` +
+    `<span class="muted">${escapeHtml(decisionHint)} ${escapeHtml(namespaceHint)}</span>` +
     hiddenFields +
     `<button type="submit" class="btn btn-primary" ${hasDecisionOptions ? "" : "disabled"}>查看决策回放</button>` +
+    `</form>` +
+    `</article>`
+  );
+}
+
+function renderRelationNamespaceSwitchCard(
+  viewModel: ConsolePageViewModel,
+): string {
+  const hiddenFields = renderScopedHiddenContextFields(viewModel, [
+    "tab",
+    "widget",
+    "detail_mode",
+    "decision_id",
+  ]);
+
+  return (
+    `<article class="card card-hover story-entry-card">` +
+    `<h3>关系回放工作区</h3>` +
+    `<p class="muted">切换命名空间会影响下方运行态 objects/relations 与关系回放视图。</p>` +
+    `<form class="filters toolbar" method="GET" action="/" data-control-incremental="true">` +
+    `<label>命名空间 Namespace` +
+    renderNamespaceInputWithDatalist({
+      viewModel,
+      selectedValue: viewModel.query.namespace ?? "tenant_a.crm",
+      placeholder: "tenant_a.crm",
+      datalistId: "namespace-options-relations",
+    }) +
+    `</label>` +
+    hiddenFields +
+    `<button type="submit" class="btn btn-primary">切换命名空间</button>` +
     `</form>` +
     `</article>`
   );
@@ -3522,7 +3688,11 @@ function renderSimulationContextCard(viewModel: ConsolePageViewModel): string {
     `</select>` +
     `</label>` +
     `<label>命名空间 Namespace` +
-    `<input type="text" name="namespace" value="${escapeHtml(query.namespace ?? "tenant_a.crm")}" placeholder="tenant_a.crm" />` +
+    renderNamespaceSelectOrInput({
+      viewModel,
+      selectedValue: query.namespace ?? "tenant_a.crm",
+      placeholder: "tenant_a.crm",
+    }) +
     `</label>` +
     `<span class="muted">${escapeHtml(publishHint)}</span>` +
     hiddenFields +
@@ -3710,7 +3880,7 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   const decisionQueryCard = renderDecisionQueryCard(viewModel);
   const workflowStack = `${renderPublishDetail(viewModel.publish_detail, viewModel)}${renderWorkflowGuideCard(viewModel)}`;
   const simulationStack = `${renderSimulationContextCard(viewModel)}${renderSimulationView(viewModel)}${renderMatrixView(viewModel)}`;
-  const relationsStack = `${decisionQueryCard}${renderDecisionDetail(viewModel.decision_detail)}${renderRelationView(viewModel)}`;
+  const relationsStack = `${renderRelationNamespaceSwitchCard(viewModel)}${decisionQueryCard}${renderDecisionDetail(viewModel.decision_detail)}${renderRelationView(viewModel)}`;
   const controlStack = `${renderControlPlaneOverview(viewModel)}`;
   const componentsStack = `${renderComponentsIndexView(viewModel)}`;
 
