@@ -1289,6 +1289,51 @@ label {
   min-width: 280px;
 }
 
+.field-compact {
+  flex: 0 1 280px;
+  min-width: 200px;
+  max-width: 360px;
+}
+
+.field-compact > input,
+.field-compact > select,
+.field-compact > textarea {
+  width: 100%;
+}
+
+.field-static {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  min-width: 200px;
+}
+
+.field-static-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.field-static-value {
+  padding: 8px 10px;
+  min-height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed #d5deea;
+  background: #f8fafc;
+  color: var(--text-title);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+
+.field-static-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .input-id-wide {
   width: 100%;
   min-width: 0;
@@ -1899,6 +1944,10 @@ pre {
 }
 
 #tab-panel-control .setup-fixture-preview-grid > label {
+  margin: 0;
+}
+
+#tab-panel-control .setup-fixture-preview-grid > .field-static {
   margin: 0;
 }
 

@@ -111,22 +111,30 @@ function listFixtureFiles(
   suffix: ".setup.json" | ".expected.json" | ".model.json",
 ): string[] {
   const fixtureDir = resolveFixtureDirectory();
-  return fs
-    .readdirSync(fixtureDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(suffix))
-    .map((entry) => entry.name)
-    .sort((left, right) => {
-      const leftId = left.replace(suffix, "");
-      const rightId = right.replace(suffix, "");
-      const leftOrder =
-        FIXTURE_DISPLAY_OVERRIDES[leftId]?.order ?? Number.MAX_SAFE_INTEGER;
-      const rightOrder =
-        FIXTURE_DISPLAY_OVERRIDES[rightId]?.order ?? Number.MAX_SAFE_INTEGER;
-      if (leftOrder !== rightOrder) {
-        return leftOrder - rightOrder;
-      }
-      return left.localeCompare(right);
-    });
+  try {
+    return fs
+      .readdirSync(fixtureDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(suffix))
+      .map((entry) => entry.name)
+      .sort((left, right) => {
+        const leftId = left.replace(suffix, "");
+        const rightId = right.replace(suffix, "");
+        const leftOrder =
+          FIXTURE_DISPLAY_OVERRIDES[leftId]?.order ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder =
+          FIXTURE_DISPLAY_OVERRIDES[rightId]?.order ?? Number.MAX_SAFE_INTEGER;
+        if (leftOrder !== rightOrder) {
+          return leftOrder - rightOrder;
+        }
+        return left.localeCompare(right);
+      });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.warn(
+      `[console] fixture directory unavailable: ${fixtureDir} (${message})`,
+    );
+    return [];
+  }
 }
 
 function parseControlSetupFixture(raw: unknown): ControlSetupFixture | null {
