@@ -256,4 +256,37 @@ describe('memory persistence', () => {
     const route = await store.getModelRoute('tenant_a.crm::tenant_a::prod');
     expect(route?.publish_id).toBe('pub_1');
   });
+
+  it('deletes control relations by key', async () => {
+    const store = new InMemoryPersistence();
+    const relationKey = 'user:alice|department:rnd|belongs_to|';
+    await store.upsertControlRelation({
+      key: `tenant_a.crm::${relationKey}`,
+      namespace: 'tenant_a.crm',
+      from: 'user:alice',
+      to: 'department:rnd',
+      relation_type: 'belongs_to',
+      updated_at: '2026-03-11T00:00:00.000Z',
+    });
+
+    const before = await store.listControlRelations({
+      namespace: 'tenant_a.crm',
+      limit: 10,
+      offset: 0,
+    });
+    expect(before.total_count).toBe(1);
+
+    const deleted = await store.deleteControlRelation('tenant_a.crm', relationKey);
+    expect(deleted).toBe(true);
+
+    const after = await store.listControlRelations({
+      namespace: 'tenant_a.crm',
+      limit: 10,
+      offset: 0,
+    });
+    expect(after.total_count).toBe(0);
+
+    const deletedAgain = await store.deleteControlRelation('tenant_a.crm', relationKey);
+    expect(deletedAgain).toBe(false);
+  });
 });
