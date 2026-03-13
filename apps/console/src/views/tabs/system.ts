@@ -196,7 +196,7 @@ function renderInstanceObjectRows(
   objects: InstanceSnapshotPayload["objects"],
 ): string {
   return objects
-    .slice(0, 6)
+    .slice(0, 20)
     .map(
       (item) =>
         `<tr><td>${escapeHtml(item.object_id)}</td><td>${escapeHtml(item.object_type)}</td><td>${escapeHtml(item.sensitivity ?? "")}</td><td>${escapeHtml(item.owner_ref ?? "")}</td><td>${escapeHtml((item.labels ?? []).join(", "))}</td><td>${escapeHtml(item.updated_at ? formatTime(item.updated_at) : "-")}</td></tr>`,
@@ -208,7 +208,7 @@ function renderInstanceRelationRows(
   relationEvents: InstanceSnapshotPayload["relation_events"],
 ): string {
   return relationEvents
-    .slice(0, 6)
+    .slice(0, 20)
     .map(
       (item) =>
         `<tr><td>${escapeHtml(item.from)}</td><td>${escapeHtml(item.relation_type)}</td><td>${escapeHtml(item.to)}</td><td>${escapeHtml(item.scope ?? "")}</td><td>${escapeHtml(item.updated_at ? formatTime(item.updated_at) : "-")}</td></tr>`,
@@ -337,10 +337,10 @@ export function renderSystemStatusOverview(viewModel: ConsolePageViewModel): str
   );
   const objectTableSection = !hasObjectItems
     ? ""
-    : `<section class="runtime-table-card"><h4>客体台账 Objects</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div></section>`;
+    : `<section class="runtime-table-card" data-instance-table data-instance-table-type="objects" data-instance-table-page-size="20" data-instance-table-total="${currentInstanceSnapshot.objects.length}"><h4>客体台账 Objects</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>Object ID</th><th>Type</th><th>Sensitivity</th><th>Owner</th><th>Labels</th><th>Updated</th></tr></thead><tbody>${objectRows}</tbody></table></div><div class="pagination-wrapper" data-instance-pagination></div></section>`;
   const relationTableSection = !hasRelationItems
     ? ""
-    : `<section class="runtime-table-card"><h4>关系边 Relations</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Scope</th><th>Updated</th></tr></thead><tbody>${relationRows}</tbody></table></div></section>`;
+    : `<section class="runtime-table-card" data-instance-table data-instance-table-type="relations" data-instance-table-page-size="20" data-instance-table-total="${currentInstanceSnapshot.relation_events.length}"><h4>关系边 Relations</h4><div class="table-container management-table"><table class="data-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Scope</th><th>Updated</th></tr></thead><tbody>${relationRows}</tbody></table></div><div class="pagination-wrapper" data-instance-pagination></div></section>`;
   const objectRelationSectionWithFallback =
     objectTableSection + relationTableSection;
   const objectRelationSection =

@@ -1686,6 +1686,25 @@ tbody tr:last-child td {
   gap: 6px;
 }
 
+.pagination-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.pagination-size select {
+  height: 34px;
+  border-radius: 7px;
+  border: 1px solid #dbe4ef;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--text-body);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .pagination-item,
 .pagination-arrow {
   min-width: 34px;

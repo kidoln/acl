@@ -80,6 +80,19 @@
     );
   }
 
+  function formatTime(value) {
+    const parsed = Date.parse(value);
+    if (Number.isNaN(parsed)) {
+      return value;
+    }
+    return new Date(parsed).toLocaleString("zh-CN", { hour12: false });
+  }
+
+  function normalizePositiveInt(value, fallback) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : fallback;
+  }
+
   const CONTROL_INCREMENTAL_FORM_SELECTOR =
     'form[data-control-incremental="true"]';
   const CONTROL_INCREMENTAL_REPLACE_SELECTORS = [
@@ -4999,6 +5012,204 @@
     DASHBOARD_RUNTIME.renderVisibleInstanceGraphs("");
   }
 
+  function initInstanceTablePagination() {
+    const sections = Array.from(
+      document.querySelectorAll("[data-instance-table]"),
+    );
+    if (sections.length === 0) {
+      return;
+    }
+
+    sections.forEach((section) => {
+      if (!(section instanceof HTMLElement)) {
+        return;
+      }
+      if (section.getAttribute("data-instance-table-bound") === "true") {
+        return;
+      }
+
+      const tableType = section.getAttribute("data-instance-table-type");
+      const tbody = section.querySelector("tbody");
+      const pagination = section.querySelector("[data-instance-pagination]");
+      if (!tableType || !tbody || !pagination) {
+        return;
+      }
+
+      let pageSize = normalizePositiveInt(
+        section.getAttribute("data-instance-table-page-size"),
+        20,
+      );
+      const pageSizeOptions = [20, 50, 100];
+      if (!pageSizeOptions.includes(pageSize)) {
+        pageSize = 20;
+      }
+
+      const editor = section.closest("[data-instance-editor]");
+      const sourceTextarea = editor?.querySelector(
+        "textarea[data-instance-json-textarea]",
+      );
+      let items = null;
+      if (sourceTextarea && typeof sourceTextarea.value === "string") {
+        try {
+          const snapshot = JSON.parse(sourceTextarea.value);
+          if (snapshot && typeof snapshot === "object") {
+            if (tableType === "objects" && Array.isArray(snapshot.objects)) {
+              items = snapshot.objects;
+            }
+            if (
+              tableType === "relations" &&
+              Array.isArray(snapshot.relation_events)
+            ) {
+              items = snapshot.relation_events;
+            }
+          }
+        } catch {
+          items = null;
+        }
+      }
+
+      const existingRows = Array.from(tbody.querySelectorAll("tr"));
+      const useItems = Array.isArray(items);
+      const total = useItems ? items.length : existingRows.length;
+      const computeTotalPages = () =>
+        Math.max(1, Math.ceil(total / pageSize));
+      let totalPages = computeTotalPages();
+
+      const info = document.createElement("span");
+      info.className = "pagination-info";
+
+      const sizeWrap = document.createElement("label");
+      sizeWrap.className = "pagination-size";
+      const sizePrefix = document.createElement("span");
+      sizePrefix.textContent = "每页";
+      const sizeSelect = document.createElement("select");
+      pageSizeOptions.forEach((size) => {
+        const option = document.createElement("option");
+        option.value = String(size);
+        option.textContent = String(size);
+        sizeSelect.append(option);
+      });
+      sizeSelect.value = String(pageSize);
+      const sizeSuffix = document.createElement("span");
+      sizeSuffix.textContent = "条";
+      sizeWrap.append(sizePrefix, sizeSelect, sizeSuffix);
+
+      const controls = document.createElement("div");
+      controls.className = "pagination";
+
+      const prevButton = document.createElement("button");
+      prevButton.type = "button";
+      prevButton.className = "pagination-arrow";
+      prevButton.setAttribute("aria-label", "上一页");
+      prevButton.innerHTML = "&lsaquo;";
+
+      const nextButton = document.createElement("button");
+      nextButton.type = "button";
+      nextButton.className = "pagination-arrow";
+      nextButton.setAttribute("aria-label", "下一页");
+      nextButton.innerHTML = "&rsaquo;";
+
+      const pageBadge = document.createElement("span");
+      pageBadge.className = "pagination-item active";
+      pageBadge.setAttribute("aria-current", "page");
+
+      controls.append(prevButton, pageBadge, nextButton);
+      pagination.innerHTML = "";
+      pagination.append(info, sizeWrap, controls);
+
+      const readText = (value) =>
+        value === undefined || value === null ? "" : String(value);
+
+      const renderObjectRow = (item) => {
+        const labels = Array.isArray(item.labels)
+          ? item.labels.filter((entry) => typeof entry === "string").join(", ")
+          : "";
+        const updatedAt = item.updated_at
+          ? formatTime(readText(item.updated_at))
+          : "-";
+        return (
+          `<tr>` +
+          `<td>${escapeHtml(readText(item.object_id))}</td>` +
+          `<td>${escapeHtml(readText(item.object_type))}</td>` +
+          `<td>${escapeHtml(readText(item.sensitivity))}</td>` +
+          `<td>${escapeHtml(readText(item.owner_ref))}</td>` +
+          `<td>${escapeHtml(labels)}</td>` +
+          `<td>${escapeHtml(updatedAt)}</td>` +
+          `</tr>`
+        );
+      };
+
+      const renderRelationRow = (item) => {
+        const updatedAt = item.updated_at
+          ? formatTime(readText(item.updated_at))
+          : "-";
+        return (
+          `<tr>` +
+          `<td>${escapeHtml(readText(item.from))}</td>` +
+          `<td>${escapeHtml(readText(item.relation_type))}</td>` +
+          `<td>${escapeHtml(readText(item.to))}</td>` +
+          `<td>${escapeHtml(readText(item.scope))}</td>` +
+          `<td>${escapeHtml(updatedAt)}</td>` +
+          `</tr>`
+        );
+      };
+
+      let currentPage = 1;
+
+      const updateButtonState = (button, disabled) => {
+        if (disabled) {
+          button.classList.add("disabled");
+          button.setAttribute("disabled", "true");
+        } else {
+          button.classList.remove("disabled");
+          button.removeAttribute("disabled");
+        }
+      };
+
+      const renderPage = (page) => {
+        totalPages = computeTotalPages();
+        const nextPage = Math.min(Math.max(1, page), totalPages);
+        currentPage = nextPage;
+        const start = (currentPage - 1) * pageSize;
+        const end = Math.min(start + pageSize, total);
+
+        if (useItems) {
+          const slice = items.slice(start, end);
+          const rows =
+            tableType === "objects"
+              ? slice.map(renderObjectRow)
+              : slice.map(renderRelationRow);
+          tbody.innerHTML = rows.join("");
+        } else {
+          existingRows.forEach((row, index) => {
+            row.hidden = index < start || index >= end;
+          });
+        }
+
+        info.textContent = `第 ${currentPage} / ${totalPages} 页 · 共 ${total} 条`;
+        pageBadge.textContent = String(currentPage);
+        updateButtonState(prevButton, currentPage <= 1);
+        updateButtonState(nextButton, currentPage >= totalPages);
+        controls.hidden = totalPages <= 1;
+      };
+
+      prevButton.addEventListener("click", () => {
+        renderPage(currentPage - 1);
+      });
+      nextButton.addEventListener("click", () => {
+        renderPage(currentPage + 1);
+      });
+      sizeSelect.addEventListener("change", () => {
+        pageSize = normalizePositiveInt(sizeSelect.value, 20);
+        section.setAttribute("data-instance-table-page-size", String(pageSize));
+        renderPage(1);
+      });
+
+      renderPage(1);
+      section.setAttribute("data-instance-table-bound", "true");
+    });
+  }
+
   function init() {
     initControlIncrementalRefresh();
     initSystemNotices();
@@ -5010,6 +5221,7 @@
     initModelEditors();
     initInstanceJsonEditors();
     initInstanceEditors();
+    initInstanceTablePagination();
     initPolicyRulesTable();
     document.addEventListener("acl:control-partial-updated", () => {
       initTabNav();
@@ -5018,6 +5230,7 @@
       initModelEditors();
       initInstanceJsonEditors();
       initInstanceEditors();
+      initInstanceTablePagination();
     });
   }
 
