@@ -17,7 +17,6 @@ import {
   renderJsonToggleSwitch,
   renderRelationReplayToggleSwitch,
   renderApiResultError,
-  renderNamespaceInputWithDatalist,
   renderNamespaceSelectOrInput,
   renderRawJsonPanel,
   renderScopedHiddenContextFields,
@@ -154,7 +153,7 @@ export function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string
   return (
     `<article class="card card-hover story-entry-card">` +
     `<h3>从决策列表查看回放</h3>` +
-    `<p class="muted">本页只围绕 decision trace 排查，不再混入发布/模拟筛选。</p>` +
+    `<p class="muted">先锁定命名空间，再从列表选择 decision_id 查看回放证据。</p>` +
     `<form class="filters toolbar" method="GET" action="/" data-control-incremental="true">` +
     `<label class="field-compact">决策ID Decision ID` +
     `<select name="decision_id" ${hasDecisionOptions ? "" : "disabled"}>` +
@@ -168,7 +167,7 @@ export function renderDecisionQueryCard(viewModel: ConsolePageViewModel): string
     `<label class="field-compact">命名空间 Namespace` +
     renderNamespaceSelectOrInput({
       viewModel,
-      selectedValue: query.namespace,
+      selectedValue: query.namespace ?? "tenant_a.crm",
       placeholder: "tenant_a.crm",
     }) +
     `</label>` +
@@ -230,11 +229,10 @@ export function renderRelationContextCard(viewModel: ConsolePageViewModel): stri
     `<p class="muted">先锁定命名空间，再选择 decision_id 回放；留空则只展示运行态。</p>` +
     `<form class="filters toolbar" method="GET" action="/" data-control-incremental="true">` +
     `<label class="field-compact">命名空间 Namespace` +
-    renderNamespaceInputWithDatalist({
+    renderNamespaceSelectOrInput({
       viewModel,
       selectedValue: query.namespace ?? "tenant_a.crm",
       placeholder: "tenant_a.crm",
-      datalistId: "namespace-options-relations",
     }) +
     `</label>` +
     `<label class="field-compact">决策ID Decision ID` +

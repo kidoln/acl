@@ -2182,7 +2182,8 @@ export async function startConsoleServer(
     options.apiBaseUrl ??
     process.env.ACL_API_BASE_URL ??
     "http://127.0.0.1:3010";
-  const client = new AclApiClient(apiBaseUrl);
+  const controlToken = process.env.ACL_CONTROL_TOKEN ?? "";
+  const client = new AclApiClient(apiBaseUrl, controlToken);
 
   const server = createServer(async (req, res) => {
     const method = req.method ?? "GET";

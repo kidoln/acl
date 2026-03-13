@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 
 import type {
   AclPersistence,
+  ControlPlaneResetResult,
   ControlAuditListQuery,
   ControlCatalogListQuery,
   ControlObjectListQuery,
@@ -1059,5 +1060,52 @@ export class PostgresPersistence implements AclPersistence {
       items,
       total_count: items.length,
     };
+  }
+
+  async resetControlPlane(): Promise<ControlPlaneResetResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+
+      const controlObjects = await client.query(
+        `delete from acl_validation_records where model_id like $1`,
+        [`${CONTROL_OBJECT_MODEL_PREFIX}%`],
+      );
+      const controlRelations = await client.query(
+        `delete from acl_validation_records where model_id like $1`,
+        [`${CONTROL_RELATION_MODEL_PREFIX}%`],
+      );
+      const modelRoutes = await client.query(
+        `delete from acl_validation_records where model_id like $1`,
+        [`${MODEL_ROUTE_MODEL_PREFIX}%`],
+      );
+      const simulationReports = await client.query(
+        `delete from acl_validation_records where model_id like $1`,
+        [`${SIMULATION_MODEL_PREFIX}%`],
+      );
+      const publishRequests = await client.query(`delete from acl_publish_requests`);
+      const gateReports = await client.query(`delete from acl_gate_reports`);
+      const controlAudits = await client.query(
+        `delete from acl_lifecycle_reports where event_type like $1`,
+        [`${CONTROL_AUDIT_EVENT_PREFIX}%`],
+      );
+
+      await client.query('commit');
+
+      return {
+        control_object_count: Number(controlObjects.rowCount ?? 0),
+        control_relation_count: Number(controlRelations.rowCount ?? 0),
+        model_route_count: Number(modelRoutes.rowCount ?? 0),
+        publish_request_count: Number(publishRequests.rowCount ?? 0),
+        gate_report_count: Number(gateReports.rowCount ?? 0),
+        simulation_report_count: Number(simulationReports.rowCount ?? 0),
+        control_audit_count: Number(controlAudits.rowCount ?? 0),
+      };
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }

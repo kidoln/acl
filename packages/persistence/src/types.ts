@@ -226,6 +226,16 @@ export interface PersistedControlNamespaceListResult {
   total_count: number;
 }
 
+export interface ControlPlaneResetResult {
+  control_object_count: number;
+  control_relation_count: number;
+  model_route_count: number;
+  publish_request_count: number;
+  gate_report_count: number;
+  simulation_report_count: number;
+  control_audit_count: number;
+}
+
 export interface AclPersistence {
   saveValidation(record: PersistedValidationRecord): Promise<void>;
   getValidation(validationId: string): Promise<PersistedValidationRecord | null>;
@@ -274,4 +284,6 @@ export interface AclPersistence {
   listModelRoutes(query?: ModelRouteListQuery): Promise<PersistedModelRouteListResult>;
 
   listControlNamespaces(): Promise<PersistedControlNamespaceListResult>;
+
+  resetControlPlane(): Promise<ControlPlaneResetResult>;
 }

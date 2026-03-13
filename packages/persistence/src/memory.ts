@@ -1,5 +1,6 @@
 import type {
   AclPersistence,
+  ControlPlaneResetResult,
   ControlAuditListQuery,
   ControlCatalogListQuery,
   ControlObjectListQuery,
@@ -389,5 +390,27 @@ export class InMemoryPersistence implements AclPersistence {
       items,
       total_count: items.length,
     };
+  }
+
+  async resetControlPlane(): Promise<ControlPlaneResetResult> {
+    const result: ControlPlaneResetResult = {
+      control_object_count: this.controlObjects.size,
+      control_relation_count: this.controlRelations.size,
+      model_route_count: this.modelRoutes.size,
+      publish_request_count: this.publishRequests.size,
+      gate_report_count: this.gateReports.size,
+      simulation_report_count: this.simulationReports.size,
+      control_audit_count: this.controlAudits.size,
+    };
+
+    this.controlObjects.clear();
+    this.controlRelations.clear();
+    this.modelRoutes.clear();
+    this.publishRequests.clear();
+    this.gateReports.clear();
+    this.simulationReports.clear();
+    this.controlAudits.clear();
+
+    return result;
   }
 }

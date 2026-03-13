@@ -31,9 +31,12 @@ async function safeReadJson(response: Response): Promise<Record<string, unknown>
 
 export class AclApiClient {
   private readonly baseUrl: string;
+  private readonly controlToken?: string;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, controlToken?: string) {
     this.baseUrl = ensureTrailingSlashRemoved(baseUrl);
+    const trimmed = controlToken?.trim();
+    this.controlToken = trimmed && trimmed.length > 0 ? trimmed : undefined;
   }
 
   getBaseUrl(): string {
@@ -45,8 +48,14 @@ export class AclApiClient {
     const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
     try {
+      const headers = new Headers(init.headers ?? {});
+      if (this.controlToken) {
+        headers.set('X-ACL-Token', this.controlToken);
+        headers.set('Authorization', `Bearer ${this.controlToken}`);
+      }
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...init,
+        headers,
         signal: controller.signal,
       });
       const data = await safeReadJson(response);

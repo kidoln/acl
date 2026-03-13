@@ -1,4 +1,4 @@
-import Fastify, { type FastifyReply } from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { randomUUID } from 'node:crypto';
 
 import {
@@ -304,6 +304,12 @@ const PUBLISH_WORKFLOW_STATUSES = new Set([
 
 export const app = Fastify({ logger: true });
 
+const CONTROL_TOKEN = process.env.ACL_CONTROL_TOKEN?.trim();
+const CONTROL_IP_ALLOWLIST = (process.env.ACL_CONTROL_IP_ALLOWLIST ?? '')
+  .split(',')
+  .map((item) => item.trim())
+  .filter((item) => item.length > 0);
+
 let persistence: AclPersistence;
 let persistenceDriver: 'memory' | 'postgres';
 
@@ -362,6 +368,149 @@ function normalizeEnvironment(value: string): string {
 
 function buildModelRouteKey(namespace: string, tenantId: string, environment: string): string {
   return `${namespace}::${tenantId}::${normalizeEnvironment(environment)}`;
+}
+
+function normalizeRequestIp(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.startsWith('::ffff:')) {
+    return trimmed.slice(7);
+  }
+  if (trimmed === '::1') {
+    return '127.0.0.1';
+  }
+  return trimmed;
+}
+
+function parseIpv4(value: string): number | null {
+  const parts = value.split('.');
+  if (parts.length !== 4) {
+    return null;
+  }
+  let result = 0;
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) {
+      return null;
+    }
+    const octet = Number(part);
+    if (!Number.isInteger(octet) || octet < 0 || octet > 255) {
+      return null;
+    }
+    result = (result << 8) + octet;
+  }
+  return result >>> 0;
+}
+
+function parseIpv4Cidr(cidr: string): { base: number; mask: number } | null {
+  const [ipPart, prefixPart] = cidr.split('/');
+  if (!ipPart || !prefixPart) {
+    return null;
+  }
+  const base = parseIpv4(ipPart.trim());
+  if (base === null) {
+    return null;
+  }
+  const prefix = Number(prefixPart);
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
+    return null;
+  }
+  const mask = prefix === 0 ? 0 : ((0xffffffff << (32 - prefix)) >>> 0);
+  return { base: base & mask, mask };
+}
+
+function isIpAllowed(ip: string | undefined, allowlist: string[]): boolean {
+  if (allowlist.length === 0) {
+    return true;
+  }
+  if (!ip) {
+    return false;
+  }
+  const normalizedIp = normalizeRequestIp(ip);
+  if (!normalizedIp) {
+    return false;
+  }
+  for (const entry of allowlist) {
+    if (entry.includes('/')) {
+      const cidr = parseIpv4Cidr(entry);
+      if (!cidr) {
+        continue;
+      }
+      const ipValue = parseIpv4(normalizedIp);
+      if (ipValue === null) {
+        continue;
+      }
+      if ((ipValue & cidr.mask) === cidr.base) {
+        return true;
+      }
+      continue;
+    }
+    if (normalizedIp === entry) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveControlToken(request: FastifyRequest): string | undefined {
+  const headerToken = request.headers['x-acl-token'];
+  if (typeof headerToken === 'string' && headerToken.trim()) {
+    return headerToken.trim();
+  }
+  const authHeader = request.headers['authorization'];
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice('Bearer '.length).trim();
+  }
+  return undefined;
+}
+
+function requireControlAccess(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  operation: string,
+): boolean {
+  const token = resolveControlToken(request);
+  const requestIp = normalizeRequestIp(request.ip);
+  const forwardedFor = request.headers['x-forwarded-for'];
+
+  if (!CONTROL_TOKEN) {
+    app.log.error(
+      { ip: requestIp, forwarded_for: forwardedFor, operation },
+      '控制面访问被拒绝：ACL_CONTROL_TOKEN 未配置',
+    );
+    reply.code(403).send({
+      code: 'CONTROL_TOKEN_REQUIRED',
+      message: '未配置控制面 Token',
+    });
+    return false;
+  }
+
+  if (!token || token !== CONTROL_TOKEN) {
+    app.log.warn(
+      { ip: requestIp, forwarded_for: forwardedFor, operation },
+      '控制面访问被拒绝：Token 无效',
+    );
+    reply.code(401).send({
+      code: 'UNAUTHORIZED',
+      message: '控制面 Token 无效',
+    });
+    return false;
+  }
+
+  if (!isIpAllowed(requestIp, CONTROL_IP_ALLOWLIST)) {
+    app.log.warn(
+      { ip: requestIp, forwarded_for: forwardedFor, operation },
+      '控制面访问被拒绝：IP 不在白名单',
+    );
+    reply.code(403).send({
+      code: 'IP_NOT_ALLOWED',
+      message: 'IP 不在白名单',
+    });
+    return false;
+  }
+
+  return true;
 }
 
 function resolveDecisionControlNamespace(input: {
@@ -1459,6 +1608,9 @@ app.get('/healthz', async () => {
 });
 
 app.post<{ Body: SelectorParseBody }>('/selectors:parse', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'selectors.parse')) {
+    return;
+  }
   const { selector, scope } = request.body ?? {};
 
   if (typeof selector !== 'string' || (scope !== 'subject_selector' && scope !== 'object_selector')) {
@@ -1473,6 +1625,9 @@ app.post<{ Body: SelectorParseBody }>('/selectors:parse', async (request, reply)
 });
 
 app.post<{ Body: ModelValidateBody }>('/models:validate', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'models.validate')) {
+    return;
+  }
   const { model, options } = request.body ?? {};
   if (model === undefined) {
     return reply.code(400).send({
@@ -1512,6 +1667,9 @@ app.post<{ Body: ModelValidateBody }>('/models:validate', async (request, reply)
 });
 
 app.post<{ Body: ObjectOnboardingCheckBody }>('/objects:onboard-check', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'objects.onboard_check')) {
+    return;
+  }
   const { model, object, profile } = request.body ?? {};
 
   if (model === undefined || typeof object !== 'object' || object === null) {
@@ -1603,6 +1761,9 @@ app.post<{ Body: ObjectOnboardingCheckBody }>('/objects:onboard-check', async (r
 });
 
 app.get<{ Params: IdParams }>('/validations/:id', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'validations.get')) {
+    return;
+  }
   const record = await persistence.getValidation(request.params.id);
   if (!record) {
     return reply.code(404).send({
@@ -1615,6 +1776,9 @@ app.get<{ Params: IdParams }>('/validations/:id', async (request, reply) => {
 });
 
 app.post<{ Body: PublishGateCheckBody }>('/publish:gate-check', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'publish.gate_check')) {
+    return;
+  }
   const { model, profile, publish_id, metrics_override, options } = request.body ?? {};
 
   if (model === undefined) {
@@ -1664,6 +1828,9 @@ app.post<{ Body: PublishGateCheckBody }>('/publish:gate-check', async (request, 
 });
 
 app.get<{ Params: IdParams }>('/gate-reports/:id', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'gate_reports.get')) {
+    return;
+  }
   const record = await persistence.getGateReport(request.params.id);
   if (!record) {
     return reply.code(404).send({
@@ -1676,6 +1843,9 @@ app.get<{ Params: IdParams }>('/gate-reports/:id', async (request, reply) => {
 });
 
 app.post<{ Body: ControlObjectUpsertBody }>('/control/objects:upsert', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'control.objects.upsert')) {
+    return;
+  }
   const { namespace, objects } = request.body ?? {};
 
   if (!isNonEmptyString(namespace) || !Array.isArray(objects) || objects.length === 0) {
@@ -1757,6 +1927,9 @@ if (!app.hasRoute({ method: 'POST', url: '/control/objects:delete' })) {
   app.post<{ Body: ControlObjectDeleteBody }>(
     '/control/objects:delete',
     async (request, reply) => {
+      if (!requireControlAccess(request, reply, 'control.objects.delete')) {
+        return;
+      }
       const { namespace, object_ids: objectIds } = request.body ?? {};
 
       if (!isNonEmptyString(namespace) || !Array.isArray(objectIds) || objectIds.length === 0) {
@@ -1817,6 +1990,9 @@ if (!app.hasRoute({ method: 'POST', url: '/control/objects:delete' })) {
 }
 
 app.get<{ Querystring: ControlObjectListQuery }>('/control/objects', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'control.objects.list')) {
+    return;
+  }
   const namespace = request.query?.namespace?.trim();
   if (!namespace) {
     return reply.code(400).send({
@@ -1855,6 +2031,9 @@ app.get<{ Querystring: ControlObjectListQuery }>('/control/objects', async (requ
 });
 
 app.post<{ Body: ControlRelationEventBody }>('/control/relations:events', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'control.relations.events')) {
+    return;
+  }
   const { namespace, events } = request.body ?? {};
 
   if (!isNonEmptyString(namespace) || !Array.isArray(events) || events.length === 0) {
@@ -1939,6 +2118,9 @@ app.post<{ Body: ControlRelationEventBody }>('/control/relations:events', async 
 });
 
 app.get<{ Querystring: ControlRelationListQuery }>('/control/relations', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'control.relations.list')) {
+    return;
+  }
   const namespace = request.query?.namespace?.trim();
   if (!namespace) {
     return reply.code(400).send({
@@ -1979,6 +2161,9 @@ app.get<{ Querystring: ControlRelationListQuery }>('/control/relations', async (
 });
 
 app.get<{ Querystring: ControlAuditListQuery }>('/control/audits', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'control.audits.list')) {
+    return;
+  }
   const namespace = request.query?.namespace?.trim();
   const eventType = request.query?.event_type?.trim();
   const limit = parseListNumber(request.query?.limit, 20);
@@ -2007,6 +2192,9 @@ app.get<{ Querystring: ControlAuditListQuery }>('/control/audits', async (reques
 });
 
 app.get('/control/namespaces', async (_request, reply) => {
+  if (!requireControlAccess(_request, reply, 'control.namespaces.list')) {
+    return;
+  }
   const namespaces = await persistence.listControlNamespaces();
   return reply.code(200).send({
     ...namespaces,
@@ -2014,7 +2202,44 @@ app.get('/control/namespaces', async (_request, reply) => {
   });
 });
 
+app.post('/control/reset', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'control.reset')) {
+    return;
+  }
+  const requestIp = normalizeRequestIp(request.ip);
+  const forwardedFor = request.headers['x-forwarded-for'];
+
+  try {
+    const result = await persistence.resetControlPlane();
+    app.log.info(
+      {
+        ip: requestIp,
+        forwarded_for: forwardedFor,
+        result,
+      },
+      '控制面重置完成',
+    );
+    return reply.code(200).send({
+      success: true,
+      ...result,
+      persistence_driver: persistenceDriver,
+    });
+  } catch (error) {
+    app.log.error(
+      { err: error, ip: requestIp, forwarded_for: forwardedFor },
+      '控制面重置失败',
+    );
+    return reply.code(500).send({
+      code: 'RESET_FAILED',
+      message: '控制面重置失败',
+    });
+  }
+});
+
 app.post<{ Body: ModelRouteUpsertBody }>('/control/model-routes:upsert', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'control.model_routes.upsert')) {
+    return;
+  }
   const { namespace, routes } = request.body ?? {};
 
   if (!isNonEmptyString(namespace) || !Array.isArray(routes) || routes.length === 0) {
@@ -2163,6 +2388,9 @@ app.post<{ Body: ModelRouteUpsertBody }>('/control/model-routes:upsert', async (
 });
 
 app.get<{ Querystring: ModelRouteListQuery }>('/control/model-routes', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'control.model_routes.list')) {
+    return;
+  }
   const namespace = request.query?.namespace?.trim();
   const tenantId = request.query?.tenant_id?.trim();
   const environmentRaw = request.query?.environment?.trim();
@@ -2194,6 +2422,9 @@ app.get<{ Querystring: ModelRouteListQuery }>('/control/model-routes', async (re
 });
 
 app.post<{ Body: PublishSimulateBody }>('/publish:simulate', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'publish.simulate')) {
+    return;
+  }
   const { model, profile, publish_id, metrics_override, options, top_n } = request.body ?? {};
 
   if (model === undefined) {
@@ -2546,6 +2777,9 @@ app.post<{ Body: PublishSimulateBody }>('/publish:simulate', async (request, rep
 });
 
 app.get<{ Querystring: SimulationReportListQuery }>('/publish/simulations', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'publish.simulations.list')) {
+    return;
+  }
   const publishId = request.query?.publish_id?.trim();
   const profile = request.query?.profile?.trim();
   const limit = parseListNumber(request.query?.limit, 20);
@@ -2580,6 +2814,9 @@ app.get<{ Querystring: SimulationReportListQuery }>('/publish/simulations', asyn
 });
 
 app.get<{ Params: IdParams }>('/publish/simulations/:id', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'publish.simulations.get')) {
+    return;
+  }
   const report = await persistence.getSimulationReport(request.params.id);
   if (!report) {
     return reply.code(404).send({
@@ -2596,6 +2833,9 @@ app.get<{ Params: IdParams }>('/publish/simulations/:id', async (request, reply)
 });
 
 app.post<{ Body: PublishSubmitBody }>('/publish/submit', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'publish.submit')) {
+    return;
+  }
   const { model, profile, publish_id, metrics_override, options, submitted_by } = request.body ?? {};
 
   if (model === undefined) {
@@ -2661,6 +2901,9 @@ app.post<{ Body: PublishSubmitBody }>('/publish/submit', async (request, reply) 
 });
 
 app.get<{ Querystring: PublishRequestListQuery }>('/publish/requests', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'publish.requests.list')) {
+    return;
+  }
   const status = request.query?.status?.trim();
   const profile = request.query?.profile?.trim();
   const limit = parseListNumber(request.query?.limit, 20);
@@ -2717,14 +2960,23 @@ async function getPublishRequestById(id: string, reply: FastifyReply) {
 }
 
 app.get<{ Params: IdParams }>('/publish/requests/:id', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'publish.requests.get')) {
+    return;
+  }
   return getPublishRequestById(request.params.id, reply);
 });
 
 app.get<{ Params: IdParams }>('/publish:requests/:id', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'publish.requests.get')) {
+    return;
+  }
   return getPublishRequestById(request.params.id, reply);
 });
 
 app.post<{ Body: PublishReviewBody }>('/publish/review', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'publish.review')) {
+    return;
+  }
   const { publish_id, decision, reviewer, reason, expires_at } = request.body ?? {};
 
   if (
@@ -2787,6 +3039,9 @@ app.post<{ Body: PublishReviewBody }>('/publish/review', async (request, reply) 
 });
 
 app.post<{ Body: PublishActivateBody }>('/publish/activate', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'publish.activate')) {
+    return;
+  }
   const { publish_id, operator } = request.body ?? {};
 
   if (!isNonEmptyString(publish_id)) {
@@ -2834,6 +3089,9 @@ app.post<{ Body: PublishActivateBody }>('/publish/activate', async (request, rep
 app.post<{ Body: LifecycleSubjectRemovedBody }>(
   '/lifecycle:subject-removed',
   async (request, reply) => {
+    if (!requireControlAccess(request, reply, 'lifecycle.subject_removed')) {
+      return;
+    }
     const { model, event, relations, object_snapshots, options } = request.body ?? {};
 
     if (model === undefined) {
@@ -2906,6 +3164,9 @@ app.post<{ Body: LifecycleSubjectRemovedBody }>(
 );
 
 app.get<{ Params: IdParams }>('/lifecycle-reports/:id', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'lifecycle.reports.get')) {
+    return;
+  }
   const record = await persistence.getLifecycleReport(request.params.id);
   if (!record) {
     return reply.code(404).send({
@@ -3575,6 +3836,9 @@ app.post<{ Body: DecisionSearchBody }>('/decisions/search', async (request, repl
 });
 
 app.get<{ Params: IdParams }>('/decisions/:id', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'decisions.get')) {
+    return;
+  }
   const record = await persistence.getDecision(request.params.id);
   if (!record) {
     return reply.code(404).send({
@@ -3587,6 +3851,9 @@ app.get<{ Params: IdParams }>('/decisions/:id', async (request, reply) => {
 });
 
 app.get<{ Querystring: DecisionListQuerystring }>('/decisions', async (request, reply) => {
+  if (!requireControlAccess(request, reply, 'decisions.list')) {
+    return;
+  }
   const limit = parseListNumber(request.query?.limit, 20);
   const offset = parseListNumber(request.query?.offset, 0);
 
