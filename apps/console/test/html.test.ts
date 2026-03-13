@@ -768,6 +768,7 @@ describe("console html renderer", () => {
 
     const html = renderConsolePage(model);
     expect(html).toContain('href="/?limit=20&offset=0&publish_id=pub_nav&namespace=tenant_a.crm&tab=workflow"');
+    expect(html).toContain('href="/?publish_id=pub_nav&namespace=tenant_a.crm&tab=system"');
     expect(html).toContain('href="/?publish_id=pub_nav&simulation_id=sim_nav&namespace=tenant_a.crm&tab=simulation"');
     expect(html).toContain('href="/?decision_id=dec_nav&namespace=tenant_a.crm&tab=relations"');
     expect(html).toContain('href="/?fixture_id=01-same-company-derived&expectation_run_id=exp_nav&namespace=tenant_a.crm&tab=control"');

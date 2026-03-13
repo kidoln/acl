@@ -20,6 +20,7 @@ interface WidgetMeta {
 
 export const TAB_ITEMS: TabMeta[] = [
   { id: "workflow", label: "发布流程" },
+  { id: "system", label: "系统状态" },
   { id: "simulation", label: "影响模拟" },
   { id: "relations", label: "关系回放" },
   { id: "control", label: "控制面维护" },
@@ -133,6 +134,10 @@ export function getScopedFieldNamesForTab(tab: ConsoleTab): QueryFieldName[] {
       "publish_id",
       "namespace",
     ];
+  }
+
+  if (tab === "system") {
+    return ["detail_mode", "publish_id", "namespace"];
   }
 
   if (tab === "simulation") {

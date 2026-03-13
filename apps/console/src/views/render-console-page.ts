@@ -25,6 +25,7 @@ import {
   renderRelationView,
 } from "./tabs/relations";
 import { renderControlPlaneOverview } from "./tabs/control";
+import { renderSystemStatusOverview } from "./tabs/system";
 
 interface ConsoleTabLink {
   id: ConsoleTab;
@@ -34,6 +35,7 @@ interface ConsoleTabLink {
 
 interface ConsolePanelsPayload {
   workflow: string;
+  system: string;
   simulation: string;
   relations: string;
   control: string;
@@ -155,6 +157,7 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
     hasNext,
   );
   const workflowStack = `${renderPublishDetail(viewModel.publish_detail, viewModel)}${renderWorkflowGuideCard(viewModel)}`;
+  const systemStack = `${renderSystemStatusOverview(viewModel)}`;
   const simulationStack = `${renderSimulationContextCard(viewModel)}${renderSimulationView(viewModel)}${renderMatrixView(viewModel)}`;
   const relationsStack = `${renderRelationContextCard(viewModel)}${renderDecisionDetail(viewModel.decision_detail)}${renderRelationView(viewModel)}`;
   const controlStack = `${renderControlPlaneOverview(viewModel)}`;
@@ -181,6 +184,7 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
     workflow:
       `${publishListPanel}` +
       `<section class="stack animate-enter delay-200">${workflowStack}</section>`,
+    system: systemStack,
     simulation: simulationStack,
     relations: relationsStack,
     control: controlStack,

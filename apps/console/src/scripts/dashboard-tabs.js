@@ -1,6 +1,7 @@
 (() => {
   const TAB_LABEL_MAP = {
     workflow: "发布流程",
+    system: "系统状态",
     simulation: "影响模拟",
     relations: "关系回放",
     control: "控制面维护",
@@ -18,6 +19,15 @@
   };
   const TAB_CLEAR_PARAMS = {
     workflow: ["decision_id", "simulation_id", "cell_key"],
+    system: [
+      "decision_id",
+      "simulation_id",
+      "cell_key",
+      "fixture_id",
+      "expectation_run_id",
+      "status",
+      "profile",
+    ],
     simulation: ["decision_id", "cell_key"],
     relations: ["simulation_id", "cell_key"],
     control: ["publish_id", "decision_id", "simulation_id", "cell_key"],
@@ -2604,6 +2614,8 @@
       if (!textarea) {
         return;
       }
+      const isReadonly =
+        editor.getAttribute("data-model-editor-readonly") === "true";
       const notifyRichEditorRefresh = () => {
         textarea.dispatchEvent(new Event("acl:jsoneditor-refresh"));
       };
@@ -2861,25 +2873,33 @@
         syncFromJson();
       };
 
-      const fields = Array.from(editor.querySelectorAll("[data-model-field]"));
-      fields.forEach((field) => {
-        const eventType = field.tagName === "SELECT" ? "change" : "input";
-        field.addEventListener(eventType, syncToJson);
-      });
-
-      if (templateSelect) {
-        templateSelect.addEventListener("change", () => {
-          applyTemplate(templateSelect.value);
+      if (!isReadonly) {
+        const fields = Array.from(
+          editor.querySelectorAll("[data-model-field]"),
+        );
+        fields.forEach((field) => {
+          const eventType = field.tagName === "SELECT" ? "change" : "input";
+          field.addEventListener(eventType, syncToJson);
         });
-      }
 
-      const applyJsonButton = editor.querySelector("[data-apply-model-json]");
-      if (applyJsonButton) {
-        applyJsonButton.addEventListener("click", syncFromJson);
+        if (templateSelect) {
+          templateSelect.addEventListener("change", () => {
+            applyTemplate(templateSelect.value);
+          });
+        }
+
+        const applyJsonButton = editor.querySelector("[data-apply-model-json]");
+        if (applyJsonButton) {
+          applyJsonButton.addEventListener("click", syncFromJson);
+        }
+
+        textarea.addEventListener("input", syncGraph);
+        syncToJson();
+        return;
       }
 
       textarea.addEventListener("input", syncGraph);
-      syncToJson();
+      syncGraph();
     });
   }
 

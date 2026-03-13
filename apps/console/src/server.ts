@@ -41,6 +41,7 @@ const VALID_STATUSES = new Set<PublishWorkflowStatus>([
 const VALID_PROFILES = new Set<GateProfile>(["baseline", "strict_compliance"]);
 const VALID_TABS = new Set<ConsoleTab>([
   "workflow",
+  "system",
   "simulation",
   "relations",
   "control",

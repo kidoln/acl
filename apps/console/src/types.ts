@@ -7,7 +7,13 @@ export type PublishWorkflowStatus =
   | 'rejected'
   | 'published';
 
-export type ConsoleTab = 'workflow' | 'simulation' | 'relations' | 'control' | 'components';
+export type ConsoleTab =
+  | 'workflow'
+  | 'system'
+  | 'simulation'
+  | 'relations'
+  | 'control'
+  | 'components';
 
 export type ConsoleWidget =
   | 'publish_list'

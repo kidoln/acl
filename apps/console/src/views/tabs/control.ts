@@ -841,7 +841,7 @@ export function renderControlPlaneOverview(viewModel: ConsolePageViewModel): str
     : '<tr><td colspan="8" class="muted">model route 加载失败</td></tr>';
   const publishedMetricsSection = publishedModelMetrics
     ? `<section>` +
-      `<p class="muted metric-caption">发布快照统计（无需先维护 Catalog/Object）</p>` +
+      `<p class="muted metric-caption">发布快照统计（默认展示最近一次发布记录，可在发布流程选择其他记录）</p>` +
       `<p class="muted">统计来源：publish_id=${escapeHtml(publishedModelMetrics.publish_id)} / tenant_id=${escapeHtml(publishedModelMetrics.tenant_id)} / model_id=${escapeHtml(publishedModelMetrics.model_id)} / version=${escapeHtml(publishedModelMetrics.model_version)}</p>` +
       `<section class="decision-grid">` +
       `<div class="metric"><span>subject types</span><strong>${publishedModelMetrics.subject_types}</strong></div>` +
@@ -852,7 +852,7 @@ export function renderControlPlaneOverview(viewModel: ConsolePageViewModel): str
       `</section>` +
       `</section>`
     : `<section>` +
-      `<p class="muted metric-caption">发布快照统计（无需先维护 Catalog/Object）</p>` +
+      `<p class="muted metric-caption">发布快照统计（默认展示最近一次发布记录，可在发布流程选择其他记录）</p>` +
       `<p class="muted">当前未找到可用的 model_snapshot。请先在“发布流程”选择一条包含模型快照的记录，或提交一次发布。</p>` +
       `</section>`;
 
@@ -893,17 +893,6 @@ export function renderControlPlaneOverview(viewModel: ConsolePageViewModel): str
     (routeMismatchMessage
       ? `<p class="overview-alert overview-alert-danger">${escapeHtml(routeMismatchMessage)}</p>`
       : "") +
-    `</section>`;
-
-  const defaultTemplateSection =
-    `<section>` +
-    `<p class="muted metric-caption">默认提交模板（仅影响“策略模型提交”表单初始值，不代表当前生效模型）</p>` +
-    `<section class="kv-grid">` +
-    `<div class="kv-item"><span>template</span><strong>${escapeHtml(defaultTemplateOption.label)}</strong></div>` +
-    `<div class="kv-item"><span>tenant</span><strong>${escapeHtml(defaultTemplateMeta?.tenant_id ?? "-")}</strong></div>` +
-    `<div class="kv-item"><span>model_id</span><strong>${escapeHtml(defaultTemplateMeta?.model_id ?? "-")}</strong></div>` +
-    `<div class="kv-item"><span>version</span><strong>${escapeHtml(defaultTemplateMeta?.version ?? "-")}</strong></div>` +
-    `</section>` +
     `</section>`;
 
   const controlRuntimeHint =
@@ -1004,7 +993,6 @@ export function renderControlPlaneOverview(viewModel: ConsolePageViewModel): str
     publishedMetricsSection +
     publishContextSection +
     runtimeRouteSection +
-    defaultTemplateSection +
     `${renderControlJourneyCard(namespace)}` +
     `<p class="muted metric-caption">上半区聚焦模型发布与发布快照；运行态工作区切换在上方，instance 维护放在下方单独卡片。</p>` +
     `<p class="muted metric-caption">说明：下方维护操作只写入控制面运行态数据，不会回写“策略模型提交”卡片中的 JSON。</p>` +

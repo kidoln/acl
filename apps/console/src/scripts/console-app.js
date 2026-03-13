@@ -259,6 +259,11 @@
                 v-html="panels.workflow"
               ></section>
               <section
+                v-else-if="tab.id === 'system'"
+                class="stack stack-main animate-enter delay-200"
+                v-html="panels.system"
+              ></section>
+              <section
                 v-else-if="tab.id === 'simulation'"
                 class="stack stack-main animate-enter delay-200"
                 v-html="panels.simulation"

@@ -1797,29 +1797,36 @@ pre {
   font-size: 12px;
 }
 
-#tab-panel-control .decision-grid {
+#tab-panel-control .decision-grid,
+#tab-panel-system .decision-grid {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
-#tab-panel-control .kv-grid {
+#tab-panel-control .kv-grid,
+#tab-panel-system .kv-grid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 #tab-panel-control .filters > label,
-#tab-panel-control .action-form label {
+#tab-panel-control .action-form label,
+#tab-panel-system .filters > label,
+#tab-panel-system .action-form label {
   min-width: 0;
 }
 
-#tab-panel-control .model-template-picker {
+#tab-panel-control .model-template-picker,
+#tab-panel-system .model-template-picker {
   min-width: 180px;
 }
 
-#tab-panel-control .action-form.model-submit-form {
+#tab-panel-control .action-form.model-submit-form,
+#tab-panel-system .action-form.model-submit-form {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
-#tab-panel-control .action-form.model-submit-form .model-editor-grid {
+#tab-panel-control .action-form.model-submit-form .model-editor-grid,
+#tab-panel-system .action-form.model-submit-form .model-editor-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   grid-auto-rows: minmax(92px, auto);
   gap: 8px 10px;
@@ -1828,11 +1835,16 @@ pre {
 #tab-panel-control
   .action-form.model-submit-form
   .model-editor-grid
+  > label:nth-child(n + 5),
+#tab-panel-system
+  .action-form.model-submit-form
+  .model-editor-grid
   > label:nth-child(n + 5) {
   grid-column: span 1;
 }
 
-#tab-panel-control .action-form.model-submit-form .rule-editor-grid {
+#tab-panel-control .action-form.model-submit-form .rule-editor-grid,
+#tab-panel-system .action-form.model-submit-form .rule-editor-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   grid-auto-rows: minmax(88px, auto);
   gap: 8px 10px;
@@ -1841,20 +1853,28 @@ pre {
 #tab-panel-control
   .action-form.model-submit-form
   .rule-editor-grid
+  > label:nth-child(n + 4),
+#tab-panel-system
+  .action-form.model-submit-form
+  .rule-editor-grid
   > label:nth-child(n + 4) {
   grid-column: span 2;
 }
 
 #tab-panel-control .model-editor-grid > label > input,
-#tab-panel-control .model-editor-grid > label > select {
+#tab-panel-control .model-editor-grid > label > select,
+#tab-panel-system .model-editor-grid > label > input,
+#tab-panel-system .model-editor-grid > label > select {
   min-height: 36px;
 }
 
-#tab-panel-control .model-editor-grid label textarea {
+#tab-panel-control .model-editor-grid label textarea,
+#tab-panel-system .model-editor-grid label textarea {
   min-height: 56px;
 }
 
-#tab-panel-control .setup-fixture-preview-grid {
+#tab-panel-control .setup-fixture-preview-grid,
+#tab-panel-system .setup-fixture-preview-grid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
@@ -1936,38 +1956,46 @@ pre {
   margin: 12px 0;
 }
 
-#tab-panel-control .setup-fixture-preview-grid {
+#tab-panel-control .setup-fixture-preview-grid,
+#tab-panel-system .setup-fixture-preview-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(220px, 1fr));
   gap: 12px;
   align-items: end;
 }
 
-#tab-panel-control .setup-fixture-preview-grid > label {
+#tab-panel-control .setup-fixture-preview-grid > label,
+#tab-panel-system .setup-fixture-preview-grid > label {
   margin: 0;
 }
 
-#tab-panel-control .setup-fixture-preview-grid > .field-static {
+#tab-panel-control .setup-fixture-preview-grid > .field-static,
+#tab-panel-system .setup-fixture-preview-grid > .field-static {
   margin: 0;
 }
 
 #tab-panel-control .setup-fixture-preview-grid > label > input,
-#tab-panel-control .setup-fixture-preview-grid > label > select {
+#tab-panel-control .setup-fixture-preview-grid > label > select,
+#tab-panel-system .setup-fixture-preview-grid > label > input,
+#tab-panel-system .setup-fixture-preview-grid > label > select {
   width: 100%;
 }
 
-#tab-panel-control .expectation-upload-grid {
+#tab-panel-control .expectation-upload-grid,
+#tab-panel-system .expectation-upload-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin: 12px 0;
 }
 
-#tab-panel-control .expectation-upload-grid > .field-wide {
+#tab-panel-control .expectation-upload-grid > .field-wide,
+#tab-panel-system .expectation-upload-grid > .field-wide {
   grid-column: 1 / -1;
 }
 
-#tab-panel-control .file-pick {
+#tab-panel-control .file-pick,
+#tab-panel-system .file-pick {
   align-content: start;
 }
 
@@ -1979,11 +2007,13 @@ pre {
 }
 
 @media (max-width: 900px) {
-  #tab-panel-control .setup-fixture-preview-grid {
+  #tab-panel-control .setup-fixture-preview-grid,
+  #tab-panel-system .setup-fixture-preview-grid {
     grid-template-columns: 1fr;
   }
 
-  #tab-panel-control .expectation-upload-grid {
+  #tab-panel-control .expectation-upload-grid,
+  #tab-panel-system .expectation-upload-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -2169,24 +2199,33 @@ pre {
 }
 
 @media (max-width: 1320px) and (min-width: 981px) {
-  #tab-panel-control .decision-grid {
+  #tab-panel-control .decision-grid,
+  #tab-panel-system .decision-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  #tab-panel-control .kv-grid {
+  #tab-panel-control .kv-grid,
+  #tab-panel-system .kv-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  #tab-panel-control .action-form.model-submit-form {
+  #tab-panel-control .action-form.model-submit-form,
+  #tab-panel-system .action-form.model-submit-form {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   #tab-panel-control .action-form.model-submit-form .model-editor-grid,
-  #tab-panel-control .action-form.model-submit-form .rule-editor-grid {
+  #tab-panel-control .action-form.model-submit-form .rule-editor-grid,
+  #tab-panel-system .action-form.model-submit-form .model-editor-grid,
+  #tab-panel-system .action-form.model-submit-form .rule-editor-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   #tab-panel-control
+    .action-form.model-submit-form
+    .model-editor-grid
+    > label:nth-child(n + 5),
+  #tab-panel-system
     .action-form.model-submit-form
     .model-editor-grid
     > label:nth-child(n + 5) {
@@ -2194,6 +2233,10 @@ pre {
   }
 
   #tab-panel-control
+    .action-form.model-submit-form
+    .rule-editor-grid
+    > label:nth-child(n + 4),
+  #tab-panel-system
     .action-form.model-submit-form
     .rule-editor-grid
     > label:nth-child(n + 4) {
