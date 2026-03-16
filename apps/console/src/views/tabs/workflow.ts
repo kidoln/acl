@@ -50,8 +50,8 @@ function renderPublishRows(
       const statusClass = `status-${item.status}`;
 
       return (
-        `<tr class=\"${selectedClass}\">` +
-        `<td><a href=\"${detailHref}\">${escapeHtml(item.publish_id)}</a></td>` +
+        `<tr class=\"${selectedClass}\" data-workflow-publish-row=\"${escapeHtml(item.publish_id)}\">` +
+        `<td><a href=\"${detailHref}\" data-control-incremental-link=\"true\" data-control-incremental-target=\"[data-workflow-detail-stack]\" data-publish-id=\"${escapeHtml(item.publish_id)}\">${escapeHtml(item.publish_id)}</a></td>` +
         `<td>${escapeHtml(item.profile)}</td>` +
         `<td><span class=\"status-tag ${statusClass}\">${escapeHtml(item.status)}</span></td>` +
         `<td>${escapeHtml(item.final_result)}</td>` +

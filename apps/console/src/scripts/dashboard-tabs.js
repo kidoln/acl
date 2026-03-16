@@ -95,8 +95,11 @@
 
   const CONTROL_INCREMENTAL_FORM_SELECTOR =
     'form[data-control-incremental="true"]';
+  const CONTROL_INCREMENTAL_LINK_SELECTOR =
+    'a[data-control-incremental-link="true"]';
   const CONTROL_INCREMENTAL_REPLACE_SELECTORS = [
     "main.shell > .hero",
+    ".tab-nav",
     "[data-control-runtime-summary]",
     "[data-control-fixed-runtime]",
     "[data-control-object-relation-visual]",
@@ -162,6 +165,63 @@
         return true;
       }
       return false;
+    };
+
+    const readConsolePayloadSnapshot = (nextDoc) => {
+      const payloadNode = nextDoc.querySelector("#acl-console-payload");
+      if (!(payloadNode instanceof HTMLScriptElement)) {
+        return null;
+      }
+      const raw = payloadNode.textContent || "";
+      if (raw.trim().length === 0) {
+        return null;
+      }
+      try {
+        return {
+          raw,
+          payload: JSON.parse(raw),
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    const extractWorkflowDetailNode = (workflowHtml) => {
+      if (typeof workflowHtml !== "string" || workflowHtml.length === 0) {
+        return null;
+      }
+      const fragmentDoc = new DOMParser().parseFromString(
+        `<body>${workflowHtml}</body>`,
+        "text/html",
+      );
+      const nextNode = fragmentDoc.querySelector("[data-workflow-detail-stack]");
+      return nextNode ? nextNode.cloneNode(true) : null;
+    };
+
+    const applyWorkflowDetailUpdate = (payloadSnapshot) => {
+      if (!payloadSnapshot?.payload || typeof payloadSnapshot.payload !== "object") {
+        return false;
+      }
+      const workflowHtml = payloadSnapshot.payload?.panels?.workflow;
+      const currentNode = document.querySelector("[data-workflow-detail-stack]");
+      const nextNode = extractWorkflowDetailNode(workflowHtml);
+      if (!currentNode || !nextNode) {
+        return false;
+      }
+      currentNode.replaceWith(nextNode);
+
+      const currentPayloadNode = document.querySelector("#acl-console-payload");
+      if (currentPayloadNode) {
+        currentPayloadNode.textContent = payloadSnapshot.raw;
+      }
+      document.dispatchEvent(
+        new CustomEvent("acl:console-payload-updated", {
+          detail: {
+            payload: payloadSnapshot.payload,
+          },
+        }),
+      );
+      return true;
     };
 
     const readTextPayload = (node) => {
@@ -231,9 +291,9 @@
       return changed;
     };
 
-    const resolveIncrementalReplaceSelectors = (form) => {
+    const resolveIncrementalReplaceSelectors = (node) => {
       const customTargets = parseCsvLines(
-        form.getAttribute("data-control-incremental-target") || "",
+        node?.getAttribute("data-control-incremental-target") || "",
       );
       if (customTargets.length > 0) {
         return customTargets;
@@ -277,6 +337,24 @@
       }
 
       return null;
+    };
+
+    const syncWorkflowPublishRowSelection = (publishId) => {
+      if (!publishId || publishId.length === 0) {
+        return;
+      }
+      const rows = Array.from(
+        document.querySelectorAll("[data-workflow-publish-row]"),
+      );
+      rows.forEach((row) => {
+        if (!(row instanceof HTMLElement)) {
+          return;
+        }
+        row.classList.toggle(
+          "row-selected",
+          (row.getAttribute("data-workflow-publish-row") || "") === publishId,
+        );
+      });
     };
 
     const restoreAnchorContext = (anchorContext) => {
@@ -336,6 +414,10 @@
         hasBinaryPayload = true;
       });
       return hasBinaryPayload ? formData : urlencoded;
+    };
+
+    const fallbackNativeNavigation = (link) => {
+      window.location.assign(link.href);
     };
 
     document.addEventListener("submit", async (event) => {
@@ -446,6 +528,89 @@
         }
       }
     });
+
+    document.addEventListener("click", async (event) => {
+      const target = event.target;
+      const link =
+        target instanceof Element
+          ? target.closest(CONTROL_INCREMENTAL_LINK_SELECTOR)
+          : null;
+      if (!(link instanceof HTMLAnchorElement)) {
+        return;
+      }
+      if (event.defaultPrevented) {
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      if (event.button !== 0) {
+        return;
+      }
+      if (link.target && link.target !== "_self") {
+        return;
+      }
+      if (link.hasAttribute("download")) {
+        return;
+      }
+      if (link.getAttribute("data-control-incremental-pending") === "true") {
+        event.preventDefault();
+        return;
+      }
+
+      event.preventDefault();
+      link.setAttribute("data-control-incremental-pending", "true");
+
+      let usedNativeFallback = false;
+      const scrollX = window.scrollX;
+      const scrollY = window.scrollY;
+      try {
+        const response = await fetch(link.href, {
+          method: "GET",
+          headers: {
+            Accept: "text/html,application/xhtml+xml",
+          },
+        });
+
+        const contentType = response.headers.get("content-type") || "";
+        if (!response.ok || !contentType.includes("text/html")) {
+          usedNativeFallback = true;
+          fallbackNativeNavigation(link);
+          return;
+        }
+
+        const html = await response.text();
+        const nextDoc = new DOMParser().parseFromString(html, "text/html");
+        const payloadSnapshot = readConsolePayloadSnapshot(nextDoc);
+        const changed =
+          applyWorkflowDetailUpdate(payloadSnapshot) ||
+          applyControlPartialUpdate(
+            nextDoc,
+            resolveIncrementalReplaceSelectors(link),
+          );
+        if (!changed) {
+          usedNativeFallback = true;
+          fallbackNativeNavigation(link);
+          return;
+        }
+
+        if (response.url && response.url.length > 0) {
+          window.history.replaceState(window.history.state, "", response.url);
+        }
+
+        const publishId = link.getAttribute("data-publish-id") || "";
+        syncWorkflowPublishRowSelection(publishId);
+        document.dispatchEvent(new CustomEvent("acl:control-partial-updated"));
+        restoreWindowScroll(scrollX, scrollY);
+      } catch {
+        usedNativeFallback = true;
+        fallbackNativeNavigation(link);
+      } finally {
+        if (!usedNativeFallback) {
+          link.removeAttribute("data-control-incremental-pending");
+        }
+      }
+    });
   }
 
   function initSystemNotices() {
@@ -545,6 +710,55 @@
 
     activateNotice();
     document.addEventListener("acl:control-partial-updated", activateNotice);
+  }
+
+  function initAutoHideScrollbars() {
+    if (document.body.getAttribute("data-scrollbar-autohide-bound") === "true") {
+      return;
+    }
+    document.body.setAttribute("data-scrollbar-autohide-bound", "true");
+
+    const activeTimers = new WeakMap();
+
+    const markScrolling = (target) => {
+      const node =
+        target === document || target === document.body
+          ? document.documentElement
+          : target;
+
+      if (!(node instanceof HTMLElement)) {
+        return;
+      }
+
+      node.setAttribute("data-scroll-active", "true");
+      const previousTimer = activeTimers.get(node);
+      if (previousTimer) {
+        window.clearTimeout(previousTimer);
+      }
+
+      const nextTimer = window.setTimeout(() => {
+        node.removeAttribute("data-scroll-active");
+        activeTimers.delete(node);
+      }, 720);
+
+      activeTimers.set(node, nextTimer);
+    };
+
+    window.addEventListener(
+      "scroll",
+      () => {
+        markScrolling(document.documentElement);
+      },
+      { passive: true },
+    );
+
+    document.addEventListener(
+      "scroll",
+      (event) => {
+        markScrolling(event.target);
+      },
+      { capture: true, passive: true },
+    );
   }
 
   function initSetupFixturePreviewForm() {
@@ -5316,6 +5530,7 @@
   function init() {
     initControlIncrementalRefresh();
     initSystemNotices();
+    initAutoHideScrollbars();
     initSetupFixturePreviewForm();
     initJsonFilePickers();
     initTabNav();

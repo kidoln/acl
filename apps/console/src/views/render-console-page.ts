@@ -183,7 +183,7 @@ export function renderConsolePage(viewModel: ConsolePageViewModel): string {
   const panels: ConsolePanelsPayload = {
     workflow:
       `${publishListPanel}` +
-      `<section class="stack animate-enter delay-200">${workflowStack}</section>`,
+      `<section class="stack animate-enter delay-200" data-workflow-detail-stack>${workflowStack}</section>`,
     system: systemStack,
     simulation: simulationStack,
     relations: relationsStack,

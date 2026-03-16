@@ -230,6 +230,8 @@ describe("console html renderer", () => {
     expect(html).toContain("系统通知 · 操作成功");
     expect(html).toContain('data-system-notice-close="true"');
     expect(html).toContain("tab-link active");
+    expect(html).toContain('"icon":"workflow"');
+    expect(html).toContain('"icon":"control"');
     expect(html).toContain("data-json-toggle");
     expect(html).toContain("data-json-switchable");
     expect(html).toContain(
@@ -319,6 +321,12 @@ describe("console html renderer", () => {
     const html = renderConsolePage(model);
     expect(html).toContain(
       '/?limit=20&offset=0&namespace=tenant_a.crm&tab=workflow&publish_id=pub_target',
+    );
+    expect(html).toContain('data-workflow-detail-stack');
+    expect(html).toContain('data-workflow-publish-row=\\"pub_target\\"');
+    expect(html).toContain('data-control-incremental-link=\\"true\\"');
+    expect(html).toContain(
+      'data-control-incremental-target=\\"[data-workflow-detail-stack]\\"',
     );
   });
 

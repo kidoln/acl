@@ -10,6 +10,8 @@ import type {
 interface TabMeta {
   id: ConsoleTab;
   label: string;
+  icon: string;
+  iconLabel: string;
 }
 
 interface WidgetMeta {
@@ -19,12 +21,42 @@ interface WidgetMeta {
 }
 
 export const TAB_ITEMS: TabMeta[] = [
-  { id: "workflow", label: "发布流程" },
-  { id: "system", label: "系统状态" },
-  { id: "simulation", label: "影响模拟" },
-  { id: "relations", label: "关系回放" },
-  { id: "control", label: "控制面维护" },
-  { id: "components", label: "组件索引" },
+  {
+    id: "workflow",
+    label: "发布流程",
+    icon: "workflow",
+    iconLabel: "发布流程导航",
+  },
+  {
+    id: "system",
+    label: "系统状态",
+    icon: "system",
+    iconLabel: "系统状态导航",
+  },
+  {
+    id: "simulation",
+    label: "影响模拟",
+    icon: "simulation",
+    iconLabel: "影响模拟导航",
+  },
+  {
+    id: "relations",
+    label: "关系回放",
+    icon: "relations",
+    iconLabel: "关系回放导航",
+  },
+  {
+    id: "control",
+    label: "控制面维护",
+    icon: "control",
+    iconLabel: "控制面维护导航",
+  },
+  {
+    id: "components",
+    label: "组件索引",
+    icon: "components",
+    iconLabel: "组件索引导航",
+  },
 ];
 
 export const WIDGET_ITEMS: WidgetMeta[] = [
@@ -284,7 +316,7 @@ export function renderRawJsonPanel(data: unknown): string {
 export function renderJsonToggleSwitch(): string {
   return (
     `<div class="json-toggle" data-json-toggle role="tablist" aria-label="卡片详情视图切换">` +
-    `<button type="button" class="json-toggle-btn active" data-mode="visual" aria-pressed="true">图</button>` +
+    `<button type="button" class="json-toggle-btn active" data-mode="visual" aria-pressed="true">表单</button>` +
     `<button type="button" class="json-toggle-btn" data-mode="raw" aria-pressed="false">JSON</button>` +
     `</div>`
   );
