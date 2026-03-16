@@ -2918,8 +2918,16 @@
 
   function initInstanceJsonEditors() {
     const forms = Array.from(
-      document.querySelectorAll(
-        'form[data-control-instance-json-form="true"], form[data-model-jsoneditor-form="true"]',
+      new Set(
+        Array.from(
+          document.querySelectorAll(
+            'form[data-control-instance-json-form="true"], form[data-model-jsoneditor-form="true"], [data-instance-jsoneditor-target]',
+          ),
+        )
+          .map((node) =>
+            node instanceof HTMLFormElement ? node : node.closest("form"),
+          )
+          .filter((form) => form instanceof HTMLFormElement),
       ),
     );
     if (forms.length === 0) {
@@ -2992,6 +3000,51 @@
       return "JSON 内容存在错误";
     };
 
+    const bindEditorFocusPreventScroll = (editorTarget) => {
+      if (!(editorTarget instanceof HTMLElement)) {
+        return;
+      }
+
+      const focusTargets = Array.from(
+        editorTarget.querySelectorAll(".jse-hidden-input"),
+      );
+      focusTargets.forEach((focusTarget) => {
+        if (
+          !(focusTarget instanceof HTMLElement) ||
+          focusTarget.getAttribute(
+            "data-instance-jsoneditor-focus-prevent-scroll-bound",
+          ) === "true"
+        ) {
+          return;
+        }
+
+        const nativeFocus = focusTarget.focus;
+        if (typeof nativeFocus !== "function") {
+          return;
+        }
+
+        focusTarget.setAttribute(
+          "data-instance-jsoneditor-focus-prevent-scroll-bound",
+          "true",
+        );
+
+        focusTarget.focus = function patchedFocus(options) {
+          try {
+            if (options && typeof options === "object") {
+              nativeFocus.call(this, {
+                ...options,
+                preventScroll: true,
+              });
+              return;
+            }
+            nativeFocus.call(this, { preventScroll: true });
+          } catch {
+            nativeFocus.call(this, options);
+          }
+        };
+      });
+    };
+
     const bindEditorExpandScrollGuard = (editorTarget) => {
       if (
         !(editorTarget instanceof HTMLElement) ||
@@ -3021,6 +3074,17 @@
         "button.jse-navigation-bar-button",
         "button.jse-color-picker-button",
       ].join(",");
+      const treeNodeSelector = [
+        ".jse-contents .jse-row",
+        ".jse-contents .jse-key",
+        ".jse-contents .jse-value",
+        ".jse-contents .jse-index",
+        ".jse-contents .jse-bracket",
+        ".jse-contents .jse-delimiter",
+        ".jse-contents .jse-collapsed-items",
+        ".jse-contents .jse-context-menu-anchor",
+        ".jse-contents button",
+      ].join(",");
       const popupRootSelector = ".jse-absolute-popup";
 
       const readWindowScrollPosition = () => ({
@@ -3028,23 +3092,41 @@
         y: window.scrollY || window.pageYOffset || 0,
       });
 
+      const resolveTargetElement = (target) => {
+        if (target instanceof Element) {
+          return target;
+        }
+        if (target instanceof Node) {
+          return target.parentElement;
+        }
+        return null;
+      };
+
       const resolveGuardAction = (target) => {
-        if (!(target instanceof Element)) {
+        const targetElement = resolveTargetElement(target);
+        if (!targetElement) {
           return {
             type: "",
             trigger: null,
           };
         }
-        const expansionTrigger = target.closest(expansionActionSelector);
+        const expansionTrigger = targetElement.closest(expansionActionSelector);
         if (expansionTrigger) {
           return {
             type: "expand",
             trigger: expansionTrigger,
           };
         }
-        const modeButton = target.closest(".jse-menu button");
+        const treeNodeTrigger = targetElement.closest(treeNodeSelector);
+        if (treeNodeTrigger) {
+          return {
+            type: "tree-node",
+            trigger: treeNodeTrigger,
+          };
+        }
+        const modeButton = targetElement.closest(".jse-menu button");
         if (!modeButton) {
-          const popupTrigger = target.closest(popupTriggerSelector);
+          const popupTrigger = targetElement.closest(popupTriggerSelector);
           if (!popupTrigger) {
             return {
               type: "",
@@ -3060,7 +3142,7 @@
           ? modeButton.textContent.trim().toLowerCase()
           : "";
         if (!modeActionLabels.has(modeLabel)) {
-          const popupTrigger = target.closest(popupTriggerSelector);
+          const popupTrigger = targetElement.closest(popupTriggerSelector);
           if (!popupTrigger) {
             return {
               type: "",
@@ -3244,6 +3326,21 @@
         true,
       );
 
+      editorTarget.addEventListener(
+        "focusin",
+        (event) => {
+          const action = resolveGuardAction(event.target);
+          if (action.type !== "tree-node") {
+            return;
+          }
+          const anchorPosition =
+            pendingAnchorPosition || readWindowScrollPosition();
+          pendingAnchorPosition = null;
+          restoreWindowScrollPosition(anchorPosition);
+        },
+        true,
+      );
+
       return {
         restoreWindowScrollPosition,
         dispose: disposePopupGuard,
@@ -3408,19 +3505,23 @@
               onChangeMode: () => {
                 if (!scrollGuard) {
                   scheduleCompactTableWelcomeButtons();
+                  bindEditorFocusPreventScroll(editorTarget);
                   return;
                 }
                 const anchorPosition = scrollGuard.consumeModeAnchorPosition();
                 if (!anchorPosition) {
                   scheduleCompactTableWelcomeButtons();
+                  bindEditorFocusPreventScroll(editorTarget);
                   return;
                 }
                 scrollGuard.restoreWindowScrollPosition(anchorPosition);
                 scheduleCompactTableWelcomeButtons();
+                bindEditorFocusPreventScroll(editorTarget);
               },
             },
           });
           scrollGuard = bindEditorExpandScrollGuard(editorTarget);
+          bindEditorFocusPreventScroll(editorTarget);
           editorReady = true;
           scheduleCompactTableWelcomeButtons();
 
@@ -3447,6 +3548,7 @@
             });
             if (!syncStatus) {
               scheduleCompactTableWelcomeButtons();
+              bindEditorFocusPreventScroll(editorTarget);
               return;
             }
             updateStatus(
@@ -3456,6 +3558,7 @@
               parsed.mode === "text",
             );
             scheduleCompactTableWelcomeButtons();
+            bindEditorFocusPreventScroll(editorTarget);
           };
 
           textarea.addEventListener("acl:jsoneditor-refresh", () => {
